@@ -149,10 +149,14 @@ return k;
  *
  * 1. Берём клетки своей полосы в окне H×H. Вдали от угла это H² целых клеток.
  * 2. У угла часть клеток срезана биссектрисой, площадь меньше целевой H²·s².
- * 3. Добираем клетки поперечной полосы жадно: кандидаты упорядочены по удалённости
- *    от центра «идеального» квадрата H×H; берём ближайшую клетку, которая касается
- *    уже занятых и уменьшает |дефицит площади|. Повторяем, пока дефицит > 0
- *    и есть подходящий кандидат.
+ * 3. Сначала добираем клетки СВОЕЙ полосы со стороны угла (i < i0) — то есть
+ *    заполняем треугольник между своей улицей и биссектрисой.
+ * 4. Только когда все свои клетки до угла заняты (дом дошёл до угла), добираем
+ *    клетки поперечной полосы — дом «перетекает» за биссектрису.
+ * На шагах 3–4 добор жадный: кандидаты упорядочены по удалённости от центра
+ * «идеального» квадрата H×H; берём ближайшую клетку, которая касается уже
+ * занятых и уменьшает |дефицит площади|. Повторяем, пока дефицит > 0 и есть
+ * подходящий кандидат.
  */
 function placeHouse(q,pos){
 var own=pos>=0?0:1,i0=pos>=0?pos:-pos-1;
@@ -160,22 +164,30 @@ var A=q.strips[own],B=q.strips[1-own];
 var target=H*H*s*s,cells=[],area=0;
 for(var i=i0;i<i0+H;i++)for(var j=0;j<H;j++){var c=A.get(i,j);if(c){cells.push(c);area+=c.area}}
 var ctr=add(q.K,add(mul(A.d,(i0+H/2)*s),mul(A.n,H/2*s)));
-var cand=B.cells.filter(function(c){return c.j<H}).map(function(c){return {c:c,dist:Math.hypot.apply(null,sub(centroid(c.poly),ctr))}});
-cand.sort(function(a,b){return a.dist-b.dist});
-var borrowed=[];
+function sorted(list){
+return list.map(function(c){return {c:c,dist:Math.hypot.apply(null,sub(centroid(c.poly),ctr))}})
+.sort(function(a,b){return a.dist-b.dist});
+}
+var extra=[],cross=[];
+function grow(cand,out){
 while(target-area>0.5){
-var def=target-area,pick=-1;
+var def=target-area,pick=-1,all=cells.concat(extra,cross);
 for(var k=0;k<cand.length;k++){
 var c=cand[k].c;
 if(Math.abs(def-c.area)>=def)continue;
-var all=cells.concat(borrowed);
 if(!all.some(function(o){return touches(o.poly,c.poly)}))continue;
 pick=k;break;
 }
 if(pick<0)break;
-borrowed.push(cand[pick].c);area+=cand[pick].c.area;cand.splice(pick,1);
+out.push(cand[pick].c);area+=cand[pick].c.area;cand.splice(pick,1);
 }
-return {own:cells,borrowed:borrowed,area:area,target:target,street:own};
+return cand;
+}
+// шаг 3: свои клетки между домом и углом
+var left=grow(sorted(A.cells.filter(function(c){return c.i<i0&&c.j<H})),extra);
+// шаг 4: за биссектрису — только если до угла своих клеток не осталось
+if(left.length===0)grow(sorted(B.cells.filter(function(c){return c.j<H})),cross);
+return {own:cells.concat(extra),borrowed:cross,area:area,target:target,street:own};
 }
 
 var angEl=document.getElementById('ang'),posEl=document.getElementById('pos');
