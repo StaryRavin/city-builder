@@ -276,6 +276,7 @@ function isObtuse(c){return c&&c.alpha>Math.PI/2+1e-6}
  *   добавляется прямоугольник из n клеток её сетки.
  */
 function shape(l){
+if(l.fixed)return {corner:false,flags:{},parts:l.fixed.parts,cells:l.fixed.cells,w:l.fixed.w,h:l.fixed.h};
 var S=G.hs[l.key];if(!S)return {bad:'gone',parts:[]};
 if(l.k0<0||l.k1>S.nC-1)return {bad:'range',parts:[]};
 var h=(l.j1+1)*s,u0=Math.max(0,S.a0+l.k0*S.cw),u1=Math.min(S.E,S.a0+(l.k1+1)*S.cw),flags={},bad=null,i,j,cc;
@@ -328,7 +329,9 @@ nx=n;
 }
 });
 if(bad)return {bad:bad,parts:[]};
-parts=parts.filter(function(pp){return pp.length>=3&&area(pp)>0.01}); // без вырожденных частей
+// без почти совпадающих вершин и вырожденных частей
+parts=parts.map(function(pp){var o=[];pp.forEach(function(q){var z=o[o.length-1];if(!z||len(sub(q,z))>1e-6)o.push(q)});
+while(o.length>1&&len(sub(o[0],o[o.length-1]))<=1e-6)o.pop();return o}).filter(function(pp){return pp.length>=3&&area(pp)>0.01});
 return {corner:!!(flags.a||flags.b),flags:flags,parts:parts,cells:cells,w:nx?'('+wl+'+'+nx+')':wl,h:l.j1+1};
 }
 function check(l,skip){
@@ -460,21 +463,70 @@ if(X.type==='node')return X.id;
 var n=nid++;nodes[n]={x:X.P[0],y:X.P[1]};
 if(X.type==='split'){var g=segs[X.seg];delete segs[X.seg];
 var ph=segPh(g),cw=segCw(g);segs[sid++]={a:g.a,b:n,ph:ph};segs[sid++]={a:n,b:g.b,ph:((ph-X.u)%cw+cw)%cw};
-lots=lots.filter(function(l){return l.key.split(':')[0]!==String(X.seg)});}
+}
 return n;
 }
+/*
+ * Построенные дома не должны меняться от новых дорог. Перед любым изменением
+ * дорог запоминаем, где лежит каждый участок (точки начала и конца на кромке
+ * дороги — мировые координаты, сетка в мире не сдвигается) и его форму. После
+ * изменения переносим участок на ту сторону звена, где он лежит, — на те же
+ * клетки (номера колонок пересчитываются: вершина угла могла сдвинуться,
+ * звено — разрезаться). Если форма всё же изменилась (угол стал другим,
+ * участок лёг поперёк нового разреза), участок сохраняется «замороженным» —
+ * с прежней формой. Если новая дорога прошла по участку, он остаётся и
+ * становится невалидным (красным).
+ */
+var pendingLots=[];
+function partsArea(ps){return ps.reduce(function(a,p){return a+area(p)},0)}
+function partsCenter(ps){var x=0,y=0,n=0;ps.forEach(function(p){p.forEach(function(q){x+=q[0];y+=q[1];n++})});return [x/n,y/n]}
+function captureLots(){
+pendingLots=[];
+lots.forEach(function(l){
+if(l.fixed)return;
+var S=G.hs[l.key],sh=shape(l);if(!S||sh.bad)return;
+var u0=Math.max(0,S.a0+l.k0*S.cw),u1=Math.min(S.E,S.a0+(l.k1+1)*S.cw);
+function P(u){return add(S.ends.a.K,mul(S.d,u))}
+pendingLots.push({l:l,side:S.side,P0:P(u0),P1:P(u1),
+extK:l.ext?S.ends[l.ext.end].K:null,fixed:{parts:sh.parts,cells:sh.cells,w:sh.w,h:sh.h}});
+});
+}
+function remapLots(){
+if(!pendingLots.length)return;
+derive();
+pendingLots.forEach(function(c){
+var l=c.l,found=null;
+for(var k in G.hs){var S=G.hs[k];if(S.side!==c.side||!S.nC)continue;
+var q0=sideUV(c.P0,k),q1=sideUV(c.P1,k);
+if(Math.abs(q0.w)>0.5||Math.abs(q1.w)>0.5)continue;
+if(q0.u<-0.5||q1.u>S.E+0.5||q0.u>q1.u)continue;
+found={k:k,S:S,u0:q0.u,u1:q1.u};break;}
+if(found){
+var S=found.S,ext=null;
+if(l.ext){var e=len(sub(S.ends.a.K,c.extK))<0.5?'a':(len(sub(S.ends.b.K,c.extK))<0.5?'b':null);if(e)ext={end:e,n:l.ext.n};}
+l.key=found.k;l.k0=colAt(S,found.u0+0.25*S.cw);l.k1=colAt(S,found.u1-0.25*S.cw);l.ext=ext;
+// форма не должна измениться (например, стать угловой у новой улицы) — иначе заморозить
+var sh=shape(l);if(sh.bad||Math.abs(partsArea(sh.parts)-partsArea(c.fixed.parts))>0.05||len(sub(partsCenter(sh.parts),partsCenter(c.fixed.parts)))>0.05){l.key='fixed';l.fixed=c.fixed;l.ext=null}
+}else{l.key='fixed';l.fixed=c.fixed;}
+});
+pendingLots=[];
+}
 function addRoad(S,E){
+captureLots();
 var a=nodeAt(S);
 if(E.type==='split'&&S.type==='split'&&E.seg===S.seg)return;
 // если начало разделило звено, на котором лежит конец, — найти новую половину
 if(E.type==='split'&&!segs[E.seg]){for(var id in segs){var GE=segEnds(segs[id]);if(segDist(E.P,GE[0],GE[1])<1e-3){E={type:'split',seg:+id,u:len(sub(E.P,GE[0])),P:E.P};break}}}
 var b=nodeAt(E);
 segs[sid++]={a:a,b:b};
+remapLots();
 }
 function removeSeg(id){
+lots=lots.filter(function(l){return l.key.split(':')[0]!==String(id)});
+captureLots();
 var g=segs[id];delete segs[id];
 [g.a,g.b].forEach(function(n){var used=Object.keys(segs).some(function(k){return segs[k].a===n||segs[k].b===n});if(!used)delete nodes[n]});
-lots=lots.filter(function(l){return l.key.split(':')[0]!==String(id)});
+remapLots();
 }
 function segUnder(P){
 var best=null,bd=W;
@@ -612,6 +664,7 @@ drawStatic();idle();
 window.__dbg={
 toScreen:function(P){var pt=sv.createSVGPoint();pt.x=P[0]*view.k+view.tx;pt.y=P[1]*view.k+view.ty;var r=pt.matrixTransform(sv.getScreenCTM());return [r.x,r.y]},
 clearLots:function(){lots=[];drawLots()},
+lotsRaw:function(){return lots},
 // внутренние функции для стресс-тестов
 api:{G:function(){return G},overlaps:overlaps,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
 snap:snap,endFor:endFor,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},

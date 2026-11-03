@@ -13,7 +13,9 @@
  *      соседней улицы);
  *    - не падает с ошибкой;
  *    - строится, если не мешают чужие дороги.
- * 4. Участки не пересекаются друг с другом и не заходят на дороги: на сетях
+ * 4. Новая улица из середины существующей не меняет и не удаляет построенные
+ *    дома (если новая дорога прошла по дому — он становится невалидным).
+ * 5. Участки не пересекаются друг с другом и не заходят на дороги: на сетях
  *    ставится много случайных участков так же, как это делает интерфейс, и
  *    каждая пара проверяется независимо — по площади пересечения.
  *
@@ -96,7 +98,9 @@ for(let sd=1;sd<=nets;sd++){
 // много случайных участков так же, как интерфейс (selFrom → check → добавить),
 // и проверяем каждую пару независимым способом — площадью пересечения выпуклых
 // частей (отсечение многоугольника многоугольником).
+function dedup(P){const o=[];P.forEach(p=>{const q=o[o.length-1];if(!q||Math.hypot(p[0]-q[0],p[1]-q[1])>1e-6)o.push(p)});while(o.length>1&&Math.hypot(o[0][0]-o[o.length-1][0],o[0][1]-o[o.length-1][1])<=1e-6)o.pop();return o}
 function clipConvex(P,Q){ // P ∩ Q, оба выпуклые
+ P=dedup(P);Q=dedup(Q);
  let out=P.slice();
  const sQ=Math.sign(Q.reduce((a,p,i)=>{const q=Q[(i+1)%Q.length];return a+p[0]*q[1]-q[0]*p[1]},0))||1;
  for(let i=0;i<Q.length&&out.length;i++){const a=Q[i],b=Q[(i+1)%Q.length],inp=out;out=[];
@@ -131,6 +135,28 @@ for(let sd=1;sd<=Math.min(nets,40);sd++){
   A.addLot(sel);placed.push(sel);
  }
  stats.lots=(stats.lots||0)+placed.length;
+ // 5. Новая улица из середины существующей не трогает чужие дома: после
+ //    разреза звена каждый участок сохраняет ровно ту же форму (или, если
+ //    новая дорога прошла по нему, становится невалидным), и не исчезает.
+ const before=placed.map(l=>{const ps=A.shape(l).parts;return {l,area:ps.reduce((a,p)=>a+area(p),0),ps}});
+ let splits=0;
+ for(let t=0;t<12;t++){
+  const st=window.__dbg.state(),ids=Object.keys(st.segs);if(!ids.length)break;
+  const g=st.segs[ids[Math.floor(rnd()*ids.length)]],a=st.nodes[g.a],bb=st.nodes[g.b],f=0.25+0.5*rnd();
+  const S=A.snap([a.x+(bb.x-a.x)*f,a.y+(bb.y-a.y)*f],null);if(S.type!=='split')continue;
+  const ang=rnd()*2*Math.PI,L=(4+Math.floor(rnd()*8))*s,E=A.endFor(S,add(S.P,[L*Math.cos(ang),L*Math.sin(ang)]));
+  if(A.validate(S,E))continue;A.addRoad(S,E);splits++;
+ }
+ A.redraw();stats.splits=(stats.splits||0)+splits;
+ const now=window.__dbg.lotsRaw();
+ for(const bf of before){
+  if(!now.includes(bf.l)){bugs.push({net:sd,type:'lot-vanished-after-split',lot:bf.l});continue}
+  const ps=A.shape(bf.l).parts,ar=ps.reduce((a,p)=>a+area(p),0);
+  const same=Math.abs(ar-bf.area)<0.05&&interArea(ps,bf.ps)>bf.area-0.05;
+  if(same)continue;
+  if(A.check(bf.l,bf.l)){stats.lotsBrokenByRoad=(stats.lotsBrokenByRoad||0)+1;continue}
+  bugs.push({net:sd,type:'lot-changed-after-split',lot:{key:bf.l.key,k0:bf.l.k0,k1:bf.l.k1,j1:bf.l.j1,ext:bf.l.ext},areaBefore:+bf.area.toFixed(2),areaAfter:+ar.toFixed(2),inter:+interArea(ps,bf.ps).toFixed(2),before:bf.ps.map(p=>p.map(q=>q.map(x=>+x.toFixed(1)))),after:ps.map(p=>p.map(q=>q.map(x=>+x.toFixed(1))))});
+ }
  const shapes=placed.map(l=>A.shape(l).parts);
  for(let i=0;i<placed.length;i++){
   for(let k=i+1;k<placed.length;k++){const ia=interArea(shapes[i],shapes[k]);if(ia>LIM)bugs.push({net:sd,type:'lots-overlap',area:+ia.toFixed(3),a:placed[i],b:placed[k]})}
