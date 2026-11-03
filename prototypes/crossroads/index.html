@@ -171,7 +171,10 @@ return [p0,p1,add(p1,mul(st.n,s)),add(p0,mul(st.n,s))];
  * перпендикуляр на кромку улицы B (основание F). Кусок за биссектрисой —
  * зеркальное отражение куска своей улицы.
  *   острый угол  — верх «ломается» внутрь, участок обрезан;
- *   тупой угол   — участок похож на Г с тупым углом;
+ *   тупой угол   — участок похож на Г с тупым углом; чтобы сторона вдоль
+ *                  поперечной улицы шла по её сетке, верх за биссектрисой
+ *                  продолжается на глубине h до ближайшей линии сетки и там
+ *                  спускается к улице (F — на линии сетки);
  *   прямой угол  — получается тот же прямоугольник.
  * Если участок короче точки X (u1 < uX), верх упирается в биссектрису раньше:
  * тогда угловой участок — симметричный «воздушный змей» K, A1, Y, F.
@@ -186,13 +189,24 @@ if(!(pr[1]>=R.a-EPS&&pr[0]<=R.b+EPS)){
 var cells=[];for(i=l.i0;i<=l.i1;i++)for(j=0;j<=l.j1;j++)cells.push(square(st,i,j));
 return {corner:false,parts:[rect],outline:rect,cells:cells,w:l.i1-l.i0+1,h:l.j1+1};
 }
-var a2=q.alpha/2,u1=(l.i1+1)*s,uX=h/Math.tan(a2),T,F,PA;
-if(u1>uX){T=add(K,mul(q.m,h/Math.sin(a2)));F=add(K,mul(o.d,uX));PA=[K,p1,add(p1,mul(st.n,h)),T];}
-else{T=add(K,mul(q.m,u1/Math.cos(a2)));F=add(K,mul(o.d,u1));PA=[K,p1,T];}
-var cB=Math.min(u1,uX),cl=[];
+var a2=q.alpha/2,u1=(l.i1+1)*s,uX=h/Math.tan(a2),T,F,PA,PB,cB;
+if(u1>uX){
+T=add(K,mul(q.m,h/Math.sin(a2)));PA=[K,p1,add(p1,mul(st.n,h)),T];
+if(q.alpha>Math.PI/2+1e-6){
+// тупой угол: верх отражается от биссектрисы и идёт на той же глубине вдоль
+// поперечной улицы до ближайшей линии её сетки, оттуда спускается к улице
+cB=Math.ceil(uX/s-1e-6)*s;F=add(K,mul(o.d,cB));PB=[K,F,add(F,mul(o.n,h)),T];
+}else{
+// острый угол: из X перпендикуляр на поперечную улицу
+cB=uX;F=add(K,mul(o.d,uX));PB=[K,F,T];
+}
+}else{T=add(K,mul(q.m,u1/Math.cos(a2)));cB=u1;F=add(K,mul(o.d,u1));PA=[K,p1,T];PB=[K,F,T];}
+var cl=[];
 for(i=0;i<=l.i1;i++)for(j=0;j<=l.j1;j++){c=clip(square(st,i,j),K,q.m,st.sg);if(c.length>=3&&area(c)>0.5)cl.push(c);}
 for(i=0;i<Math.ceil(cB/s-1e-6);i++)for(j=0;j<=l.j1;j++){c=clipHP(clip(square(o,i,j),K,q.m,o.sg),add(K,mul(o.d,cB)),o.d);if(c.length>=3&&area(c)>0.5)cl.push(c);}
-return {corner:true,parts:[PA,[K,T,F]],outline:PA.concat([F]),cells:cl,w:l.i1+1,h:l.j1+1};
+// контур: часть своей улицы K..T, затем часть поперечной (PB = K, ..., T) обратно от T к K
+var back=PB.slice(1,PB.length-1).reverse();
+return {corner:true,parts:[PA,PB],outline:PA.concat(back),cells:cl,w:l.i1+1,h:l.j1+1};
 }
 // причина невалидности участка или null
 function check(l,skip){
