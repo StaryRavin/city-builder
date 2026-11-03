@@ -69,15 +69,17 @@
  *   другое посередине или подходит к нему ближе ширины дороги, невалидно.
  *   Угол между звеньями в узле — не меньше 20°.
  *
- * Сетка зонирования. У каждой стороны каждого звена две «полуполосы» клеток
- * s×s глубиной D — от каждого конца к середине. Начало полуполосы:
- * - если в узле со стороны полуполосы есть соседнее звено под углом < 180°,
- *   это угол квартала: начало — вершина угла K (пересечение кромок дорог),
- *   клетки у угла обрезаются биссектрисой;
+ * Сетка зонирования. У каждой стороны каждого звена одна непрерывная сетка
+ * клеток s×s глубиной D, от одного конца стороны до другого. Концы стороны:
+ * - если в узле со стороны есть соседнее звено под углом < 180°, это угол
+ *   квартала: конец — вершина угла K (пересечение кромок дорог), клетки у
+ *   угла обрезаются биссектрисой;
  * - иначе (тупик, прямое продолжение, внешняя сторона поворота) — проекция
  *   узла на кромку дороги.
- * Колонки делятся между двумя концами пополам; если длина стороны не кратна
- * клетке, в середине остаётся узкий шов без клеток.
+ * Длина стороны почти никогда не кратна клетке. Чтобы не было шва посередине,
+ * сетка привязывается к одному концу, а остаток уходит в одну неполную клетку
+ * на другом. Привязка — к концу, где сетка важнее: тупой угол > острый угол >
+ * прямое продолжение > тупик.
  *
  * Участки — как в прототипе перекрёстка (prototypes/crossroads):
  * прямоугольник от улицы по сетке одной полуполосы; острый угол — угловой
@@ -173,7 +175,7 @@ var deg=list.length;
 list.forEach(function(e){
 [1,-1].forEach(function(face){
 var nv=face>0?[-e.r[1],e.r[0]]:[e.r[1],-e.r[0]];
-faces[key(e.seg,faceSide(e,face),e.end)]={K:add(P,mul(nv,W)),d:e.r,n:nv,corner:null,other:null};
+faces[key(e.seg,faceSide(e,face),e.end)]={K:add(P,mul(nv,W)),d:e.r,n:nv,corner:null,other:null,dead:deg<2};
 });
 });
 if(deg<2)return;
@@ -187,65 +189,100 @@ faces[k1].K=K;faces[k1].corner=c;faces[k1].other=k2;
 faces[k2].K=K;faces[k2].corner=c;faces[k2].other=k1;
 }
 });
-// полуполосы: колонки стороны делятся пополам между двумя концами
+// стороны звеньев: одна непрерывная сетка на сторону, без шва посередине.
+// Сетка привязана к одному концу; остаток длины уходит в неполную клетку на
+// другом конце. Привязка — к концу, где сетка важнее: тупой угол > острый
+// угол > прямое продолжение / внешняя сторона поворота > тупик.
+function rank(f){if(!f.corner)return f.dead?0:1;return f.corner.alpha>Math.PI/2+1e-6?3:2}
+function offFor(x){var r=((x%s)+s)%s;return (r<1e-6||s-r<1e-6)?0:r-s}
 Object.keys(segs).forEach(function(id){
 var b=bandOf[id];
 [1,-1].forEach(function(side){
 var fa=faces[key(id,side,'a')],fb=faces[key(id,side,'b')];
 var E=dot(sub(fb.K,b.A),b.t)-dot(sub(fa.K,b.A),b.t);
-var nT=Math.max(0,Math.floor(E/s+1e-6)),ca=Math.ceil(nT/2),cb=nT-ca;
-[[fa,'a',ca],[fb,'b',cb]].forEach(function(x){
-var f=x[0],k=key(id,side,x[1]);
-hs[k]={key:k,seg:+id,K:f.K,d:f.d,n:f.n,cols:x[2],corner:f.corner,other:f.other,
-sg:f.corner?Math.sign(cr(f.corner.m,f.d)):0};
-});
+var anchor=rank(fa)>=rank(fb)?'a':'b',a0=anchor==='a'?0:offFor(E);
+var nC=E>1e-6?Math.max(0,Math.ceil((E-a0)/s-1e-6)):0;
+function end(f,dir){return {K:f.K,dir:dir,corner:f.corner,other:f.other,sg:f.corner?Math.sign(cr(f.corner.m,dir)):0}}
+var k=id+':'+side;
+hs[k]={key:k,seg:+id,side:side,d:b.t,n:fa.n,E:E,a0:a0,nC:nC,anchor:anchor,
+ends:{a:end(fa,b.t),b:end(fb,mul(b.t,-1))}};
 });
 });
 G={bands:bands,bandOf:bandOf,hs:hs,corners:corners};
 }
 
-// ---------- участки ----------
-function square(st,i,j){
-var p0=add(st.K,add(mul(st.d,i*s),mul(st.n,j*s))),p1=add(p0,mul(st.d,s));
-return [p0,p1,add(p1,mul(st.n,s)),add(p0,mul(st.n,s))];
+// ---------- сетка стороны ----------
+// система отсчёта от конца e стороны: начало K, направление вдоль улицы d,
+// линии сетки на u = off + i·s, клетки обрезаны отрезком [0, E]
+function frame(k,e){
+var S=G.hs[k];
+if(e==='a')return {K:S.ends.a.K,d:S.d,n:S.n,off:S.a0,E:S.E,nC:S.nC};
+return {K:S.ends.b.K,d:mul(S.d,-1),n:S.n,off:offFor(S.E-S.a0),E:S.E,nC:S.nC};
 }
+function otherFrame(en){var p=en.other.split(':');return frame(p[0]+':'+p[1],p[2])}
+function cellF(fr,i,j){
+var u0=Math.max(0,fr.off+i*s),u1=Math.min(fr.E,fr.off+(i+1)*s);if(u1-u0<1e-6)return null;
+var a=add(fr.K,add(mul(fr.d,u0),mul(fr.n,j*s))),b=add(fr.K,add(mul(fr.d,u1),mul(fr.n,j*s)));
+return [a,b,add(b,mul(fr.n,s)),add(a,mul(fr.n,s))];
+}
+function isObtuse(c){return c&&c.alpha>Math.PI/2+1e-6}
+
+// ---------- участки ----------
 /*
- * Форма участка (как в prototypes/crossroads):
- * - обычный: прямоугольник колонок i0..i1 глубиной h от улицы;
+ * Участок: {key: 'звено:сторона', k0..k1 — колонки сетки стороны (от конца a),
+ * j1 — глубина, ext — {end, n}: в тупом углу на конце end выделение заехало
+ * за угол на n клеток}. Правила формы — как в prototypes/crossroads, на каждом
+ * из двух концов стороны:
  * - острый (и прямой) угол: если прямоугольник касается соседней улицы угла,
- *   участок становится угловым — от K, верх до биссектрисы (X), из X
- *   перпендикуляр на соседнюю улицу (F); короткий — «змей» K, A1, Y, F;
- * - тупой угол: i0 < 0 — тянули за угол на n = -i0 клеток; участок =
- *   прямоугольник своей улицы ∪ прямоугольник соседней улицы из n колонок.
+ *   участок доходит до вершины K, обрезается биссектрисой, и за биссектрисой
+ *   добавляется треугольник K–F–T (из точки T на биссектрисе — перпендикуляр
+ *   на соседнюю улицу);
+ * - тупой угол: при ext участок доходит до K, и вдоль соседней улицы
+ *   добавляется прямоугольник из n клеток её сетки.
  */
 function shape(l){
-var st=G.hs[l.key];if(!st)return {bad:'gone',parts:[]};
-var c=st.corner,o=c?G.hs[st.other]:null,K=st.K,h=(l.j1+1)*s,i,j,cc;
-if(l.i1>st.cols-1)return {bad:'range',parts:[]};
-var obtuse=c&&c.alpha>Math.PI/2+1e-6;
-var p0=add(K,mul(st.d,l.i0*s)),p1=add(K,mul(st.d,(l.i1+1)*s));
-if(obtuse&&l.i0<0){
-var n=-l.i0;if(n>o.cols)return {bad:'range',parts:[]};
-var F0=add(K,mul(o.d,n*s));
-var RA=[K,p1,add(p1,mul(st.n,h)),add(K,mul(st.n,h))],RB=[K,F0,add(F0,mul(o.n,h)),add(K,mul(o.n,h))];
-var cu=[];
-for(i=0;i<=l.i1;i++)for(j=0;j<=l.j1;j++)cu.push(square(st,i,j));
-for(i=0;i<n;i++)for(j=0;j<=l.j1;j++){cc=clipHP(square(o,i,j),K,st.d);if(cc.length>=3&&area(cc)>0.5)cu.push(cc);}
-return {corner:true,parts:[RA,RB],cells:cu,w:'('+(l.i1+1)+'+'+n+')',h:l.j1+1};
+var S=G.hs[l.key];if(!S)return {bad:'gone',parts:[]};
+if(l.k0<0||l.k1>S.nC-1)return {bad:'range',parts:[]};
+var h=(l.j1+1)*s,u0=Math.max(0,S.a0+l.k0*s),u1=Math.min(S.E,S.a0+(l.k1+1)*s),flags={},bad=null,i,j,cc;
+function P(u,v){return add(S.ends.a.K,add(mul(S.d,u),mul(S.n,v)))}
+['a','b'].forEach(function(e){
+var en=S.ends[e],c=en.corner;if(!c)return;
+if(l.ext&&l.ext.end===e){if(!isObtuse(c)){bad='range';return}flags[e]='ext';if(e==='a')u0=0;else u1=S.E;return}
+if(isObtuse(c))return;
+var rect=[P(u0,0),P(u1,0),P(u1,h),P(u0,h)];
+if(overlaps(rect,G.bandOf[en.other.split(':')[0]].poly,-EPS)){flags[e]='acute';if(e==='a')u0=0;else u1=S.E;}
+});
+if(bad)return {bad:bad,parts:[]};
+var R=[P(u0,0),P(u1,0),P(u1,h),P(u0,h)];
+['a','b'].forEach(function(e){if(flags[e]==='acute'){var en=S.ends[e];R=clip(R,en.K,en.corner.m,en.sg)}});
+if(R.length<3||area(R)<1)return {bad:'range',parts:[]};
+var parts=[R],cells=[],fa=frame(l.key,'a');
+var kk0=u0===0?0:l.k0,kk1=u1===S.E?S.nC-1:l.k1;
+for(i=kk0;i<=kk1;i++)for(j=0;j<=l.j1;j++){cc=cellF(fa,i,j);if(!cc)continue;
+['a','b'].forEach(function(e){if(cc&&flags[e]==='acute'){var en=S.ends[e];cc=clip(cc,en.K,en.corner.m,en.sg)}});
+if(cc&&cc.length>=3&&area(cc)>0.5)cells.push(cc);}
+var wl=String(kk1-kk0+1),nx=0;
+['a','b'].forEach(function(e){
+var en=S.ends[e],K=en.K;
+if(flags[e]==='acute'){
+var c=en.corner,o=otherFrame(en),T=null,best=-1;
+R.forEach(function(p){var v=sub(p,K);if(Math.abs(cr(c.m,v))<1e-6&&len(v)>best){best=len(v);T=p}});
+if(!T)return;
+var cB=dot(sub(T,K),en.dir),F=add(K,mul(o.d,cB)),osg=Math.sign(cr(c.m,o.d));
+parts.push([K,F,T]);
+for(i=0;o.off+i*s<cB-1e-6;i++)for(j=0;j<=l.j1;j++){cc=cellF(o,i,j);if(!cc)continue;cc=clipHP(clip(cc,K,c.m,osg),add(K,mul(o.d,cB)),o.d);if(cc.length>=3&&area(cc)>0.5)cells.push(cc);}
 }
-if(l.i0<0)return {bad:'range',parts:[]};
-var rect=[p0,p1,add(p1,mul(st.n,h)),add(p0,mul(st.n,h))];
-if(!c||obtuse||!overlaps(rect,G.bandOf[o.seg].poly,-EPS)){
-var cells=[];for(i=l.i0;i<=l.i1;i++)for(j=0;j<=l.j1;j++)cells.push(square(st,i,j));
-return {corner:false,parts:[rect],cells:cells,w:l.i1-l.i0+1,h:l.j1+1};
+if(flags[e]==='ext'){
+var o2=otherFrame(en),n=l.ext.n;
+if(n>o2.nC){bad='range';return}
+var F0=add(K,mul(o2.d,Math.min(o2.E,o2.off+n*s)));
+parts.push([K,F0,add(F0,mul(o2.n,h)),add(K,mul(o2.n,h))]);
+for(i=0;i<n;i++)for(j=0;j<=l.j1;j++){cc=cellF(o2,i,j);if(!cc)continue;cc=clipHP(cc,K,en.dir);if(cc.length>=3&&area(cc)>0.5)cells.push(cc);}
+nx=n;
 }
-var a2=c.alpha/2,u1=(l.i1+1)*s,uX=h/Math.tan(a2),T,F,PA,PB,cB;
-if(u1>uX){T=add(K,mul(c.m,h/Math.sin(a2)));PA=[K,p1,add(p1,mul(st.n,h)),T];cB=uX;F=add(K,mul(o.d,uX));PB=[K,F,T];}
-else{T=add(K,mul(c.m,u1/Math.cos(a2)));cB=u1;F=add(K,mul(o.d,u1));PA=[K,p1,T];PB=[K,F,T];}
-var cl=[];
-for(i=0;i<=l.i1;i++)for(j=0;j<=l.j1;j++){cc=clip(square(st,i,j),K,c.m,st.sg);if(cc.length>=3&&area(cc)>0.5)cl.push(cc);}
-for(i=0;i<Math.ceil(cB/s-1e-6);i++)for(j=0;j<=l.j1;j++){cc=clipHP(clip(square(o,i,j),K,c.m,o.sg),add(K,mul(o.d,cB)),o.d);if(cc.length>=3&&area(cc)>0.5)cl.push(cc);}
-return {corner:true,parts:[PA,PB],cells:cl,w:l.i1+1,h:l.j1+1};
+});
+if(bad)return {bad:bad,parts:[]};
+return {corner:!!(flags.a||flags.b),parts:parts,cells:cells,w:nx?'('+wl+'+'+nx+')':wl,h:l.j1+1};
 }
 function check(l,skip){
 var S=shape(l);if(S.bad)return S.bad;
@@ -256,18 +293,25 @@ return null;
 }
 function inLot(P,l){return shape(l).parts.some(function(pp){return inside(P,pp)})}
 function onRoad(P){return G.bands.some(function(b){return inside(P,b.poly)})}
-// полуполоса и клетка под точкой
+// сторона и клетка под точкой
+function sideUV(P,k){var S=G.hs[k],v=sub(P,S.ends.a.K);return {u:dot(v,S.d),w:dot(v,S.n)}}
+function colAt(S,u){return Math.max(0,Math.min(S.nC-1,Math.floor((u-S.a0)/s)))}
 function hitCell(P){
 if(onRoad(P))return null;
-for(var k in G.hs){var st=G.hs[k];if(!st.cols)continue;
-var v=sub(P,st.K),u=dot(v,st.d)/s,w=dot(v,st.n)/s;
-if(u>=0&&u<st.cols&&w>=0&&w<D&&(!st.corner||st.sg*cr(st.corner.m,v)>=0))return {key:k,i:Math.floor(u),j:Math.floor(w)};}
+for(var k in G.hs){var S=G.hs[k];if(!S.nC)continue;
+var q=sideUV(P,k);if(q.u<0||q.u>S.E||q.w<0||q.w>=D*s)continue;
+var ok=['a','b'].every(function(e){var en=S.ends[e];return !en.corner||en.sg*cr(en.corner.m,sub(P,en.K))>=0});
+if(ok)return {key:k,k:colAt(S,q.u),j:Math.floor(q.w/s)};}
 return null;
 }
-function local(P,k){
-var st=G.hs[k],v=sub(P,st.K),lo=0;
-if(st.corner&&st.corner.alpha>Math.PI/2+1e-6)lo=-G.hs[st.other].cols;
-return {i:Math.max(lo,Math.min(st.cols-1,Math.floor(dot(v,st.d)/s))),j:Math.max(0,Math.min(D-1,Math.floor(dot(v,st.n)/s)))};
+// выделение: от начальной колонки до точки курсора; за вершину тупого угла — ext
+function selFrom(d,P){
+var S=G.hs[d.key],q=sideUV(P,d.key),kc=colAt(S,q.u),jc=Math.max(0,Math.min(D-1,Math.floor(q.w/s)));
+var l={key:d.key,k0:Math.min(d.k,kc),k1:Math.max(d.k,kc),j1:Math.max(d.j,jc),ext:null};
+if(q.u<0&&isObtuse(S.ends.a.corner)){l.ext={end:'a',n:Math.min(otherFrame(S.ends.a).nC,Math.ceil(-q.u/s))};l.k0=0}
+else if(q.u>S.E&&isObtuse(S.ends.b.corner)){l.ext={end:'b',n:Math.min(otherFrame(S.ends.b).nC,Math.ceil((q.u-S.E)/s))};l.k1=S.nC-1}
+if(l.ext&&l.ext.n<1)l.ext=null;
+return l;
 }
 
 // ---------- дороги: привязка и проверка звена ----------
@@ -355,10 +399,11 @@ return out+'</g>';
 function drawStatic(){
 derive();
 var cells='',roads='',dash='',nd='';
-Object.keys(G.hs).forEach(function(k){var st=G.hs[k];
-for(var i=0;i<st.cols;i++)for(var j=0;j<D;j++){
-var c=square(st,i,j),kind='full';
-if(st.corner){c=clip(c,st.K,st.corner.m,st.sg);if(c.length<3)continue;var ar=area(c);if(ar<1)continue;if(ar<s*s-0.5)kind='corner';}
+Object.keys(G.hs).forEach(function(k){var S=G.hs[k],fa=frame(k,'a');
+for(var i=0;i<S.nC;i++)for(var j=0;j<D;j++){
+var c=cellF(fa,i,j),kind='full';if(!c)continue;
+['a','b'].forEach(function(e){var en=S.ends[e];if(c&&en.corner)c=clip(c,en.K,en.corner.m,en.sg)});
+if(c.length<3)continue;var ar=area(c);if(ar<1)continue;if(ar<s*s-0.5)kind='corner';
 if(G.bands.some(function(b){return overlaps(c,b.poly,EPS)}))continue;
 cells+='<polygon class="ns" points="'+pts(c)+'" fill="'+(kind==='full'?'#9ED38F':'#F2B866')+'" stroke="'+(kind==='full'?'#6FA862':'#B27A24')+'" stroke-width="0.6"/>';
 }});
@@ -395,7 +440,7 @@ hintEl.textContent=HINT[m];document.getElementById('prev').innerHTML='';drawStat
 var sv=document.getElementById('sv');
 function svgPt(e){var pt=sv.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;var p=pt.matrixTransform(sv.getScreenCTM().inverse());return [p.x,p.y]}
 function worldPt(e){var p=svgPt(e);return [(p[0]-view.tx)/view.k,(p[1]-view.ty)/view.k]}
-function selLot(){return {key:drag.key,i0:Math.min(drag.i,drag.ci),i1:Math.max(drag.i,drag.ci),j1:Math.max(drag.j,drag.cj)}}
+function selLot(){return drag.sel}
 function previewRoad(){
 var S=drag.S,E=drag.E,why=validate(S,E),col=why?'#D9363E':'#3E9B5B';
 var out='<line x1="'+S.P[0]+'" y1="'+S.P[1]+'" x2="'+E.P[0].toFixed(1)+'" y2="'+E.P[1].toFixed(1)+'" stroke="'+col+'" stroke-opacity="0.6" stroke-width="'+(2*W)+'" stroke-linecap="round"/>';
@@ -418,7 +463,7 @@ if(mode==='road'){var S=snap(P,null);drag={road:true,S:S,E:S,P0:P,moved:false};r
 var onLot=-1;for(var i=lots.length-1;i>=0;i--)if(inLot(P,lots[i])){onLot=i;break}
 var h=hitCell(P);
 if(!h&&onLot<0){drag=null;return}
-drag=h?{lot:true,key:h.key,i:h.i,j:h.j,ci:h.i,cj:h.j,moved:false,onLot:onLot}:{lot:true,none:true,onLot:onLot,moved:false};
+drag=h?{lot:true,key:h.key,k:h.k,j:h.j,moved:false,onLot:onLot,sel:{key:h.key,k0:h.k,k1:h.k,j1:h.j,ext:null}}:{lot:true,none:true,onLot:onLot,moved:false};
 if(!drag.none)previewLot();
 });
 sv.addEventListener('pointermove',function(e){
@@ -427,8 +472,8 @@ if(drag.pan){var p=svgPt(e);view.tx=drag.tx+p[0]-drag.x;view.ty=drag.ty+p[1]-dra
 var P=worldPt(e);
 if(drag.road){if(len(sub(P,drag.P0))>s*0.6)drag.moved=true;if(!drag.moved)return;drag.E=endFor(drag.S,P);previewRoad();return}
 if(drag.none)return;
-var c=local(P,drag.key);
-if(c.i!==drag.ci||c.j!==drag.cj){drag.ci=c.i;drag.cj=c.j;drag.moved=true;previewLot();}
+var nl=selFrom(drag,P);
+if(JSON.stringify(nl)!==JSON.stringify(drag.sel)){drag.sel=nl;drag.moved=true;previewLot();}
 });
 function finish(e){
 if(!drag)return;
@@ -465,8 +510,8 @@ drawStatic();idle();
 // отладка для тестов
 window.__dbg={
 toScreen:function(P){var pt=sv.createSVGPoint();pt.x=P[0]*view.k+view.tx;pt.y=P[1]*view.k+view.ty;var r=pt.matrixTransform(sv.getScreenCTM());return [r.x,r.y]},
-cellCenter:function(key,i,j){var st=G.hs[key];return add(st.K,add(mul(st.d,(i+0.5)*s),mul(st.n,(j+0.5)*s)))},
-state:function(){return {nodes:nodes,segs:segs,lots:lots.map(function(l){var S=shape(l);return Object.assign({bad:check(l,l),corner:!!S.corner},l)}),hs:Object.keys(G.hs).map(function(k){var h=G.hs[k];return [k,h.cols,h.corner?Math.round(h.corner.alpha*180/Math.PI):null]})}}
+uvToWorld:function(key,u,v){var S=G.hs[key];return add(S.ends.a.K,add(mul(S.d,u),mul(S.n,v)))},
+state:function(){return {nodes:nodes,segs:segs,lots:lots.map(function(l){var S=shape(l);return Object.assign({bad:check(l,l),corner:!!S.corner},l)}),sides:Object.keys(G.hs).map(function(k){var h=G.hs[k];function ca(e){var c=h.ends[e].corner;return c?Math.round(c.alpha*180/Math.PI):(h.ends[e].corner===null?'-':'-')}return {key:k,E:+h.E.toFixed(1),a0:+h.a0.toFixed(1),nC:h.nC,anchor:h.anchor,a:ca('a'),b:ca('b')}})}}
 };
 setMode('road');
 })();
