@@ -113,7 +113,7 @@ var dAB=dot(da,db);
 q.alpha=Math.acos(dAB);
 var nA=nrm([db[0]-da[0]*dAB,db[1]-da[1]*dAB]); // внутрь квартала от дороги A
 var nB=nrm([da[0]-db[0]*dAB,da[1]-db[1]*dAB]); // внутрь квартала от дороги B
-q.strips=[[da,nA],[db,nB]].map(function(st){
+q.strips=[[da,nA],[db,nB]].map(function(st,si){
 var d=st[0],n=st[1],sg=Math.sign(cr(q.m,d)),cells=[],map={};
 for(var i=0;i<N;i++){for(var j=0;j<D;j++){
 var p0=add(K,add(mul(d,i*s),mul(n,j*s)));
@@ -122,7 +122,7 @@ var c=clip([p0,p1,p2,p3],K,q.m,sg);
 if(c.length<3)continue;
 var ar=area(c);
 if(ar<1)continue;
-var cell={i:i,j:j,poly:c,area:ar,kind:ar<0.3*s*s?'sliver':(ar<s*s-0.5?'corner':'full')};
+var cell={st:si,i:i,j:j,poly:c,area:ar,kind:ar<0.3*s*s?'sliver':(ar<s*s-0.5?'corner':'full')};
 cells.push(cell);map[i+','+j]=cell;
 }}
 return {d:d,n:n,cells:cells,get:function(i,j){return map[i+','+j]}};
@@ -157,12 +157,17 @@ return k;
  * «идеального» квадрата H×H; берём ближайшую клетку, которая касается уже
  * занятых и уменьшает |дефицит площади|. Повторяем, пока дефицит > 0 и есть
  * подходящий кандидат.
+ * Клетка на глубине j > 0 может войти в дом, только если клетка под ней
+ * (та же улица, та же колонка, глубина j-1) уже в доме: каждая колонка
+ * растёт от улицы вверх, «висящих» клеток без выхода к улице не бывает.
  */
 function placeHouse(q,pos){
 var own=pos>=0?0:1,i0=pos>=0?pos:-pos-1;
 var A=q.strips[own],B=q.strips[1-own];
 var target=H*H*s*s,cells=[],area=0;
-for(var i=i0;i<i0+H;i++)for(var j=0;j<H;j++){var c=A.get(i,j);if(c){cells.push(c);area+=c.area}}
+var taken={};
+function key(c){return c.st+','+c.i+','+c.j}
+for(var i=i0;i<i0+H;i++)for(var j=0;j<H;j++){var c=A.get(i,j);if(c){cells.push(c);area+=c.area;taken[key(c)]=1}}
 var ctr=add(q.K,add(mul(A.d,(i0+H/2)*s),mul(A.n,H/2*s)));
 function sorted(list){
 return list.map(function(c){return {c:c,dist:Math.hypot.apply(null,sub(centroid(c.poly),ctr))}})
@@ -175,11 +180,13 @@ var def=target-area,pick=-1,all=cells.concat(extra,cross);
 for(var k=0;k<cand.length;k++){
 var c=cand[k].c;
 if(Math.abs(def-c.area)>=def)continue;
+// клетка должна опираться на улицу: под ней (j-1) уже клетка дома
+if(c.j>0&&!taken[c.st+','+c.i+','+(c.j-1)])continue;
 if(!all.some(function(o){return touches(o.poly,c.poly)}))continue;
 pick=k;break;
 }
 if(pick<0)break;
-out.push(cand[pick].c);area+=cand[pick].c.area;cand.splice(pick,1);
+out.push(cand[pick].c);area+=cand[pick].c.area;taken[key(cand[pick].c)]=1;cand.splice(pick,1);
 }
 return cand;
 }
