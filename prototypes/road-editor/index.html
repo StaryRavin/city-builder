@@ -94,7 +94,7 @@
  * на дорогу или на другой участок.
  */
 (function(){
-var s=16,W=16,D=4,EPS=0.5,MINANG=20*Math.PI/180,VW=680,VH=460;
+var s=16,W=16,D=4,EPS=0.5,OVL=0.01,MINANG=20*Math.PI/180,VW=680,VH=460;
 function add(a,b){return [a[0]+b[0],a[1]+b[1]]}
 function sub(a,b){return [a[0]-b[0],a[1]-b[1]]}
 function mul(a,k){return [a[0]*k,a[1]*k]}
@@ -328,13 +328,16 @@ nx=n;
 }
 });
 if(bad)return {bad:bad,parts:[]};
+parts=parts.filter(function(pp){return pp.length>=3&&area(pp)>0.01}); // без вырожденных частей
 return {corner:!!(flags.a||flags.b),flags:flags,parts:parts,cells:cells,w:nx?'('+wl+'+'+nx+')':wl,h:l.j1+1};
 }
 function check(l,skip){
 var S=shape(l);if(S.bad)return S.bad;
-for(var p=0;p<S.parts.length;p++)for(var r=0;r<G.bands.length;r++)if(overlaps(S.parts[p],G.bands[r].poly,EPS))return 'road';
+// допуск при проверке пересечений — только на погрешность вычислений (OVL),
+// иначе между не совсем параллельными краями проходят тонкие клинья
+for(var p=0;p<S.parts.length;p++)for(var r=0;r<G.bands.length;r++)if(overlaps(S.parts[p],G.bands[r].poly,OVL))return 'road';
 for(var i=0;i<lots.length;i++){if(lots[i]===skip)continue;var O=shape(lots[i]);
-for(var a=0;a<S.parts.length;a++)for(var b=0;b<O.parts.length;b++)if(overlaps(S.parts[a],O.parts[b],EPS))return 'lot';}
+for(var a=0;a<S.parts.length;a++)for(var b=0;b<O.parts.length;b++)if(overlaps(S.parts[a],O.parts[b],OVL))return 'lot';}
 return null;
 }
 function inLot(P,l){return shape(l).parts.some(function(pp){return inside(P,pp)})}
@@ -612,7 +615,7 @@ clearLots:function(){lots=[];drawLots()},
 // внутренние функции для стресс-тестов
 api:{G:function(){return G},overlaps:overlaps,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
 snap:snap,endFor:endFor,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
-reset:function(){nodes={};segs={};lots=[];nid=1;sid=1;drawStatic()}},
+reset:function(){nodes={};segs={};lots=[];nid=1;sid=1;drawStatic()},addLot:function(l){lots.push(l)}},
 // инвариант: каждый узел стоит на линии сетки каждой своей дороги
 gridCheck:function(){var bad=[];Object.keys(segs).forEach(function(id){var g=segs[id],E=segEnds(g),L=len(sub(E[1],E[0])),cw=segCw(g),ph=segPh(g);
 function on(u){var r=((u-ph)%cw+cw)%cw;return Math.min(r,cw-r)<0.05}

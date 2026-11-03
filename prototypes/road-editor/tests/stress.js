@@ -13,6 +13,9 @@
  *      соседней улицы);
  *    - не падает с ошибкой;
  *    - строится, если не мешают чужие дороги.
+ * 4. Участки не пересекаются друг с другом и не заходят на дороги: на сетях
+ *    ставится много случайных участков так же, как это делает интерфейс, и
+ *    каждая пара проверяется независимо — по площади пересечения.
  *
  * Законные отказы (не баги) считаются отдельно:
  * - участок задевает третью дорогу, не из этого угла;
@@ -88,6 +91,51 @@ for(let sd=1;sd<=nets;sd++){
     if(why){bugs.push({net:sd,type:'corner-lot-invalid:'+why,key,end:e,j,ang,sel});continue}
     stats.ok++;
    }}}
+}
+// 4. Участки не пересекаются друг с другом и с дорогами. На каждой сети ставим
+// много случайных участков так же, как интерфейс (selFrom → check → добавить),
+// и проверяем каждую пару независимым способом — площадью пересечения выпуклых
+// частей (отсечение многоугольника многоугольником).
+function clipConvex(P,Q){ // P ∩ Q, оба выпуклые
+ let out=P.slice();
+ const sQ=Math.sign(Q.reduce((a,p,i)=>{const q=Q[(i+1)%Q.length];return a+p[0]*q[1]-q[0]*p[1]},0))||1;
+ for(let i=0;i<Q.length&&out.length;i++){const a=Q[i],b=Q[(i+1)%Q.length],inp=out;out=[];
+  const side=p=>sQ*((b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]));
+  for(let k=0;k<inp.length;k++){const p=inp[k],q=inp[(k+1)%inp.length],sp=side(p),sq=side(q);
+   if(sp>=0)out.push(p);if((sp>=0)!==(sq>=0)){const t=sp/(sp-sq);out.push([p[0]+(q[0]-p[0])*t,p[1]+(q[1]-p[1])*t])}}}
+ return out;
+}
+function area(p){let a=0;for(let i=0;i<p.length;i++){const q=p[(i+1)%p.length];a+=p[i][0]*q[1]-q[0]*p[i][1]}return Math.abs(a)/2}
+function interArea(PA,PB){let s=0;PA.forEach(a=>PB.forEach(b=>{if(area(a)<1e-6||area(b)<1e-6)return;const c=clipConvex(a,b);if(c.length>=3)s+=area(c)}));return s}
+const LIM=0.05; // допустимая площадь пересечения (погрешность вычислений)
+for(let sd=1;sd<=Math.min(nets,40);sd++){
+ seed=sd*104729;A.reset();
+ for(let t=0;t<40;t++){
+  const st=window.__dbg.state(),ns=Object.values(st.nodes),sg=Object.values(st.segs);
+  let P0;const r=rnd();
+  if(ns.length&&r<0.6){const n=ns[Math.floor(rnd()*ns.length)];P0=[n.x,n.y]}
+  else if(sg.length&&r<0.85){const g=sg[Math.floor(rnd()*sg.length)],a=st.nodes[g.a],bb=st.nodes[g.b],f=0.2+0.6*rnd();P0=[a.x+(bb.x-a.x)*f,a.y+(bb.y-a.y)*f]}
+  else P0=[100+rnd()*480,80+rnd()*300];
+  const S=A.snap(P0,null),ang=rnd()*2*Math.PI,L=(6+Math.floor(rnd()*16))*s;
+  let P1=add(S.P,[L*Math.cos(ang),L*Math.sin(ang)]);
+  if(ns.length&&rnd()<0.3){const n=ns[Math.floor(rnd()*ns.length)];P1=[n.x+(rnd()-0.5)*10,n.y+(rnd()-0.5)*10]}
+  const E=A.endFor(S,P1);if(!A.validate(S,E))A.addRoad(S,E);
+ }
+ A.redraw();const G=A.G(),keys=Object.keys(G.hs).filter(k=>G.hs[k].nC>0);
+ const placed=[];
+ for(let t=0;t<300&&keys.length;t++){
+  const key=keys[Math.floor(rnd()*keys.length)],S=G.hs[key];
+  const k=Math.floor(rnd()*S.nC),uEnd=-2*s+rnd()*(S.E+4*s),j=Math.floor(rnd()*D);
+  const Pt=add(add(S.ends.a.K,mul(S.d,uEnd)),mul(S.n,(j+0.5)*s));
+  let sel;try{sel=A.selFrom({key,k,j:0},Pt);if(A.check(sel,null))continue;}catch(ex){bugs.push({net:sd,type:'exception-lot',msg:String(ex)});continue}
+  A.addLot(sel);placed.push(sel);
+ }
+ stats.lots=(stats.lots||0)+placed.length;
+ const shapes=placed.map(l=>A.shape(l).parts);
+ for(let i=0;i<placed.length;i++){
+  for(let k=i+1;k<placed.length;k++){const ia=interArea(shapes[i],shapes[k]);if(ia>LIM)bugs.push({net:sd,type:'lots-overlap',area:+ia.toFixed(3),a:placed[i],b:placed[k]})}
+  const ra=interArea(shapes[i],G.bands.map(b=>b.poly));if(ra>LIM)bugs.push({net:sd,type:'lot-on-road',area:+ra.toFixed(3),lot:placed[i]});
+ }
 }
 const by={};bugs.forEach(f=>{by[f.type]=(by[f.type]||0)+1});
 return {stats,legit,by,sample:bugs.slice(0,200)};
