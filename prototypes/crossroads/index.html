@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Перекрёсток под углом: клетки зонирования</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fafaf7; --fg:#1d1d1b; --muted:#6a6a64; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1b1b19; --fg:#ecece6; --muted:#9a9a92; } }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:720px; margin:0 auto; }
+  .row { display:flex; align-items:center; gap:12px; padding:0.5rem 0; font-size:14px; }
+  .row input { flex:1; }
+  svg { width:100%; height:auto; display:block; }
+  .legend text { font-size:12px; fill:var(--muted); }
+  #st { font-size:13px; color:var(--muted); margin:4px 0 0; }
+</style>
+</head>
+<body>
+<main>
+<div class="row">
+  <label for="ang">Угол между дорогами</label>
+  <input id="ang" type="range" min="20" max="90" value="60" step="1">
+  <span id="angv" style="min-width:40px;text-align:right">60°</span>
+</div>
+<svg id="sv" viewBox="0 0 680 430" role="img" aria-label="Перекрёсток под углом с клетками зонирования">
+<defs><clipPath id="fr"><rect x="40" y="30" width="600" height="360" rx="4"/></clipPath></defs>
+<rect x="40" y="30" width="600" height="360" rx="4" fill="#E6E0CC"/>
+<g clip-path="url(#fr)"><g id="cells"></g><g id="roads"></g><g id="bis"></g></g>
+<g class="legend">
+<rect x="40" y="404" width="14" height="14" fill="#9ED38F" stroke="#6FA862" stroke-width="0.6"/><text x="60" y="416">Обычная клетка</text>
+<rect x="170" y="404" width="14" height="14" fill="#F2B866" stroke="#B27A24" stroke-width="0.6"/><text x="190" y="416">Угловая клетка</text>
+<rect x="300" y="404" width="14" height="14" fill="#F7E2BA" stroke="#B27A24" stroke-width="0.6"/><text x="320" y="416">Мелкий обрезок</text>
+<line x1="430" y1="411" x2="454" y2="411" stroke="#8A5A1A" stroke-width="1.2" stroke-dasharray="4 3"/><text x="460" y="416">Биссектриса</text>
+</g>
+</svg>
+<p id="st"></p>
+</main>
+
+<script>
+/*
+ * Две дороги ширины 2W пересекаются в точке (CX, CY) под углом deg.
+ * Для каждого из четырёх углов (квадрантов) строим клетки размера s вдоль двух кромок:
+ * клетка принадлежит той дороге, до которой ближе (граница = биссектриса угла),
+ * сетка клеток перпендикулярна своей дороге, глубина зоны D клеток.
+ * Клетки у биссектрисы обрезаются (угловые), совсем мелкие помечаются как обрезки.
+ */
+(function(){
+var s=20,D=4,N=32,CX=340,CY=210,W=20;
+function add(a,b){return [a[0]+b[0],a[1]+b[1]]}
+function mul(a,k){return [a[0]*k,a[1]*k]}
+function dot(a,b){return a[0]*b[0]+a[1]*b[1]}
+function nrm(a){var l=Math.hypot(a[0],a[1]);return [a[0]/l,a[1]/l]}
+function cr(a,b){return a[0]*b[1]-a[1]*b[0]}
+function area(p){var a=0;for(var i=0;i<p.length;i++){var q=p[(i+1)%p.length];a+=p[i][0]*q[1]-q[0]*p[i][1]}return Math.abs(a)/2}
+// отсечение выпуклого многоугольника полуплоскостью по одну сторону биссектрисы (луч из K в направлении m)
+function clip(poly,K,m,sg){
+var out=[];
+for(var i=0;i<poly.length;i++){
+var a=poly[i],b=poly[(i+1)%poly.length];
+var ga=sg*cr(m,[a[0]-K[0],a[1]-K[1]]),gb=sg*cr(m,[b[0]-K[0],b[1]-K[1]]);
+if(ga>=0)out.push(a);
+if((ga>=0)!==(gb>=0)){var t=ga/(ga-gb);out.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]);}
+}
+return out;
+}
+function pts(p){return p.map(function(q){return q[0].toFixed(1)+','+q[1].toFixed(1)}).join(' ')}
+function render(deg){
+var th=deg*Math.PI/180,sn=Math.sin(th),cs=Math.cos(th);
+function onLine(P,y){var t=(P[1]-y)/sn;return [P[0]+t*cs,y]}
+var PR=[CX+W*sn,CY+W*cs],PL=[CX-W*sn,CY-W*cs];
+var yU=CY-W,yD=CY+W;
+// четыре угла перекрёстка: K = вершина, da вдоль горизонтальной дороги, db вдоль наклонной
+var quads=[
+{K:onLine(PR,yU),da:[1,0],db:[cs,-sn]},
+{K:onLine(PL,yU),da:[-1,0],db:[cs,-sn]},
+{K:onLine(PL,yD),da:[-1,0],db:[-cs,sn]},
+{K:onLine(PR,yD),da:[1,0],db:[-cs,sn]}
+];
+var cells='',bis='',nc=0,nsl=0;
+quads.forEach(function(q){
+var da=q.da,db=q.db,K=q.K;
+var m=nrm(add(da,db));                 // биссектриса угла
+var dAB=dot(da,db);
+var nA=nrm([db[0]-da[0]*dAB,db[1]-da[1]*dAB]);   // внутрь квартала от дороги A
+var nB=nrm([da[0]-db[0]*dAB,da[1]-db[1]*dAB]);   // внутрь квартала от дороги B
+var strips=[[da,nA,Math.sign(cr(m,da))],[db,nB,Math.sign(cr(m,db))]];
+strips.forEach(function(st){
+var d=st[0],n=st[1],sg=st[2];
+for(var i=0;i<N;i++){for(var j=0;j<D;j++){
+var p0=add(K,add(mul(d,i*s),mul(n,j*s)));
+var p1=add(p0,mul(d,s)),p2=add(p1,mul(n,s)),p3=add(p0,mul(n,s));
+var poly=[p0,p1,p2,p3];
+var mnx=Math.min(p0[0],p1[0],p2[0],p3[0]),mxx=Math.max(p0[0],p1[0],p2[0],p3[0]);
+var mny=Math.min(p0[1],p1[1],p2[1],p3[1]),mxy=Math.max(p0[1],p1[1],p2[1],p3[1]);
+if(mnx>640||mxx<40||mny>390||mxy<30)continue;
+var c=clip(poly,K,m,sg);
+if(c.length<3)continue;
+var ar=area(c);
+if(ar<1)continue;
+var fill='#9ED38F',stroke='#6FA862';
+if(ar<0.3*s*s){fill='#F7E2BA';stroke='#B27A24';nsl++;}
+else if(ar<s*s-0.5){fill='#F2B866';stroke='#B27A24';nc++;}
+cells+='<polygon points="'+pts(c)+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="0.6"/>';
+}}
+});
+var al=Math.acos(dAB);
+var L=D*s/Math.sin(al/2);              // докуда биссектриса доходит до глубины зоны
+var e=add(K,mul(m,L));
+bis+='<line x1="'+K[0].toFixed(1)+'" y1="'+K[1].toFixed(1)+'" x2="'+e[0].toFixed(1)+'" y2="'+e[1].toFixed(1)+'" stroke="#8A5A1A" stroke-width="1.2" stroke-dasharray="4 3"/>';
+});
+function xAt(P,y){return P[0]+(P[1]-y)/sn*cs}
+var roads='<rect x="40" y="190" width="600" height="40" fill="#5A5F66"/>';
+roads+='<polygon points="'+pts([[xAt(PL,30),30],[xAt(PR,30),30],[xAt(PR,390),390],[xAt(PL,390),390]])+'" fill="#5A5F66"/>';
+var cx30=CX+(CY-30)/sn*cs,cx390=CX+(CY-390)/sn*cs;
+roads+='<g stroke="#F2F2F2" stroke-width="2" stroke-dasharray="12 10" fill="none"><line x1="40" y1="210" x2="640" y2="210"/><line x1="'+cx30.toFixed(1)+'" y1="30" x2="'+cx390.toFixed(1)+'" y2="390"/></g>';
+roads+='<polygon points="'+pts([quads[1].K,quads[0].K,quads[3].K,quads[2].K])+'" fill="#5A5F66"/>';
+document.getElementById('cells').innerHTML=cells;
+document.getElementById('roads').innerHTML=roads;
+document.getElementById('bis').innerHTML=bis;
+document.getElementById('angv').textContent=deg+'°';
+document.getElementById('st').textContent='Угловых клеток: '+nc+', мелких обрезков: '+nsl;
+}
+var inp=document.getElementById('ang');
+inp.addEventListener('input',function(){render(parseInt(inp.value,10))});
+render(60);
+})();
+</script>
+</body>
+</html>
