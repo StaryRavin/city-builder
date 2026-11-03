@@ -63,6 +63,8 @@
  * - участок — прямоугольник в координатах этой сетки, всегда от улицы
  *   (глубина 0..j1), по колонкам — между начальной и текущей клеткой;
  * - за биссектрису участок заходить может, это не запрещено;
+ * - если прямоугольник касается или заходит на поперечную улицу, он
+ *   превращается в угловой участок (см. shape);
  * - участок невалиден, если хотя бы частично заходит на любую дорогу
  *   (касание кромки допускается) или пересекается с другим участком.
  * Участки хранятся в координатах сетки (квартал, улица, колонки, глубина),
@@ -145,20 +147,63 @@ var roads=[{nu:[0,1],a:CY-W,b:CY+W},{nu:nu,a:Math.min(dot(PL,nu),dot(PR,nu)),b:M
 return {quads:quads,roads:roads,sn:sn,cs:cs,PR:PR,PL:PL};
 }
 
-function lotPoly(l){
-var st=G.quads[l.q].strips[l.si];
-var p0=add(st.K,mul(st.d,l.i0*s)),w=(l.i1-l.i0+1)*s,h=(l.j1+1)*s;
-var p1=add(p0,mul(st.d,w));
-return [p0,p1,add(p1,mul(st.n,h)),add(p0,mul(st.n,h))];
+// отсечение выпуклого многоугольника полуплоскостью dot(p - P0, nv) <= 0
+function clipHP(poly,P0,nv){
+var out=[];
+for(var i=0;i<poly.length;i++){
+var a=poly[i],b=poly[(i+1)%poly.length],ga=-dot(sub(a,P0),nv),gb=-dot(sub(b,P0),nv);
+if(ga>=0)out.push(a);
+if((ga>=0)!==(gb>=0)){var t=ga/(ga-gb);out.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]);}
+}
+return out;
+}
+function square(st,i,j){
+var p0=add(st.K,add(mul(st.d,i*s),mul(st.n,j*s))),p1=add(p0,mul(st.d,s));
+return [p0,p1,add(p1,mul(st.n,s)),add(p0,mul(st.n,s))];
+}
+
+/*
+ * Форма участка.
+ * Обычно — прямоугольник в сетке своей улицы A: колонки i0..i1, глубина h = (j1+1)·s.
+ * Если прямоугольник касается или заходит на поперечную улицу B, участок
+ * становится угловым: он начинается от вершины угла K, верхняя сторона идёт
+ * до биссектрисы (точка X на глубине h от обеих улиц), из X опускается
+ * перпендикуляр на кромку улицы B (основание F). Кусок за биссектрисой —
+ * зеркальное отражение куска своей улицы.
+ *   острый угол  — верх «ломается» внутрь, участок обрезан;
+ *   тупой угол   — участок похож на Г с тупым углом;
+ *   прямой угол  — получается тот же прямоугольник.
+ * Если участок короче точки X (u1 < uX), верх упирается в биссектрису раньше:
+ * тогда угловой участок — симметричный «воздушный змей» K, A1, Y, F.
+ * Возвращает выпуклые части (для проверок), контур и клетки (для отрисовки).
+ */
+function shape(l){
+var q=G.quads[l.q],st=q.strips[l.si],o=q.strips[1-l.si],K=st.K,h=(l.j1+1)*s;
+var p0=add(K,mul(st.d,l.i0*s)),p1=add(K,mul(st.d,(l.i1+1)*s));
+var rect=[p0,p1,add(p1,mul(st.n,h)),add(p0,mul(st.n,h))];
+var R=G.roads[1-l.si],pr=proj(rect,R.nu),i,j,c;
+if(!(pr[1]>=R.a-EPS&&pr[0]<=R.b+EPS)){
+var cells=[];for(i=l.i0;i<=l.i1;i++)for(j=0;j<=l.j1;j++)cells.push(square(st,i,j));
+return {corner:false,parts:[rect],outline:rect,cells:cells,w:l.i1-l.i0+1,h:l.j1+1};
+}
+var a2=q.alpha/2,u1=(l.i1+1)*s,uX=h/Math.tan(a2),T,F,PA;
+if(u1>uX){T=add(K,mul(q.m,h/Math.sin(a2)));F=add(K,mul(o.d,uX));PA=[K,p1,add(p1,mul(st.n,h)),T];}
+else{T=add(K,mul(q.m,u1/Math.cos(a2)));F=add(K,mul(o.d,u1));PA=[K,p1,T];}
+var cB=Math.min(u1,uX),cl=[];
+for(i=0;i<=l.i1;i++)for(j=0;j<=l.j1;j++){c=clip(square(st,i,j),K,q.m,st.sg);if(c.length>=3&&area(c)>0.5)cl.push(c);}
+for(i=0;i<Math.ceil(cB/s-1e-6);i++)for(j=0;j<=l.j1;j++){c=clipHP(clip(square(o,i,j),K,q.m,o.sg),add(K,mul(o.d,cB)),o.d);if(c.length>=3&&area(c)>0.5)cl.push(c);}
+return {corner:true,parts:[PA,[K,T,F]],outline:PA.concat([F]),cells:cl,w:l.i1+1,h:l.j1+1};
 }
 // причина невалидности участка или null
 function check(l,skip){
-var P=lotPoly(l);
-for(var r=0;r<G.roads.length;r++){var R=G.roads[r],pr=proj(P,R.nu);
+var S=shape(l);
+for(var p=0;p<S.parts.length;p++)for(var r=0;r<G.roads.length;r++){var R=G.roads[r],pr=proj(S.parts[p],R.nu);
 if(pr[1]>R.a+EPS&&pr[0]<R.b-EPS)return 'road';}
-for(var i=0;i<lots.length;i++){if(lots[i]===skip)continue;if(overlaps(P,lotPoly(lots[i])))return 'lot';}
+for(var i=0;i<lots.length;i++){if(lots[i]===skip)continue;var O=shape(lots[i]);
+for(var a=0;a<S.parts.length;a++)for(var b=0;b<O.parts.length;b++)if(overlaps(S.parts[a],O.parts[b]))return 'lot';}
 return null;
 }
+function inLot(P,l){return shape(l).parts.some(function(pp){return inside(P,pp)})}
 
 // клетка под точкой: сетка той улицы, к которой точка ближе
 function hit(P){
@@ -178,16 +223,13 @@ return {q:drag.q,si:drag.si,i0:Math.min(drag.i,drag.ci),i1:Math.max(drag.i,drag.
 }
 
 function lotSvg(l,fill,stroke,op,sw){
-var P=lotPoly(l),st=G.quads[l.q].strips[l.si],out='<g>';
-out+='<polygon points="'+pts(P)+'" fill="'+fill+'" fill-opacity="'+op+'" stroke="'+stroke+'" stroke-width="'+sw+'"/>';
-// внутренняя сетка участка
-var h=(l.j1+1)*s,w=(l.i1-l.i0+1)*s;
-for(var i=1;i<=l.i1-l.i0;i++){var a=add(P[0],mul(st.d,i*s)),b=add(a,mul(st.n,h));
-out+='<line x1="'+a[0].toFixed(1)+'" y1="'+a[1].toFixed(1)+'" x2="'+b[0].toFixed(1)+'" y2="'+b[1].toFixed(1)+'" stroke="'+stroke+'" stroke-width="0.5" stroke-opacity="0.6"/>';}
-for(var j=1;j<=l.j1;j++){var a2=add(P[0],mul(st.n,j*s)),b2=add(a2,mul(st.d,w));
-out+='<line x1="'+a2[0].toFixed(1)+'" y1="'+a2[1].toFixed(1)+'" x2="'+b2[0].toFixed(1)+'" y2="'+b2[1].toFixed(1)+'" stroke="'+stroke+'" stroke-width="0.5" stroke-opacity="0.6"/>';}
-var c=mul(add(P[0],P[2]),0.5);
-out+='<text x="'+c[0].toFixed(1)+'" y="'+c[1].toFixed(1)+'" font-size="'+(11/k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600">'+(l.i1-l.i0+1)+'×'+(l.j1+1)+'</text>';
+var S=shape(l),out='<g>';
+out+='<polygon points="'+pts(S.outline)+'" fill="'+fill+'" fill-opacity="'+op+'" stroke="none"/>';
+// клетки участка
+S.cells.forEach(function(c){out+='<polygon points="'+pts(c)+'" fill="none" stroke="'+stroke+'" stroke-width="0.5" stroke-opacity="0.6"/>'});
+out+='<polygon points="'+pts(S.outline)+'" fill="none" stroke="'+stroke+'" stroke-width="'+sw+'"/>';
+var cx=0,cy=0;S.outline.forEach(function(p){cx+=p[0];cy+=p[1]});cx/=S.outline.length;cy/=S.outline.length;
+out+='<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" font-size="'+(11/k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600">'+S.w+'×'+S.h+'</text>';
 return out+'</g>';
 }
 
@@ -195,8 +237,8 @@ var stEl=document.getElementById('st');
 var REASON={road:'нельзя — задевает улицу',lot:'нельзя — пересекается с другим участком'};
 function status(){
 if(drag&&drag.moved!==undefined){
-var l=selLot(),why=check(l,null);
-stEl.textContent='Участок '+(l.i1-l.i0+1)+'×'+(l.j1+1)+': '+(why?REASON[why]:'можно построить');
+var l=selLot(),why=check(l,null),S=shape(l);
+stEl.textContent=(S.corner?'Угловой участок ':'Участок ')+S.w+'×'+S.h+': '+(why?REASON[why]:'можно построить');
 return;
 }
 var bad=lots.filter(function(l){return check(l,l)}).length;
@@ -256,7 +298,7 @@ return [CX+(p.x-CX)/k,CY+(p.y-CY)/k];
 }
 sv.addEventListener('pointerdown',function(e){
 var P=worldPt(e),onLot=-1;
-for(var i=lots.length-1;i>=0;i--)if(inside(P,lotPoly(lots[i]))){onLot=i;break}
+for(var i=lots.length-1;i>=0;i--)if(inLot(P,lots[i])){onLot=i;break}
 var h=hit(P);
 if(!h&&onLot<0)return;
 e.preventDefault();
@@ -286,7 +328,7 @@ document.getElementById('clr').addEventListener('click',function(){lots=[];drawL
 angEl.addEventListener('input',render);
 render();
 // отладка: список участков и экранные координаты центра клетки
-window.__lots=function(){return lots.map(function(l){return Object.assign({bad:check(l,l)},l)})};
+window.__lots=function(){return lots.map(function(l){return Object.assign({bad:check(l,l),corner:shape(l).corner},l)})};
 window.__cell=function(q,si,i,j){
 var st=G.quads[q].strips[si],P=add(st.K,add(mul(st.d,(i+0.5)*s),mul(st.n,(j+0.5)*s)));
 var pt=sv.createSVGPoint();pt.x=CX+(P[0]-CX)*k;pt.y=CY+(P[1]-CY)*k;
