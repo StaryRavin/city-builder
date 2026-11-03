@@ -292,16 +292,23 @@ if(flags[e]==='acute'){
 var c=en.corner,o=otherFrame(en),T=null,best=-1;
 R.forEach(function(p){var v=sub(p,K);if(Math.abs(cr(c.m,v))<1e-6&&len(v)>best){best=len(v);T=p}});
 if(!T)return;
-var cB=dot(sub(T,K),en.dir),F=add(K,mul(o.d,cB)),osg=Math.sign(cr(c.m,o.d));
-parts.push([K,F,T]);
-for(i=0;o.off+i*s<cB-1e-6;i++)for(j=0;j<=l.j1;j++){cc=cellF(o,i,j);if(!cc)continue;cc=clipHP(clip(cc,K,c.m,osg),add(K,mul(o.d,cB)),o.d);if(cc.length>=3&&area(cc)>0.5)cells.push(cc);}
+// кусок за биссектрисой доходит до ближайшей линии сетки соседней улицы G
+// (не до основания перпендикуляра — иначе до соседнего участка остаётся щель):
+// прямоугольник сетки соседней улицы [K..G] × [0..hB], обрезанный биссектрисой
+var cB=dot(sub(T,K),en.dir),hB=dot(sub(T,K),o.n),osg=Math.sign(cr(c.m,o.d));
+var G=Math.min(o.E,o.off+Math.ceil((cB-o.off)/s-1e-6)*s),FG=add(K,mul(o.d,G));
+var PB=clip([K,FG,add(FG,mul(o.n,hB)),add(K,mul(o.n,hB))],K,c.m,osg);
+if(PB.length>=3)parts.push(PB);
+for(i=0;o.off+i*s<G-1e-6;i++)for(j=0;j*s<hB-1e-6;j++){cc=cellF(o,i,j);if(!cc)continue;cc=clipHP(clip(cc,K,c.m,osg),add(K,mul(o.n,hB)),o.n);if(cc.length>=3&&area(cc)>0.5)cells.push(cc);}
 }
 if(flags[e]==='ext'){
-var o2=otherFrame(en),n=l.ext.n;
-if(n>o2.nC){bad='range';return}
-var F0=add(K,mul(o2.d,Math.min(o2.E,o2.off+n*s)));
+// n целых клеток соседней улицы; неполная клетка у вершины угла (если сетка
+// соседней улицы не начинается ровно в K) добавляется сверх них
+var o2=otherFrame(en),n=l.ext.n,pt=o2.off<-1e-6?1:0;
+if(n+pt>o2.nC){bad='range';return}
+var F0=add(K,mul(o2.d,Math.min(o2.E,o2.off+(n+pt)*s)));
 parts.push([K,F0,add(F0,mul(o2.n,h)),add(K,mul(o2.n,h))]);
-for(i=0;i<n;i++)for(j=0;j<=l.j1;j++){cc=cellF(o2,i,j);if(!cc)continue;cc=clipHP(cc,K,en.dir);if(cc.length>=3&&area(cc)>0.5)cells.push(cc);}
+for(i=0;i<n+pt;i++)for(j=0;j<=l.j1;j++){cc=cellF(o2,i,j);if(!cc)continue;cc=clipHP(cc,K,en.dir);if(cc.length>=3&&area(cc)>0.5)cells.push(cc);}
 nx=n;
 }
 });
@@ -339,8 +346,8 @@ return best;
 function selFrom(d,P){
 var S=G.hs[d.key],q=sideUV(P,d.key),kc=colAt(S,q.u),jc=Math.max(0,Math.min(D-1,Math.floor(q.w/s)));
 var l={key:d.key,k0:Math.min(d.k,kc),k1:Math.max(d.k,kc),j1:Math.max(d.j,jc),ext:null};
-if(q.u<0&&isObtuse(S.ends.a.corner)){l.ext={end:'a',n:Math.min(otherFrame(S.ends.a).nC,Math.ceil(-q.u/s))};l.k0=0}
-else if(q.u>S.E&&isObtuse(S.ends.b.corner)){l.ext={end:'b',n:Math.min(otherFrame(S.ends.b).nC,Math.ceil((q.u-S.E)/s))};l.k1=S.nC-1}
+if(q.u<0&&isObtuse(S.ends.a.corner)){var oa=otherFrame(S.ends.a);l.ext={end:'a',n:Math.min(oa.nC-(oa.off<-1e-6?1:0),Math.ceil(-q.u/s))};l.k0=0}
+else if(q.u>S.E&&isObtuse(S.ends.b.corner)){var ob=otherFrame(S.ends.b);l.ext={end:'b',n:Math.min(ob.nC-(ob.off<-1e-6?1:0),Math.ceil((q.u-S.E)/s))};l.k1=S.nC-1}
 if(l.ext&&l.ext.n<1)l.ext=null;
 return l;
 }
