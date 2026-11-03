@@ -19,3 +19,7 @@ prototypes/
 |---|---|---|
 | [`prototypes/crossroads`](prototypes/crossroads/) | Зонирование у перекрёстка двух дорог под произвольным углом (20°–90°): ручное выделение участков по сетке улицы; автоматическое размещение дома у угла | Открыть `prototypes/crossroads/index.html` (участки) или `corner-house.html` (дом у угла) в браузере |
 | [`prototypes/road-editor`](prototypes/road-editor/) | Свои дороги из узлов и звеньев (пересечения только в узлах), сетка зонирования по сторонам звеньев, участки по правилам `crossroads` | Открыть `prototypes/road-editor/index.html` в браузере |
+
+## Бэклог
+
+Что ещё предстоит сделать — в [`BACKLOG.md`](BACKLOG.md).
