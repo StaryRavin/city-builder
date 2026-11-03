@@ -165,29 +165,43 @@ return [p0,p1,add(p1,mul(st.n,s)),add(p0,mul(st.n,s))];
 /*
  * Форма участка.
  * Обычно — прямоугольник в сетке своей улицы A: колонки i0..i1, глубина h = (j1+1)·s.
- * Если прямоугольник касается или заходит на поперечную улицу B, участок
- * становится угловым: он начинается от вершины угла K, верхняя сторона идёт
- * до биссектрисы (точка X на глубине h от обеих улиц), из X опускается
- * перпендикуляр на кромку улицы B (основание F). Кусок за биссектрисой —
- * зеркальное отражение куска своей улицы.
- *   острый угол  — верх «ломается» внутрь, участок обрезан;
- *   тупой угол   — участок похож на Г с тупым углом; чтобы сторона вдоль
- *                  поперечной улицы шла по её сетке, верх за биссектрисой
- *                  продолжается на глубине h до ближайшей линии сетки и там
- *                  спускается к улице (F — на линии сетки);
- *   прямой угол  — получается тот же прямоугольник.
- * Если участок короче точки X (u1 < uX), верх упирается в биссектрису раньше:
- * тогда угловой участок — симметричный «воздушный змей» K, A1, Y, F.
- * Возвращает выпуклые части (для проверок), контур и клетки (для отрисовки).
+ *
+ * Острый и прямой угол. Если прямоугольник касается или заходит на поперечную
+ * улицу B, участок становится угловым: он начинается от вершины угла K,
+ * верхняя сторона идёт до биссектрисы (точка X на глубине h от обеих улиц),
+ * из X опускается перпендикуляр на кромку улицы B (основание F). Верх
+ * «ломается» внутрь, участок обрезан; при прямом угле получается тот же
+ * прямоугольник. Если участок короче точки X (u1 < uX), верх упирается в
+ * биссектрису раньше: угловой участок — симметричный «змей» K, A1, Y, F.
+ *
+ * Тупой угол. Прямоугольник на поперечную улицу не заходит, поэтому угловой
+ * участок задаётся явно: выделение тянется за угол, на перекрёсток. Колонки
+ * i0 < 0 — это сколько клеток «заехали» за угол; ровно столько же клеток
+ * откладывается вдоль поперечной улицы B. Участок = прямоугольник по сетке
+ * своей улицы (колонки 0..i1) ∪ прямоугольник по сетке улицы B (колонки
+ * 0..n-1), оба глубиной h. Получается Г с тупым углом, обе стороны вдоль улиц
+ * идут строго по клеткам.
+ *
+ * Возвращает выпуклые части (для проверок и отрисовки) и клетки.
  */
 function shape(l){
 var q=G.quads[l.q],st=q.strips[l.si],o=q.strips[1-l.si],K=st.K,h=(l.j1+1)*s;
 var p0=add(K,mul(st.d,l.i0*s)),p1=add(K,mul(st.d,(l.i1+1)*s));
 var rect=[p0,p1,add(p1,mul(st.n,h)),add(p0,mul(st.n,h))];
 var R=G.roads[1-l.si],pr=proj(rect,R.nu),i,j,c;
-if(!(pr[1]>=R.a-EPS&&pr[0]<=R.b+EPS)){
+var obtuse=q.alpha>Math.PI/2+1e-6;
+if(obtuse&&l.i0<0){
+var n=-l.i0,F0=add(K,mul(o.d,n*s));
+var RA=[K,p1,add(p1,mul(st.n,h)),add(K,mul(st.n,h))],RB=[K,F0,add(F0,mul(o.n,h)),add(K,mul(o.n,h))];
+var cu=[];
+for(i=0;i<=l.i1;i++)for(j=0;j<=l.j1;j++)cu.push(square(st,i,j));
+// клетки улицы B рисуем только вне прямоугольника своей улицы
+for(i=0;i<n;i++)for(j=0;j<=l.j1;j++){c=clipHP(square(o,i,j),K,st.d);if(c.length>=3&&area(c)>0.5)cu.push(c);}
+return {corner:true,parts:[RA,RB],cells:cu,w:'('+(l.i1+1)+'+'+n+')',h:l.j1+1};
+}
+if(obtuse||!(pr[1]>=R.a-EPS&&pr[0]<=R.b+EPS)){
 var cells=[];for(i=l.i0;i<=l.i1;i++)for(j=0;j<=l.j1;j++)cells.push(square(st,i,j));
-return {corner:false,parts:[rect],outline:rect,cells:cells,w:l.i1-l.i0+1,h:l.j1+1};
+return {corner:false,parts:[rect],cells:cells,w:l.i1-l.i0+1,h:l.j1+1};
 }
 var a2=q.alpha/2,u1=(l.i1+1)*s,uX=h/Math.tan(a2),T,F,PA,PB,cB;
 if(u1>uX){
@@ -204,9 +218,7 @@ cB=uX;F=add(K,mul(o.d,uX));PB=[K,F,T];
 var cl=[];
 for(i=0;i<=l.i1;i++)for(j=0;j<=l.j1;j++){c=clip(square(st,i,j),K,q.m,st.sg);if(c.length>=3&&area(c)>0.5)cl.push(c);}
 for(i=0;i<Math.ceil(cB/s-1e-6);i++)for(j=0;j<=l.j1;j++){c=clipHP(clip(square(o,i,j),K,q.m,o.sg),add(K,mul(o.d,cB)),o.d);if(c.length>=3&&area(c)>0.5)cl.push(c);}
-// контур: часть своей улицы K..T, затем часть поперечной (PB = K, ..., T) обратно от T к K
-var back=PB.slice(1,PB.length-1).reverse();
-return {corner:true,parts:[PA,PB],outline:PA.concat(back),cells:cl,w:l.i1+1,h:l.j1+1};
+return {corner:true,parts:[PA,PB],cells:cl,w:l.i1+1,h:l.j1+1};
 }
 // причина невалидности участка или null
 function check(l,skip){
@@ -228,21 +240,23 @@ if(u>=0&&u<N&&w>=0&&w<D&&st.sg*cr(st.m,v)>=0)return {q:q,si:si,i:Math.floor(u),j
 return null;
 }
 function local(P,q,si){
-var st=G.quads[q].strips[si],v=sub(P,st.K);
-return {i:Math.max(0,Math.min(N-1,Math.floor(dot(v,st.d)/s))),j:Math.max(0,Math.min(D-1,Math.floor(dot(v,st.n)/s)))};
+// в тупом углу выделение можно тянуть за угол (отрицательные колонки)
+var st=G.quads[q].strips[si],v=sub(P,st.K),lo=G.quads[q].alpha>Math.PI/2+1e-6?-(N-1):0;
+return {i:Math.max(lo,Math.min(N-1,Math.floor(dot(v,st.d)/s))),j:Math.max(0,Math.min(D-1,Math.floor(dot(v,st.n)/s)))};
 }
 function selLot(){
 if(!drag)return null;
 return {q:drag.q,si:drag.si,i0:Math.min(drag.i,drag.ci),i1:Math.max(drag.i,drag.ci),j1:Math.max(drag.j,drag.cj)};
 }
 
+// участок — объединение выпуклых частей: сначала толстая обводка всех частей,
+// поверх заливка без обводки — внутренние стыки частей не видны
 function lotSvg(l,fill,stroke,op,sw){
-var S=shape(l),out='<g>';
-out+='<polygon points="'+pts(S.outline)+'" fill="'+fill+'" fill-opacity="'+op+'" stroke="none"/>';
-// клетки участка
+var S=shape(l),out='<g opacity="'+op+'">';
+S.parts.forEach(function(P){out+='<polygon points="'+pts(P)+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+(2*sw)+'" stroke-linejoin="round"/>'});
+S.parts.forEach(function(P){out+='<polygon points="'+pts(P)+'" fill="'+fill+'" stroke="none"/>'});
 S.cells.forEach(function(c){out+='<polygon points="'+pts(c)+'" fill="none" stroke="'+stroke+'" stroke-width="0.5" stroke-opacity="0.6"/>'});
-out+='<polygon points="'+pts(S.outline)+'" fill="none" stroke="'+stroke+'" stroke-width="'+sw+'"/>';
-var cx=0,cy=0;S.outline.forEach(function(p){cx+=p[0];cy+=p[1]});cx/=S.outline.length;cy/=S.outline.length;
+var P0=S.parts[0],cx=0,cy=0;P0.forEach(function(p){cx+=p[0];cy+=p[1]});cx/=P0.length;cy/=P0.length;
 out+='<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" font-size="'+(11/k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600">'+S.w+'×'+S.h+'</text>';
 return out+'</g>';
 }
