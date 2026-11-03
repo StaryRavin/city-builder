@@ -285,7 +285,11 @@ var en=S.ends[e],c=en.corner;if(!c)return;
 if(l.ext&&l.ext.end===e){if(!isObtuse(c)){bad='range';return}flags[e]='ext';if(e==='a')u0=0;else u1=S.E;return}
 if(isObtuse(c))return;
 var rect=[P(u0,0),P(u1,0),P(u1,h),P(u0,h)];
-if(overlaps(rect,G.bandOf[en.other.split(':')[0]].poly,-EPS)){flags[e]='acute';if(e==='a')u0=0;else u1=S.E;}
+// касание соседней улицы — по линии её кромки через K (а не по прямоугольнику
+// её звена: короткое звено может не доходить до вершины угла)
+// касание — заход за кромку соседней улицы на луче от K вдоль неё
+var of=otherFrame(en),beyond=clipHP(rect,add(en.K,mul(of.n,EPS)),of.n);
+if(beyond.some(function(q){return dot(sub(q,en.K),of.d)>=-EPS})){flags[e]='acute';if(e==='a')u0=0;else u1=S.E;}
 });
 if(bad)return {bad:bad,parts:[]};
 var R=[P(u0,0),P(u1,0),P(u1,h),P(u0,h)];
@@ -324,7 +328,7 @@ nx=n;
 }
 });
 if(bad)return {bad:bad,parts:[]};
-return {corner:!!(flags.a||flags.b),parts:parts,cells:cells,w:nx?'('+wl+'+'+nx+')':wl,h:l.j1+1};
+return {corner:!!(flags.a||flags.b),flags:flags,parts:parts,cells:cells,w:nx?'('+wl+'+'+nx+')':wl,h:l.j1+1};
 }
 function check(l,skip){
 var S=shape(l);if(S.bad)return S.bad;
@@ -341,7 +345,8 @@ function colAt(S,u){return Math.max(0,Math.min(S.nC-1,Math.floor((u-S.a0)/S.cw))
 // точка ближе к какой-то другой улице, чем к своей (own — расстояние до своей кромки)?
 // так же, как биссектриса делит угол, это делит клетки в тесных кварталах
 function closerElsewhere(P,seg,own){
-return G.bands.some(function(b){return b.seg!==undefined&&b.seg!==seg&&segDist(P,b.A,b.B)-W<own-0.5});
+return G.bands.some(function(b){if(b.seg===undefined||b.seg===seg)return false;var o=segDist(P,b.A,b.B)-W;
+return o<own-0.5||(Math.abs(o-own)<=0.5&&b.seg<seg);}); // при равенстве — улице с меньшим номером
 }
 function hitCell(P){
 if(onRoad(P))return null;
@@ -382,7 +387,7 @@ return {type:'free',P:[Math.round(P[0]/s)*s,Math.round(P[1]/s)*s]};
 // новый узел стоял на сетке обеих дорог
 function gridPointsOn(id,C){
 var g=segs[id],E=segEnds(g),A=E[0],B=E[1],L=len(sub(B,A)),t=nrm(sub(B,A)),ph=segPh(g),cw=segCw(g),out=[];
-for(var u=ph-Math.floor(ph/cw)*cw;u<=L-cw+1e-6;u+=cw){if(u<cw-1e-6)continue;
+for(var u=ph-Math.floor(ph/cw)*cw;u<=L-2*cw+1e-6;u+=cw){if(u<2*cw-1e-6)continue;
 var P=add(A,mul(t,u)),d=len(sub(P,C))/s,n=Math.round(d);
 if(n>=2&&isWhole(d))out.push({type:'split',seg:+id,u:u,P:P});}
 return out;
@@ -487,7 +492,7 @@ return out+'</g>';
 }
 function drawStatic(){
 derive();
-var cells='',roads='',dash='',nd='';
+var cells='',roads='',dash='',nd='';G.drawn=[];
 Object.keys(G.hs).forEach(function(k){var S=G.hs[k],fa=frame(k,'a');
 for(var i=0;i<S.nC;i++)for(var j=0;j<D;j++){
 var c=cellF(fa,i,j),kind='full';if(!c)continue;
@@ -496,6 +501,7 @@ if(c.length<3)continue;var ar=area(c);if(ar<1)continue;if(ar<S.cw*s-0.5)kind='co
 if(G.bands.some(function(b){return overlaps(c,b.poly,EPS)}))continue;
 var ce=[0,0];c.forEach(function(p){ce[0]+=p[0]/c.length;ce[1]+=p[1]/c.length});
 if(closerElsewhere(ce,S.seg,dot(sub(ce,S.ends.a.K),S.n)))continue;
+G.drawn.push({key:k,i:i,j:j,ce:ce,poly:c});
 cells+='<polygon class="ns" points="'+pts(c)+'" fill="'+(kind==='full'?'#9ED38F':'#F2B866')+'" stroke="'+(kind==='full'?'#6FA862':'#B27A24')+'" stroke-width="0.6"/>';
 }});
 Object.keys(segs).forEach(function(id){var E=segEnds(segs[id]);
@@ -603,6 +609,10 @@ drawStatic();idle();
 window.__dbg={
 toScreen:function(P){var pt=sv.createSVGPoint();pt.x=P[0]*view.k+view.tx;pt.y=P[1]*view.k+view.ty;var r=pt.matrixTransform(sv.getScreenCTM());return [r.x,r.y]},
 clearLots:function(){lots=[];drawLots()},
+// внутренние функции для стресс-тестов
+api:{G:function(){return G},overlaps:overlaps,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
+snap:snap,endFor:endFor,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
+reset:function(){nodes={};segs={};lots=[];nid=1;sid=1;drawStatic()}},
 // инвариант: каждый узел стоит на линии сетки каждой своей дороги
 gridCheck:function(){var bad=[];Object.keys(segs).forEach(function(id){var g=segs[id],E=segEnds(g),L=len(sub(E[1],E[0])),cw=segCw(g),ph=segPh(g);
 function on(u){var r=((u-ph)%cw+cw)%cw;return Math.min(r,cw-r)<0.05}
