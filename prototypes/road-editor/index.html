@@ -82,9 +82,10 @@
  * обеих сторонах дороги и без сдвига продолжается через прямые узлы.
  * Неровность (неполная клетка) остаётся только внутри углов — там, где клетки
  * и так обрезает биссектриса и угловые участки забирают всё до вершины.
- * Если звено соединяет два существующих узла на расстоянии, не кратном
- * клетке, сетка привязывается к более важному концу (тупой угол > острый >
- * прямое продолжение > тупик), а остаток уходит на другой.
+ * Длина звена всегда кратна клетке: к узлу можно подключиться, только если
+ * расстояние до него целое, иначе конец съезжает вбок от узла — на одну из
+ * его дорог (Т-перекрёсток). Если звено разрезано перекрёстком не по линии
+ * сетки, обе половины наследуют сетку исходной дороги (фаза ph).
  *
  * Участки — как в прототипе перекрёстка (prototypes/crossroads):
  * прямоугольник от улицы по сетке одной стороны звена; острый угол — угловой
@@ -188,7 +189,10 @@ faces[key(e.seg,faceSide(e,face),e.end)]={K:add(P,mul(nv,W)),d:e.r,n:nv,corner:n
 if(deg<2)return;
 for(var i=0;i<deg;i++){
 var e1=list[i],e2=list[(i+1)%deg],phi=e2.ang-e1.ang;if(phi<=1e-9)phi+=2*Math.PI;
-if(phi>=Math.PI-1e-3)continue;
+if(phi>=Math.PI-1e-3){
+// прямое продолжение: отметить грани, их концы сдвинем на линию сетки
+if(Math.abs(phi-Math.PI)<1e-3){faces[key(e1.seg,faceSide(e1,1),e1.end)].straight=true;faces[key(e2.seg,faceSide(e2,-1),e2.end)].straight=true;}
+continue;}
 var m=nrm(add(e1.r,e2.r)),K=add(P,mul(m,W/Math.sin(phi/2)));
 var k1=key(e1.seg,faceSide(e1,1),e1.end),k2=key(e2.seg,faceSide(e2,-1),e2.end);
 var c={K:K,alpha:phi,m:m,node:+n,keys:[k1,k2]};corners.push(c);
@@ -196,11 +200,18 @@ faces[k1].K=K;faces[k1].corner=c;faces[k1].other=k2;
 faces[k2].K=K;faces[k2].corner=c;faces[k2].other=k1;
 }
 });
-// стороны звеньев: одна непрерывная сетка на сторону, без шва посередине.
-// Сетка привязана к одному концу; остаток длины уходит в неполную клетку на
-// другом конце. Привязка — к концу, где сетка важнее: тупой угол > острый
-// угол > прямое продолжение / внешняя сторона поворота > тупик.
-function rank(f){if(!f.corner)return f.dead?0:1;return f.corner.alpha>Math.PI/2+1e-6?3:2}
+// на прямом продолжении конец стороны — ближайшая к узлу линия сетки (у обоих
+// звеньев сетка общая, поэтому это одна и та же точка): клетка, через которую
+// проходит узел, целиком достаётся одному звену, а не режется пополам
+Object.keys(segs).forEach(function(id){
+var b=bandOf[id],ph=segs[id].ph||0;
+[1,-1].forEach(function(side){
+var fa=faces[key(id,side,'a')],fb=faces[key(id,side,'b')];
+if(fa.straight)fa.K=add(fa.K,mul(b.t,ph-s*Math.round(ph/s)));
+if(fb.straight)fb.K=add(fb.K,mul(b.t,ph+s*Math.round((b.L-ph)/s)-b.L));
+});
+});
+// стороны звеньев: одна непрерывная сетка на сторону, без шва посередине
 Object.keys(segs).forEach(function(id){
 var b=bandOf[id];
 [1,-1].forEach(function(side){
@@ -210,9 +221,10 @@ var E=dot(sub(fb.K,b.A),b.t)-dot(sub(fa.K,b.A),b.t);
 // вершин углов: если длина звена кратна клетке, сетка целая по всей длине,
 // совпадает на обеих сторонах дороги и продолжается через прямые узлы;
 // неровность остаётся только в углах, где клетки и так режет биссектриса
-var uA=dot(sub(add(b.A,mul(fa.n,W)),fa.K),b.t),uB=dot(sub(add(b.B,mul(fa.n,W)),fa.K),b.t);
-var whole=Math.abs(b.L/s-Math.round(b.L/s))<0.02;
-var anchor=whole?'node':(rank(fa)>=rank(fb)?'a':'b'),a0=offFor(anchor==='b'?uB:uA);
+// ph — фаза сетки звена: линии на расстоянии ph + k·s от узла a (при делении
+// звена обе половины наследуют сетку исходной дороги)
+var uA=dot(sub(add(b.A,mul(fa.n,W)),fa.K),b.t);
+var anchor='node',a0=offFor(uA+(segs[id].ph||0));
 var nC=E>1e-6?Math.max(0,Math.ceil((E-a0)/s-1e-6)):0;
 function end(f,dir){return {K:f.K,dir:dir,corner:f.corner,other:f.other,sg:f.corner?Math.sign(cr(f.corner.m,dir)):0}}
 var k=id+':'+side;
@@ -334,30 +346,65 @@ return l;
 }
 
 // ---------- дороги: привязка и проверка звена ----------
+function segPh(g){return g.ph||0}
+// начало звена: узел, линия сетки на существующей дороге или точка сетки поля
 function snap(P,exclude){
 var best=null,bd=W*1.3;
 for(var n in nodes){if(+n===exclude)continue;var d=len(sub(P,[nodes[n].x,nodes[n].y]));if(d<bd){bd=d;best={type:'node',id:+n,P:[nodes[n].x,nodes[n].y]}}}
 if(best)return best;
 for(var id in segs){var E=segEnds(segs[id]),A=E[0],B=E[1],L=len(sub(B,A)),t=nrm(sub(B,A)),u=dot(sub(P,A),t);
 if(u<0||u>L||Math.abs(cr(t,sub(P,A)))>W)continue;
-var uu=Math.round(u/s)*s;
+var ph=segPh(segs[id]),uu=ph+Math.round((u-ph)/s)*s;
 if(uu>=2*s-1e-6&&L-uu>=2*s-1e-6)return {type:'split',seg:+id,u:uu,P:add(A,mul(t,uu))};
 }
 return {type:'free',P:[Math.round(P[0]/s)*s,Math.round(P[1]/s)*s]};
 }
-function endFor(S,P){
-var E=snap(P,S.type==='node'?S.id:null);
-if(E.type==='free'){
-var v=sub(P,S.P),L=Math.max(s,Math.round(len(v)/s)*s),a=Math.atan2(v[1],v[0]),st=5*Math.PI/180;
-a=Math.round(a/st)*st;E={type:'free',P:add(S.P,[L*Math.cos(a),L*Math.sin(a)])};
+// точки на звене id на расстоянии R от C (не ближе клетки к концам звена)
+function circleOnSeg(id,C,R){
+var E=segEnds(segs[id]),A=E[0],B=E[1],L=len(sub(B,A)),t=nrm(sub(B,A)),m=dot(sub(C,A),t),h=cr(t,sub(C,A)),out=[];
+if(R*R<h*h)return out;
+var q=Math.sqrt(R*R-h*h);
+[m-q,m+q].forEach(function(u){if(u>=s-1e-6&&u<=L-s+1e-6)out.push({type:'split',seg:+id,u:u,P:add(A,mul(t,u))})});
+return out;
 }
-return E;
+/*
+ * Конец звена. Длина звена всегда кратна клетке — так сетка нигде не
+ * «ломается». Поэтому:
+ * - узел: только если расстояние до него целое; иначе конец съезжает вбок от
+ *   узла — на одну из его дорог, в точку на целом расстоянии (получится
+ *   Т-перекрёсток рядом с узлом);
+ * - дорога под курсором: точка на ней на целом расстоянии от начала;
+ * - свободная точка: длина кратна клетке, направление — шаг 5°.
+ */
+function endFor(S,P){
+var ex=S.type==='node'?S.id:null,nd=null,bd=W*1.3;
+for(var n in nodes){if(+n===ex)continue;var d0=len(sub(P,[nodes[n].x,nodes[n].y]));if(d0<bd){bd=d0;nd=+n}}
+if(nd!==null){
+var NP=[nodes[nd].x,nodes[nd].y],d=len(sub(NP,S.P));
+if(Math.abs(d/s-Math.round(d/s))<0.02)return {type:'node',id:nd,P:NP};
+var cand=[];
+Object.keys(segs).forEach(function(id){var g=segs[id];if(g.a!==nd&&g.b!==nd)return;if(S.type==='split'&&S.seg===+id)return;if(ex!==null&&(g.a===ex||g.b===ex))return;
+[Math.floor(d/s)*s,Math.ceil(d/s)*s].forEach(function(R){cand=cand.concat(circleOnSeg(id,S.P,R))});});
+cand.sort(function(x,y){return len(sub(x.P,NP))-len(sub(y.P,NP))});
+if(cand.length)return cand[0];
+return {type:'node',id:nd,P:NP};
+}
+for(var id in segs){var g2=segs[id];if(S.type==='split'&&S.seg===+id)continue;if(ex!==null&&(g2.a===ex||g2.b===ex))continue;
+var E2=segEnds(g2);if(segDist(P,E2[0],E2[1])>W)continue;
+var dd=len(sub(P,S.P)),c2=[];
+[Math.round(dd/s)*s,Math.round(dd/s)*s-s,Math.round(dd/s)*s+s].forEach(function(R){if(R>=s)c2=c2.concat(circleOnSeg(id,S.P,R))});
+c2.sort(function(x,y){return len(sub(x.P,P))-len(sub(y.P,P))});
+if(c2.length)return c2[0];
+}
+var v=sub(P,S.P),L=Math.max(s,Math.round(len(v)/s)*s),a=Math.atan2(v[1],v[0]),st=5*Math.PI/180;
+a=Math.round(a/st)*st;return {type:'free',P:add(S.P,[L*Math.cos(a),L*Math.sin(a)])};
 }
 var WHY={short:'звено короче 2 клеток',dup:'такое звено уже есть',along:'звено идёт вдоль существующей дороги',
-angle:'угол между дорогами меньше 20°',cross:'пересекает дорогу не в узле',near:'слишком близко к другой дороге'};
+angle:'угол между дорогами меньше 20°',odd:'расстояние до узла не кратно клетке',cross:'пересекает дорогу не в узле',near:'слишком близко к другой дороге'};
 function validate(S,E){
 var A=S.P,B=E.P,L=len(sub(B,A));
 if(L<2*s-1e-6)return 'short';
+if(Math.abs(L/s-Math.round(L/s))>0.02)return 'odd';
 var t=nrm(sub(B,A));
 if(S.type==='node'&&E.type==='node'){for(var id in segs){var g=segs[id];if((g.a===S.id&&g.b===E.id)||(g.b===S.id&&g.a===E.id))return 'dup'}}
 if(S.type==='split'&&E.type==='split'&&S.seg===E.seg)return 'along';
@@ -381,7 +428,7 @@ function nodeAt(X){
 if(X.type==='node')return X.id;
 var n=nid++;nodes[n]={x:X.P[0],y:X.P[1]};
 if(X.type==='split'){var g=segs[X.seg];delete segs[X.seg];
-segs[sid++]={a:g.a,b:n};segs[sid++]={a:n,b:g.b};
+var ph=segPh(g);segs[sid++]={a:g.a,b:n,ph:ph};segs[sid++]={a:n,b:g.b,ph:((ph-X.u)%s+s)%s};
 lots=lots.filter(function(l){return l.key.split(':')[0]!==String(X.seg)});}
 return n;
 }
@@ -389,7 +436,7 @@ function addRoad(S,E){
 var a=nodeAt(S);
 if(E.type==='split'&&S.type==='split'&&E.seg===S.seg)return;
 // если начало разделило звено, на котором лежит конец, — найти новую половину
-if(E.type==='split'&&!segs[E.seg]){E=snap(E.P,a);if(E.type!=='split'&&E.type!=='node')E={type:'free',P:E.P};}
+if(E.type==='split'&&!segs[E.seg]){for(var id in segs){var GE=segEnds(segs[id]);if(segDist(E.P,GE[0],GE[1])<1e-3){E={type:'split',seg:+id,u:len(sub(E.P,GE[0])),P:E.P};break}}}
 var b=nodeAt(E);
 segs[sid++]={a:a,b:b};
 }
@@ -469,7 +516,7 @@ var out='<line x1="'+S.P[0]+'" y1="'+S.P[1]+'" x2="'+E.P[0].toFixed(1)+'" y2="'+
 document.getElementById('prev').innerHTML=out;
 var L=len(sub(E.P,S.P))/s;
 var odd=Math.abs(L-Math.round(L))>0.02;
-stEl.textContent='Звено '+(odd?L.toFixed(1):Math.round(L))+' кл.: '+(why?'нельзя — '+WHY[why]:'можно построить')+(E.type==='split'||S.type==='split'?' (появится перекрёсток)':'')+(!why&&odd?'. Длина не кратна клетке — у одного конца будет неполная клетка':'');
+stEl.textContent='Звено '+(odd?L.toFixed(1):Math.round(L))+' кл.: '+(why?'нельзя — '+WHY[why]:'можно построить')+(E.type==='split'||S.type==='split'?' (появится перекрёсток)':'');
 }
 function previewLot(){
 var l=selLot(),why=check(l,null),S=shape(l);
