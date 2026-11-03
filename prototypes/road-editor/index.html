@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Редактор дорог</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fafaf7; --fg:#1d1d1b; --muted:#6a6a64; --btn:#ecebe4; --btn-b:#cfcdc2; --on:#2f6f8f; --on-fg:#fff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1b1b19; --fg:#ecece6; --muted:#9a9a92; --btn:#2a2a27; --btn-b:#44443f; --on:#4b93b8; --on-fg:#0d1418; } }
+  :root[data-theme="dark"] { --bg:#1b1b19; --fg:#ecece6; --muted:#9a9a92; --btn:#2a2a27; --btn-b:#44443f; --on:#4b93b8; --on-fg:#0d1418; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:860px; margin:0 auto; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
+  .grp { display:flex; gap:0; }
+  .grp button { border-radius:0; margin-left:-1px; }
+  .grp button:first-child { border-radius:6px 0 0 6px; margin-left:0; }
+  .grp button:last-child { border-radius:0 6px 6px 0; }
+  button { font:inherit; font-size:13px; color:var(--fg); background:var(--btn); border:1px solid var(--btn-b); border-radius:6px; padding:5px 12px; cursor:pointer; white-space:nowrap; }
+  button[aria-pressed="true"] { background:var(--on); color:var(--on-fg); border-color:var(--on); }
+  .sp { flex:1; }
+  #hint { color:var(--muted); font-size:13px; margin:0 0 6px; min-height:1.5em; }
+  svg { width:100%; height:auto; display:block; touch-action:none; user-select:none; -webkit-user-select:none; border-radius:6px; }
+  .ns { vector-effect:non-scaling-stroke; }
+  #st { font-size:13px; color:var(--muted); margin:6px 0 0; min-height:1.5em; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:12px; color:var(--muted); margin-top:6px; }
+  .legend i { display:inline-block; width:12px; height:12px; vertical-align:-2px; margin-right:5px; border:1px solid rgba(0,0,0,.35); }
+</style>
+</head>
+<body>
+<main>
+<div class="bar">
+  <div class="grp" role="group" aria-label="Режим">
+    <button id="m-road" type="button" aria-pressed="true">Дороги</button>
+    <button id="m-lot" type="button" aria-pressed="false">Участки</button>
+    <button id="m-pan" type="button" aria-pressed="false">Двигать</button>
+  </div>
+  <div class="grp" role="group" aria-label="Масштаб">
+    <button id="z-out" type="button" aria-label="Отдалить">−</button>
+    <button id="z-in" type="button" aria-label="Приблизить">+</button>
+  </div>
+  <span class="sp"></span>
+  <button id="b-demo" type="button">Пример</button>
+  <button id="b-clr" type="button">Очистить</button>
+</div>
+<p id="hint"></p>
+<svg id="sv" viewBox="0 0 680 460" role="img" aria-label="Поле для строительства дорог и участков">
+<rect x="0" y="0" width="680" height="460" fill="#E6E0CC"/>
+<g id="world"><g id="cells"></g><g id="roads"></g><g id="lots"></g><g id="nodes"></g><g id="prev"></g></g>
+</svg>
+<p id="st"></p>
+<div class="legend">
+  <span><i style="background:#9ED38F"></i>Клетка зоны</span>
+  <span><i style="background:#F2B866"></i>Угловая клетка</span>
+  <span><i style="background:#C8553D"></i>Участок</span>
+  <span><i style="background:#3E9B5B;opacity:.6"></i>Можно</span>
+  <span><i style="background:#D9363E;opacity:.6"></i>Нельзя</span>
+</div>
+</main>
+
+<script>
+/*
+ * Редактор дорог и участков.
+ *
+ * Дороги — граф: узлы и прямые звенья между ними, ширина дороги 2W.
+ * - Звено тянется от точки до точки. Начало и конец цепляются к существующему
+ *   узлу или к точке на звене (кратной клетке от его начала — звено делится,
+ *   появляется перекрёсток). Свободный конец: длина кратна клетке, угол — 5°.
+ * - Пересекаться дороги могут только в узлах: звено, которое пересекает
+ *   другое посередине или подходит к нему ближе ширины дороги, невалидно.
+ *   Угол между звеньями в узле — не меньше 20°.
+ *
+ * Сетка зонирования. У каждой стороны каждого звена две «полуполосы» клеток
+ * s×s глубиной D — от каждого конца к середине. Начало полуполосы:
+ * - если в узле со стороны полуполосы есть соседнее звено под углом < 180°,
+ *   это угол квартала: начало — вершина угла K (пересечение кромок дорог),
+ *   клетки у угла обрезаются биссектрисой;
+ * - иначе (тупик, прямое продолжение, внешняя сторона поворота) — проекция
+ *   узла на кромку дороги.
+ * Колонки делятся между двумя концами пополам; если длина стороны не кратна
+ * клетке, в середине остаётся узкий шов без клеток.
+ *
+ * Участки — как в прототипе перекрёстка (prototypes/crossroads):
+ * прямоугольник от улицы по сетке одной полуполосы; острый угол — угловой
+ * участок с изломом на биссектрисе; тупой угол — тянем за угол, столько же
+ * клеток откладывается вдоль соседней улицы. Участок невалиден, если заходит
+ * на дорогу или на другой участок.
+ */
+(function(){
+var s=16,W=16,D=4,EPS=0.5,MINANG=20*Math.PI/180,VW=680,VH=460;
+function add(a,b){return [a[0]+b[0],a[1]+b[1]]}
+function sub(a,b){return [a[0]-b[0],a[1]-b[1]]}
+function mul(a,k){return [a[0]*k,a[1]*k]}
+function dot(a,b){return a[0]*b[0]+a[1]*b[1]}
+function len(a){return Math.hypot(a[0],a[1])}
+function nrm(a){var l=len(a);return [a[0]/l,a[1]/l]}
+function cr(a,b){return a[0]*b[1]-a[1]*b[0]}
+function area(p){var a=0;for(var i=0;i<p.length;i++){var q=p[(i+1)%p.length];a+=p[i][0]*q[1]-q[0]*p[i][1]}return Math.abs(a)/2}
+function pts(p){return p.map(function(q){return q[0].toFixed(1)+','+q[1].toFixed(1)}).join(' ')}
+function proj(poly,ax){var lo=Infinity,hi=-Infinity;poly.forEach(function(p){var v=dot(p,ax);if(v<lo)lo=v;if(v>hi)hi=v});return [lo,hi]}
+// выпуклые многоугольники перекрываются; e > 0 — касание не считается, e < 0 — считается
+function overlaps(P,Q,e){
+var polys=[P,Q];
+for(var t=0;t<2;t++){var R=polys[t];
+for(var i=0;i<R.length;i++){var ed=sub(R[(i+1)%R.length],R[i]);if(len(ed)<1e-9)continue;var ax=nrm([-ed[1],ed[0]]);
+var a=proj(P,ax),b=proj(Q,ax);
+if(a[1]<=b[0]+e||b[1]<=a[0]+e)return false;}}
+return true;
+}
+function inside(P,poly){
+var sgn=0;
+for(var i=0;i<poly.length;i++){var c=cr(sub(poly[(i+1)%poly.length],poly[i]),sub(P,poly[i]));
+if(Math.abs(c)>1e-9){if(sgn===0)sgn=Math.sign(c);else if(Math.sign(c)!==sgn)return false;}}
+return true;
+}
+// отсечение полуплоскостью по одну сторону биссектрисы (луч из K в направлении m)
+function clip(poly,K,m,sg){
+var out=[];
+for(var i=0;i<poly.length;i++){
+var a=poly[i],b=poly[(i+1)%poly.length];
+var ga=sg*cr(m,sub(a,K)),gb=sg*cr(m,sub(b,K));
+if(ga>=0)out.push(a);
+if((ga>=0)!==(gb>=0)){var t=ga/(ga-gb);out.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]);}
+}
+return out;
+}
+// отсечение полуплоскостью dot(p - P0, nv) <= 0
+function clipHP(poly,P0,nv){
+var out=[];
+for(var i=0;i<poly.length;i++){
+var a=poly[i],b=poly[(i+1)%poly.length],ga=-dot(sub(a,P0),nv),gb=-dot(sub(b,P0),nv);
+if(ga>=0)out.push(a);
+if((ga>=0)!==(gb>=0)){var t=ga/(ga-gb);out.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]);}
+}
+return out;
+}
+function segDist(p,a,b){var ab=sub(b,a),l2=dot(ab,ab),t=l2?Math.max(0,Math.min(1,dot(sub(p,a),ab)/l2)):0;return len(sub(p,add(a,mul(ab,t))))}
+function segsCross(a,b,c,d){
+var d1=cr(sub(b,a),sub(c,a)),d2=cr(sub(b,a),sub(d,a)),d3=cr(sub(d,c),sub(a,c)),d4=cr(sub(d,c),sub(b,c));
+return ((d1>0)!==(d2>0))&&((d3>0)!==(d4>0))&&d1!==0&&d2!==0&&d3!==0&&d4!==0;
+}
+function segSegDist(a,b,c,d){if(segsCross(a,b,c,d))return 0;return Math.min(segDist(a,c,d),segDist(b,c,d),segDist(c,a,b),segDist(d,a,b))}
+function angBetween(u,v){return Math.acos(Math.max(-1,Math.min(1,dot(u,v))))}
+
+// ---------- состояние ----------
+var nodes={},segs={},nid=1,sid=1,lots=[];
+var view={k:1,tx:0,ty:0},mode='road',G=null,drag=null;
+
+function segEnds(g){return [[nodes[g.a].x,nodes[g.a].y],[nodes[g.b].x,nodes[g.b].y]]}
+
+// ---------- производная геометрия: полосы дорог, углы, полуполосы ----------
+function derive(){
+var bands=[],bandOf={},inc={},hs={},corners=[];
+Object.keys(segs).forEach(function(id){
+var g=segs[id],E=segEnds(g),A=E[0],B=E[1],t=nrm(sub(B,A)),nl=[-t[1],t[0]],L=len(sub(B,A));
+var poly=[add(A,mul(nl,W)),add(B,mul(nl,W)),add(B,mul(nl,-W)),add(A,mul(nl,-W))];
+var b={seg:+id,poly:poly,A:A,B:B,t:t,nl:nl,L:L};bands.push(b);bandOf[id]=b;
+(inc[g.a]=inc[g.a]||[]).push({seg:+id,end:'a',r:t});
+(inc[g.b]=inc[g.b]||[]).push({seg:+id,end:'b',r:mul(t,-1)});
+});
+// узлы-«пятачки»: вписанные восьмиугольники радиуса W
+Object.keys(inc).forEach(function(n){var c=[nodes[n].x,nodes[n].y],p=[];
+for(var i=0;i<8;i++){var a=i*Math.PI/4+Math.PI/8;p.push([c[0]+W*Math.cos(a),c[1]+W*Math.sin(a)])}
+bands.push({node:+n,poly:p});});
+// грани узла: plus — нормаль rot90(r), к следующему лучу; minus — к предыдущему
+function faceSide(e,face){return (e.end==='a')===(face>0)?1:-1}
+function key(seg,side,end){return seg+':'+side+':'+end}
+var faces={};
+Object.keys(inc).forEach(function(n){
+var P=[nodes[n].x,nodes[n].y],list=inc[n];
+list.forEach(function(e){e.ang=Math.atan2(e.r[1],e.r[0])});
+list.sort(function(a,b){return a.ang-b.ang});
+var deg=list.length;
+list.forEach(function(e){
+[1,-1].forEach(function(face){
+var nv=face>0?[-e.r[1],e.r[0]]:[e.r[1],-e.r[0]];
+faces[key(e.seg,faceSide(e,face),e.end)]={K:add(P,mul(nv,W)),d:e.r,n:nv,corner:null,other:null};
+});
+});
+if(deg<2)return;
+for(var i=0;i<deg;i++){
+var e1=list[i],e2=list[(i+1)%deg],phi=e2.ang-e1.ang;if(phi<=1e-9)phi+=2*Math.PI;
+if(phi>=Math.PI-1e-3)continue;
+var m=nrm(add(e1.r,e2.r)),K=add(P,mul(m,W/Math.sin(phi/2)));
+var k1=key(e1.seg,faceSide(e1,1),e1.end),k2=key(e2.seg,faceSide(e2,-1),e2.end);
+var c={K:K,alpha:phi,m:m,node:+n,keys:[k1,k2]};corners.push(c);
+faces[k1].K=K;faces[k1].corner=c;faces[k1].other=k2;
+faces[k2].K=K;faces[k2].corner=c;faces[k2].other=k1;
+}
+});
+// полуполосы: колонки стороны делятся пополам между двумя концами
+Object.keys(segs).forEach(function(id){
+var b=bandOf[id];
+[1,-1].forEach(function(side){
+var fa=faces[key(id,side,'a')],fb=faces[key(id,side,'b')];
+var E=dot(sub(fb.K,b.A),b.t)-dot(sub(fa.K,b.A),b.t);
+var nT=Math.max(0,Math.floor(E/s+1e-6)),ca=Math.ceil(nT/2),cb=nT-ca;
+[[fa,'a',ca],[fb,'b',cb]].forEach(function(x){
+var f=x[0],k=key(id,side,x[1]);
+hs[k]={key:k,seg:+id,K:f.K,d:f.d,n:f.n,cols:x[2],corner:f.corner,other:f.other,
+sg:f.corner?Math.sign(cr(f.corner.m,f.d)):0};
+});
+});
+});
+G={bands:bands,bandOf:bandOf,hs:hs,corners:corners};
+}
+
+// ---------- участки ----------
+function square(st,i,j){
+var p0=add(st.K,add(mul(st.d,i*s),mul(st.n,j*s))),p1=add(p0,mul(st.d,s));
+return [p0,p1,add(p1,mul(st.n,s)),add(p0,mul(st.n,s))];
+}
+/*
+ * Форма участка (как в prototypes/crossroads):
+ * - обычный: прямоугольник колонок i0..i1 глубиной h от улицы;
+ * - острый (и прямой) угол: если прямоугольник касается соседней улицы угла,
+ *   участок становится угловым — от K, верх до биссектрисы (X), из X
+ *   перпендикуляр на соседнюю улицу (F); короткий — «змей» K, A1, Y, F;
+ * - тупой угол: i0 < 0 — тянули за угол на n = -i0 клеток; участок =
+ *   прямоугольник своей улицы ∪ прямоугольник соседней улицы из n колонок.
+ */
+function shape(l){
+var st=G.hs[l.key];if(!st)return {bad:'gone',parts:[]};
+var c=st.corner,o=c?G.hs[st.other]:null,K=st.K,h=(l.j1+1)*s,i,j,cc;
+if(l.i1>st.cols-1)return {bad:'range',parts:[]};
+var obtuse=c&&c.alpha>Math.PI/2+1e-6;
+var p0=add(K,mul(st.d,l.i0*s)),p1=add(K,mul(st.d,(l.i1+1)*s));
+if(obtuse&&l.i0<0){
+var n=-l.i0;if(n>o.cols)return {bad:'range',parts:[]};
+var F0=add(K,mul(o.d,n*s));
+var RA=[K,p1,add(p1,mul(st.n,h)),add(K,mul(st.n,h))],RB=[K,F0,add(F0,mul(o.n,h)),add(K,mul(o.n,h))];
+var cu=[];
+for(i=0;i<=l.i1;i++)for(j=0;j<=l.j1;j++)cu.push(square(st,i,j));
+for(i=0;i<n;i++)for(j=0;j<=l.j1;j++){cc=clipHP(square(o,i,j),K,st.d);if(cc.length>=3&&area(cc)>0.5)cu.push(cc);}
+return {corner:true,parts:[RA,RB],cells:cu,w:'('+(l.i1+1)+'+'+n+')',h:l.j1+1};
+}
+if(l.i0<0)return {bad:'range',parts:[]};
+var rect=[p0,p1,add(p1,mul(st.n,h)),add(p0,mul(st.n,h))];
+if(!c||obtuse||!overlaps(rect,G.bandOf[o.seg].poly,-EPS)){
+var cells=[];for(i=l.i0;i<=l.i1;i++)for(j=0;j<=l.j1;j++)cells.push(square(st,i,j));
+return {corner:false,parts:[rect],cells:cells,w:l.i1-l.i0+1,h:l.j1+1};
+}
+var a2=c.alpha/2,u1=(l.i1+1)*s,uX=h/Math.tan(a2),T,F,PA,PB,cB;
+if(u1>uX){T=add(K,mul(c.m,h/Math.sin(a2)));PA=[K,p1,add(p1,mul(st.n,h)),T];cB=uX;F=add(K,mul(o.d,uX));PB=[K,F,T];}
+else{T=add(K,mul(c.m,u1/Math.cos(a2)));cB=u1;F=add(K,mul(o.d,u1));PA=[K,p1,T];PB=[K,F,T];}
+var cl=[];
+for(i=0;i<=l.i1;i++)for(j=0;j<=l.j1;j++){cc=clip(square(st,i,j),K,c.m,st.sg);if(cc.length>=3&&area(cc)>0.5)cl.push(cc);}
+for(i=0;i<Math.ceil(cB/s-1e-6);i++)for(j=0;j<=l.j1;j++){cc=clipHP(clip(square(o,i,j),K,c.m,o.sg),add(K,mul(o.d,cB)),o.d);if(cc.length>=3&&area(cc)>0.5)cl.push(cc);}
+return {corner:true,parts:[PA,PB],cells:cl,w:l.i1+1,h:l.j1+1};
+}
+function check(l,skip){
+var S=shape(l);if(S.bad)return S.bad;
+for(var p=0;p<S.parts.length;p++)for(var r=0;r<G.bands.length;r++)if(overlaps(S.parts[p],G.bands[r].poly,EPS))return 'road';
+for(var i=0;i<lots.length;i++){if(lots[i]===skip)continue;var O=shape(lots[i]);
+for(var a=0;a<S.parts.length;a++)for(var b=0;b<O.parts.length;b++)if(overlaps(S.parts[a],O.parts[b],EPS))return 'lot';}
+return null;
+}
+function inLot(P,l){return shape(l).parts.some(function(pp){return inside(P,pp)})}
+function onRoad(P){return G.bands.some(function(b){return inside(P,b.poly)})}
+// полуполоса и клетка под точкой
+function hitCell(P){
+if(onRoad(P))return null;
+for(var k in G.hs){var st=G.hs[k];if(!st.cols)continue;
+var v=sub(P,st.K),u=dot(v,st.d)/s,w=dot(v,st.n)/s;
+if(u>=0&&u<st.cols&&w>=0&&w<D&&(!st.corner||st.sg*cr(st.corner.m,v)>=0))return {key:k,i:Math.floor(u),j:Math.floor(w)};}
+return null;
+}
+function local(P,k){
+var st=G.hs[k],v=sub(P,st.K),lo=0;
+if(st.corner&&st.corner.alpha>Math.PI/2+1e-6)lo=-G.hs[st.other].cols;
+return {i:Math.max(lo,Math.min(st.cols-1,Math.floor(dot(v,st.d)/s))),j:Math.max(0,Math.min(D-1,Math.floor(dot(v,st.n)/s)))};
+}
+
+// ---------- дороги: привязка и проверка звена ----------
+function snap(P,exclude){
+var best=null,bd=W*1.3;
+for(var n in nodes){if(+n===exclude)continue;var d=len(sub(P,[nodes[n].x,nodes[n].y]));if(d<bd){bd=d;best={type:'node',id:+n,P:[nodes[n].x,nodes[n].y]}}}
+if(best)return best;
+for(var id in segs){var E=segEnds(segs[id]),A=E[0],B=E[1],L=len(sub(B,A)),t=nrm(sub(B,A)),u=dot(sub(P,A),t);
+if(u<0||u>L||Math.abs(cr(t,sub(P,A)))>W)continue;
+var uu=Math.round(u/s)*s;
+if(uu>=2*s-1e-6&&L-uu>=2*s-1e-6)return {type:'split',seg:+id,u:uu,P:add(A,mul(t,uu))};
+}
+return {type:'free',P:[Math.round(P[0]/s)*s,Math.round(P[1]/s)*s]};
+}
+function endFor(S,P){
+var E=snap(P,S.type==='node'?S.id:null);
+if(E.type==='free'){
+var v=sub(P,S.P),L=Math.max(s,Math.round(len(v)/s)*s),a=Math.atan2(v[1],v[0]),st=5*Math.PI/180;
+a=Math.round(a/st)*st;E={type:'free',P:add(S.P,[L*Math.cos(a),L*Math.sin(a)])};
+}
+return E;
+}
+var WHY={short:'звено короче 2 клеток',dup:'такое звено уже есть',along:'звено идёт вдоль существующей дороги',
+angle:'угол между дорогами меньше 20°',cross:'пересекает дорогу не в узле',near:'слишком близко к другой дороге'};
+function validate(S,E){
+var A=S.P,B=E.P,L=len(sub(B,A));
+if(L<2*s-1e-6)return 'short';
+var t=nrm(sub(B,A));
+if(S.type==='node'&&E.type==='node'){for(var id in segs){var g=segs[id];if((g.a===S.id&&g.b===E.id)||(g.b===S.id&&g.a===E.id))return 'dup'}}
+if(S.type==='split'&&E.type==='split'&&S.seg===E.seg)return 'along';
+var ends=[[S,A,t],[E,B,mul(t,-1)]];
+for(var id2 in segs){
+var g2=segs[id2],GE=segEnds(g2),ga=GE[0],gb=GE[1],gt=nrm(sub(gb,ga)),shared=false;
+for(var q=0;q<2;q++){var X=ends[q][0],ray=ends[q][2];
+if(X.type==='node'&&(X.id===g2.a||X.id===g2.b)){shared=true;
+var gr=X.id===g2.a?gt:mul(gt,-1);if(angBetween(ray,gr)<MINANG)return 'angle';}
+if(X.type==='split'&&X.seg===+id2){shared=true;
+if(angBetween(ray,gt)<MINANG||angBetween(ray,mul(gt,-1))<MINANG)return 'angle';}
+}
+if(shared)continue;
+var dd=segSegDist(A,B,ga,gb);
+if(dd<1e-6)return 'cross';
+if(dd<2*W+EPS)return 'near';
+}
+return null;
+}
+function nodeAt(X){
+if(X.type==='node')return X.id;
+var n=nid++;nodes[n]={x:X.P[0],y:X.P[1]};
+if(X.type==='split'){var g=segs[X.seg];delete segs[X.seg];
+segs[sid++]={a:g.a,b:n};segs[sid++]={a:n,b:g.b};
+lots=lots.filter(function(l){return l.key.split(':')[0]!==String(X.seg)});}
+return n;
+}
+function addRoad(S,E){
+var a=nodeAt(S);
+if(E.type==='split'&&S.type==='split'&&E.seg===S.seg)return;
+// если начало разделило звено, на котором лежит конец, — найти новую половину
+if(E.type==='split'&&!segs[E.seg]){E=snap(E.P,a);if(E.type!=='split'&&E.type!=='node')E={type:'free',P:E.P};}
+var b=nodeAt(E);
+segs[sid++]={a:a,b:b};
+}
+function removeSeg(id){
+var g=segs[id];delete segs[id];
+[g.a,g.b].forEach(function(n){var used=Object.keys(segs).some(function(k){return segs[k].a===n||segs[k].b===n});if(!used)delete nodes[n]});
+lots=lots.filter(function(l){return l.key.split(':')[0]!==String(id)});
+}
+function segUnder(P){
+var best=null,bd=W;
+for(var id in segs){var E=segEnds(segs[id]),d=segDist(P,E[0],E[1]);if(d<=bd){bd=d;best=+id}}
+return best;
+}
+
+// ---------- отрисовка ----------
+function lotSvg(l,fill,stroke,op,sw){
+var S=shape(l);if(!S.parts.length)return '';
+var out='<g opacity="'+op+'">';
+S.parts.forEach(function(P){out+='<polygon class="ns" points="'+pts(P)+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+(2*sw)+'" stroke-linejoin="round"/>'});
+S.parts.forEach(function(P){out+='<polygon points="'+pts(P)+'" fill="'+fill+'" stroke="none"/>'});
+S.cells.forEach(function(c){out+='<polygon class="ns" points="'+pts(c)+'" fill="none" stroke="'+stroke+'" stroke-width="0.5" stroke-opacity="0.6"/>'});
+var P0=S.parts[0],cx=0,cy=0;P0.forEach(function(p){cx+=p[0];cy+=p[1]});cx/=P0.length;cy/=P0.length;
+out+='<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" font-size="'+(11/view.k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600">'+S.w+'×'+S.h+'</text>';
+return out+'</g>';
+}
+function drawStatic(){
+derive();
+var cells='',roads='',dash='',nd='';
+Object.keys(G.hs).forEach(function(k){var st=G.hs[k];
+for(var i=0;i<st.cols;i++)for(var j=0;j<D;j++){
+var c=square(st,i,j),kind='full';
+if(st.corner){c=clip(c,st.K,st.corner.m,st.sg);if(c.length<3)continue;var ar=area(c);if(ar<1)continue;if(ar<s*s-0.5)kind='corner';}
+if(G.bands.some(function(b){return overlaps(c,b.poly,EPS)}))continue;
+cells+='<polygon class="ns" points="'+pts(c)+'" fill="'+(kind==='full'?'#9ED38F':'#F2B866')+'" stroke="'+(kind==='full'?'#6FA862':'#B27A24')+'" stroke-width="0.6"/>';
+}});
+Object.keys(segs).forEach(function(id){var E=segEnds(segs[id]);
+roads+='<line x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="#5A5F66" stroke-width="'+(2*W)+'" stroke-linecap="round"/>';
+dash+='<line class="ns" x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="#F2F2F2" stroke-width="1.5" stroke-dasharray="8 7"/>';
+});
+if(mode==='road')Object.keys(nodes).forEach(function(n){nd+='<circle class="ns" cx="'+nodes[n].x+'" cy="'+nodes[n].y+'" r="'+(W*0.45)+'" fill="#fff" stroke="#2f6f8f" stroke-width="1.5"/>'});
+document.getElementById('cells').innerHTML=cells;
+document.getElementById('roads').innerHTML=roads+dash;
+document.getElementById('nodes').innerHTML=nd;
+drawLots();
+}
+function drawLots(){
+var out='';
+lots.forEach(function(l){out+=check(l,l)?lotSvg(l,'#D9363E','#8E1B21',0.75,1):lotSvg(l,'#C8553D','#6E2414',1,1)});
+document.getElementById('lots').innerHTML=out;
+}
+function applyView(){document.getElementById('world').setAttribute('transform','translate('+view.tx.toFixed(1)+' '+view.ty.toFixed(1)+') scale('+view.k.toFixed(3)+')');}
+
+var stEl=document.getElementById('st'),hintEl=document.getElementById('hint');
+var HINT={road:'Тяните от точки до точки — получится звено дороги. Начинайте и заканчивайте на узлах или на дороге, чтобы соединить. Тап по дороге удаляет звено.',
+lot:'Зажмите клетку у дороги и тяните — выделится участок. В тупом углу тяните за угол, на перекрёсток. Тап по участку удаляет его.',
+pan:'Тяните поле, чтобы сдвинуть вид. Колесо мыши или кнопки −/+ меняют масштаб.'};
+var LWHY={road:'нельзя — задевает дорогу',lot:'нельзя — пересекается с другим участком',range:'нельзя — выходит за свою часть улицы',gone:'улица удалена'};
+function idle(){
+var bad=lots.filter(function(l){return check(l,l)}).length;
+stEl.textContent='Звеньев: '+Object.keys(segs).length+', узлов: '+Object.keys(nodes).length+', участков: '+lots.length+(bad?', из них невалидных: '+bad:'')+'.';
+}
+function setMode(m){mode=m;['road','lot','pan'].forEach(function(x){document.getElementById('m-'+x).setAttribute('aria-pressed',x===m?'true':'false')});
+hintEl.textContent=HINT[m];document.getElementById('prev').innerHTML='';drawStatic();idle();}
+
+// ---------- ввод ----------
+var sv=document.getElementById('sv');
+function svgPt(e){var pt=sv.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;var p=pt.matrixTransform(sv.getScreenCTM().inverse());return [p.x,p.y]}
+function worldPt(e){var p=svgPt(e);return [(p[0]-view.tx)/view.k,(p[1]-view.ty)/view.k]}
+function selLot(){return {key:drag.key,i0:Math.min(drag.i,drag.ci),i1:Math.max(drag.i,drag.ci),j1:Math.max(drag.j,drag.cj)}}
+function previewRoad(){
+var S=drag.S,E=drag.E,why=validate(S,E),col=why?'#D9363E':'#3E9B5B';
+var out='<line x1="'+S.P[0]+'" y1="'+S.P[1]+'" x2="'+E.P[0].toFixed(1)+'" y2="'+E.P[1].toFixed(1)+'" stroke="'+col+'" stroke-opacity="0.6" stroke-width="'+(2*W)+'" stroke-linecap="round"/>';
+[S,E].forEach(function(X){out+='<circle class="ns" cx="'+X.P[0].toFixed(1)+'" cy="'+X.P[1].toFixed(1)+'" r="'+(W*0.5)+'" fill="'+(X.type==='free'?'#fff':'#2f6f8f')+'" stroke="#1d1d1b" stroke-width="1.5"/>'});
+document.getElementById('prev').innerHTML=out;
+var L=len(sub(E.P,S.P))/s;
+stEl.textContent='Звено '+Math.round(L)+' кл.: '+(why?'нельзя — '+WHY[why]:'можно построить')+(E.type==='split'||S.type==='split'?' (появится перекрёсток)':'');
+}
+function previewLot(){
+var l=selLot(),why=check(l,null),S=shape(l);
+document.getElementById('prev').innerHTML=why?lotSvg(l,'#D9363E','#8E1B21',0.55,1.6):lotSvg(l,'#3E9B5B','#1F6B38',0.55,1.6);
+stEl.textContent=(S.corner?'Угловой участок ':'Участок ')+(S.w||'')+(S.h?'×'+S.h:'')+': '+(why?LWHY[why]:'можно построить');
+}
+sv.addEventListener('pointerdown',function(e){
+var P=worldPt(e);
+try{sv.setPointerCapture(e.pointerId)}catch(_){}
+e.preventDefault();
+if(mode==='pan'){var p=svgPt(e);drag={pan:true,x:p[0],y:p[1],tx:view.tx,ty:view.ty};return}
+if(mode==='road'){var S=snap(P,null);drag={road:true,S:S,E:S,P0:P,moved:false};return}
+var onLot=-1;for(var i=lots.length-1;i>=0;i--)if(inLot(P,lots[i])){onLot=i;break}
+var h=hitCell(P);
+if(!h&&onLot<0){drag=null;return}
+drag=h?{lot:true,key:h.key,i:h.i,j:h.j,ci:h.i,cj:h.j,moved:false,onLot:onLot}:{lot:true,none:true,onLot:onLot,moved:false};
+if(!drag.none)previewLot();
+});
+sv.addEventListener('pointermove',function(e){
+if(!drag)return;
+if(drag.pan){var p=svgPt(e);view.tx=drag.tx+p[0]-drag.x;view.ty=drag.ty+p[1]-drag.y;applyView();return}
+var P=worldPt(e);
+if(drag.road){if(len(sub(P,drag.P0))>s*0.6)drag.moved=true;if(!drag.moved)return;drag.E=endFor(drag.S,P);previewRoad();return}
+if(drag.none)return;
+var c=local(P,drag.key);
+if(c.i!==drag.ci||c.j!==drag.cj){drag.ci=c.i;drag.cj=c.j;drag.moved=true;previewLot();}
+});
+function finish(e){
+if(!drag)return;
+var d=drag;drag=null;document.getElementById('prev').innerHTML='';
+if(d.road){
+if(!d.moved){var g=segUnder(d.P0);if(g!==null){removeSeg(g);drawStatic()}}
+else if(!validate(d.S,d.E)){addRoad(d.S,d.E);drawStatic()}
+}else if(d.lot){
+if(!d.moved&&d.onLot>=0)lots.splice(d.onLot,1);
+else if(!d.none){drag=d;var l=selLot();drag=null;if(!check(l,null))lots.push(l);}
+drawLots();
+}
+idle();
+}
+sv.addEventListener('pointerup',finish);
+sv.addEventListener('pointercancel',function(){drag=null;document.getElementById('prev').innerHTML='';idle()});
+function zoomAt(f,cx,cy){var k=Math.max(0.3,Math.min(4,view.k*f));f=k/view.k;view.tx=cx-(cx-view.tx)*f;view.ty=cy-(cy-view.ty)*f;view.k=k;applyView();drawLots();}
+sv.addEventListener('wheel',function(e){e.preventDefault();var p=svgPt(e);zoomAt(e.deltaY<0?1.15:1/1.15,p[0],p[1])},{passive:false});
+document.getElementById('z-in').addEventListener('click',function(){zoomAt(1.25,VW/2,VH/2)});
+document.getElementById('z-out').addEventListener('click',function(){zoomAt(0.8,VW/2,VH/2)});
+['road','lot','pan'].forEach(function(m){document.getElementById('m-'+m).addEventListener('click',function(){setMode(m)})});
+document.getElementById('b-clr').addEventListener('click',function(){nodes={};segs={};lots=[];drawStatic();idle()});
+document.getElementById('b-demo').addEventListener('click',function(){
+nodes={};segs={};lots=[];nid=1;sid=1;
+function nd(x,y){var n=nid++;nodes[n]={x:x,y:y};return n}
+function sg(a,b){segs[sid++]={a:a,b:b}}
+var c=nd(336,224),th=60*Math.PI/180;
+sg(c,nd(336-14*s,224));sg(c,nd(336+18*s,224));
+sg(c,nd(336+12*s*Math.cos(th),224-12*s*Math.sin(th)));sg(c,nd(336-12*s*Math.cos(th),224+12*s*Math.sin(th)));
+var e=nd(336+18*s,224-12*s);sg(+Object.keys(nodes).find(function(n){return nodes[n].x===336+18*s&&nodes[n].y===224}),e);
+drawStatic();idle();
+});
+
+// отладка для тестов
+window.__dbg={
+toScreen:function(P){var pt=sv.createSVGPoint();pt.x=P[0]*view.k+view.tx;pt.y=P[1]*view.k+view.ty;var r=pt.matrixTransform(sv.getScreenCTM());return [r.x,r.y]},
+cellCenter:function(key,i,j){var st=G.hs[key];return add(st.K,add(mul(st.d,(i+0.5)*s),mul(st.n,(j+0.5)*s)))},
+state:function(){return {nodes:nodes,segs:segs,lots:lots.map(function(l){var S=shape(l);return Object.assign({bad:check(l,l),corner:!!S.corner},l)}),hs:Object.keys(G.hs).map(function(k){var h=G.hs[k];return [k,h.cols,h.corner?Math.round(h.corner.alpha*180/Math.PI):null]})}}
+};
+setMode('road');
+})();
+</script>
+</body>
+</html>
