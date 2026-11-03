@@ -16,4 +16,4 @@ prototypes/
 
 | Прототип | Что исследует | Как запустить |
 |---|---|---|
-| [`prototypes/crossroads`](prototypes/crossroads/) | Нарезка клеток зонирования вдоль двух дорог, пересекающихся под произвольным углом (20°–90°) | Открыть `prototypes/crossroads/index.html` в браузере |
+| [`prototypes/crossroads`](prototypes/crossroads/) | Зонирование у перекрёстка двух дорог под произвольным углом (20°–90°): ручное выделение участков по сетке улицы; автоматическое размещение дома у угла | Открыть `prototypes/crossroads/index.html` (участки) или `corner-house.html` (дом у угла) в браузере |
