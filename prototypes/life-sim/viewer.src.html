@@ -232,21 +232,37 @@ function agentPositions(now){
       const ang=i/list.length*Math.PI*2-Math.PI/2,rad=3.6;pos[a]=[c[0]+Math.cos(ang)*rad,c[1]+Math.sin(ang)*rad]})}
   return pos;
 }
-// где машина жителя: в пути — на дороге (правее оси), иначе стоит у обочины
-// возле своего места (несколько машин — в ряд), у кого Город — в его квадрате
+// где машина жителя: в пути — на дороге (правее оси); иначе стоит на участке
+// рядом со своим зданием носом к нему (несколько — в ряд); у кого Город — в
+// его квадрате за выездом
 function carPoses(now){
   const RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4,cars=new Array(A.n),park=new Map();
   for(let a=0;a<A.n;a++){if(!A.car[a])continue;
     if(L.act[a]===ACT.TRAVEL){const tp=travelPos(a,now);cars[a]={p:tp.p,h:tp.dir?Math.atan2(tp.dir[1],tp.dir[0]):0};continue}
     const p=L.at[a];if(W.places.kind[p]===KIND.OUTSIDE){const c=center(p);cars[a]={p:[c[0]+((a%5)-2)*5.5,c[1]+7.5],h:0};continue}
     (park.get(p)||park.set(p,[]).get(p)).push(a)}
-  for(const [p,list] of park){
-    const e=SNAP.edges[W.places.edge[p]],A0=nodeXY(e.a),B0=nodeXY(e.b),l=Math.hypot(B0[0]-A0[0],B0[1]-A0[1]),d=[(B0[0]-A0[0])/l,(B0[1]-A0[1])/l];
-    const ac=access(p),c=center(p);let n=[-d[1],d[0]];if((c[0]-ac[0])*n[0]+(c[1]-ac[1])*n[1]<0)n=[-n[0],-n[1]];
-    // правостороннее движение: стоит по ходу своей полосы
-    const h=Math.atan2(d[1],d[0])+((n[0]===-d[1]&&n[1]===d[0])?0:Math.PI);
-    list.forEach((a,i)=>{const s=(i-(list.length-1)/2)*5.5;cars[a]={p:[ac[0]+n[0]*(RW-1.4)+d[0]*s,ac[1]+n[1]*(RW-1.4)+d[1]*s],h}})}
+  for(const [p,list] of park){const spots=parkingSpots(p);list.forEach((a,i)=>{cars[a]=spots[i%spots.length]})}
   return cars;
+}
+// места стоянки у здания: сбоку от него на участке, перпендикулярно улице;
+// сторона, где не мешают соседние здания; если места нет — у обочины
+const spotCache=new Map();
+function inPoly(P,poly){let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a[1]>P[1])!==(b[1]>P[1])&&P[0]<(b[0]-a[0])*(P[1]-a[1])/(b[1]-a[1])+a[0])c=!c}return c}
+function parkingSpots(p){
+  if(spotCache.has(p))return spotCache.get(p);
+  const RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4,e=SNAP.edges[W.places.edge[p]],A0=nodeXY(e.a),B0=nodeXY(e.b),l=Math.hypot(B0[0]-A0[0],B0[1]-A0[1]);
+  const d=[(B0[0]-A0[0])/l,(B0[1]-A0[1])/l],ac=access(p),c=center(p);let n=[-d[1],d[0]];if((c[0]-ac[0])*n[0]+(c[1]-ac[1])*n[1]<0)n=[-n[0],-n[1]];
+  const out=SNAP.buildings[p].outline,us=out.map((q)=>(q[0]-ac[0])*d[0]+(q[1]-ac[1])*d[1]);
+  const free=(P,h)=>{const cs=Math.cos(h),sn=Math.sin(h),pts=[[2.4,1.05],[2.4,-1.05],[-2.4,1.05],[-2.4,-1.05],[0,0]].map(([x,y])=>[P[0]+x*cs-y*sn,P[1]+x*sn+y*cs]);
+    return SNAP.buildings.every((b)=>pts.every((q)=>!inPoly(q,b.outline)))};
+  const head=Math.atan2(n[1],n[0]),depth=RW+2.9,spots=[];
+  for(const side of [1,-1]){const u0=side>0?Math.max(...us):Math.min(...us);
+    for(let i=0;i<3;i++){const u=u0+side*(1.6+i*2.6),P=[ac[0]+d[0]*u+n[0]*depth,ac[1]+d[1]*u+n[1]*depth];if(!free(P,head))break;spots.push({p:P,h:head})}
+    if(spots.length>=2)break}
+  // запасной вариант — у обочины по ходу полосы
+  const hc=Math.atan2(d[1],d[0])+((n[0]===-d[1]&&n[1]===d[0])?0:Math.PI);
+  for(let i=spots.length;i<3;i++){const s=(i-1)*5.5;spots.push({p:[ac[0]+n[0]*(RW-1.4)+d[0]*s,ac[1]+n[1]*(RW-1.4)+d[1]*s],h:hc})}
+  spotCache.set(p,spots);return spots;
 }
 let lastPos=[];
 // 2D — те же цвета, что в редакторе дорог (общая палитра City3D.COLORS);
