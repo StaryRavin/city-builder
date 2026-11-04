@@ -582,8 +582,20 @@ return best;
 
 // ---------- отрисовка ----------
 // цвета домов: спокойная палитра, соседние по порядку дома — разных цветов
-var PALETTE=['#C8553D','#5B8DB8','#C2A14D','#8C6BB1','#4C9A88','#D08C4A','#7A8FA6','#B5655B','#6E9F4F','#A0607E'],colorN=0;
+// стили домов: цвета сняты с 3D-домов Яндекс Карт (Кремль, Дом РККА, высотка
+// на Котельнической, театр Моссовета, Народный музей в Белграде и др.)
+var STYLES=[
+{name:'охра',wall:'#D6B36A',trim:'#F1EADB',plinth:'#B89A6A',roof:'#2F4B3F',roofType:'mansard',arch:true},
+{name:'кремовый сталинский',wall:'#E2D2BA',trim:'#F5EFE4',plinth:'#8F6A5A',roof:'#3A4048',roofType:'mansard',arch:false},
+{name:'оливковый',wall:'#C6CB9C',trim:'#ECEADB',plinth:'#A2A682',roof:'#4D535A',roofType:'mansard',arch:false},
+{name:'серо-сиреневый',wall:'#A7AAC2',trim:'#CDCFDD',plinth:'#8A8DA6',roof:'#6C6F84',roofType:'flat',arch:false},
+{name:'красно-белый',wall:'#B5533F',trim:'#EEE6D8',plinth:'#E2D8C8',roof:'#3D6A56',roofType:'mansard',arch:true},
+{name:'терракотовый',wall:'#D58B7B',trim:'#F2E8DE',plinth:'#C4AC93',roof:'#7A3D35',roofType:'mansard',arch:true},
+{name:'светло-серый',wall:'#CEC8BE',trim:'#E8E3DA',plinth:'#9B948A',roof:'#5D6066',roofType:'flat',arch:false},
+{name:'бежевый кирпич',wall:'#C7A07C',trim:'#EADDC9',plinth:'#8A6C56',roof:'#4E4846',roofType:'mansard',arch:false}];
+var PALETTE=STYLES.map(function(x){return x.wall}),colorN=0;
 function nextColor(){return PALETTE[(colorN++)%PALETTE.length]}
+function styleOf(l){var i=PALETTE.indexOf(l.color);if(i>=0)return i;var h=0;String(l.color).split('').forEach(function(c){h=(h*31+c.charCodeAt(0))>>>0});return h%STYLES.length}
 function shade(hex,f){var n=parseInt(hex.slice(1),16),c=[n>>16,(n>>8)&255,n&255].map(function(v){return Math.round(f<0?v*(1+f):v+(255-v)*f)});return '#'+c.map(function(v){return ('0'+v.toString(16)).slice(-2)}).join('')}
 function lotSvg(l,fill,stroke,op,sw){
 var S=shape(l);if(!S.parts.length)return '';
@@ -595,7 +607,7 @@ var P0=S.parts[0],cx=0,cy=0;P0.forEach(function(p){cx+=p[0];cy+=p[1]});cx/=P0.le
 // подпись — только если помещается в дом на экране (иначе при отдалении каша)
 var lab=S.w+'×'+S.h+(l.floors?' · '+l.floors+' эт.':'');
 if(S.bb&&Math.min(S.bb[2]-S.bb[0],S.bb[3]-S.bb[1])*view.k<14||S.bb&&Math.max(S.bb[2]-S.bb[0],S.bb[3]-S.bb[1])*view.k<lab.length*6.2)return out+'</g>';
-out+='<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" font-size="'+(11/view.k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600">'+lab+'</text>';
+out+='<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" font-size="'+(11/view.k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600;paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:2.5px">'+lab+'</text>';
 return out+'</g>';
 }
 function drawStatic(){
@@ -839,26 +851,125 @@ var cells=G.drawn.map(function(c){return c.poly});
 if(cells.length)sc.add(new T.Mesh(flatGeo(cells,0.8),new T.MeshBasicMaterial({color:C('#B5D8A4'),side:side})));
 var rp=G.bands.map(function(b){return b.poly});
 if(rp.length)sc.add(new T.Mesh(flatGeo(rp,1.6),new T.MeshBasicMaterial({color:C('#5A5F66'),side:side})));
-var edgeM=new T.LineBasicMaterial({color:0x000000,transparent:true,opacity:0.22});
-lots.forEach(function(l){
-var S=shape(l);if(!S.parts.length)return;
-var bad=check(l,l),h=(l.floors||1)*s,col=C(bad?'#D9363E':(l.color||'#C8553D'));
-var mat=new T.MeshLambertMaterial({color:col,transparent:!!bad,opacity:bad?0.7:1});
-// дом — одна фигура: вытягиваем контур объединения частей (без швов на
-// крыше); если контур не собрался — части по отдельности
-var out=unionOutline(S.parts),pos=[];
-(out.loop&&out.loop.length>=3?[out.loop]:S.parts).forEach(function(P){
-var shp=new T.Shape(P.map(function(q){return new T.Vector2(q[0],-q[1])}));
-var g=new T.ExtrudeGeometry(shp,{depth:h,bevelEnabled:false});g.rotateX(-Math.PI/2);
-sc.add(new T.Mesh(g,mat));
-});
-// рёбра — только по контуру всего дома: край крыши и вертикали в изломах
-out.segs.forEach(function(sg){pos.push(sg[0][0],h+0.05,sg[0][1],sg[1][0],h+0.05,sg[1][1])});
-out.corners.forEach(function(q){pos.push(q[0],0,q[1],q[0],h+0.05,q[1])});
-var lg=new T.BufferGeometry();lg.setAttribute('position',new T.Float32BufferAttribute(pos,3));
-sc.add(new T.LineSegments(lg,edgeM));
-});
+buildHouses(sc,C);
 V3.scene=sc;render3();
+}
+// ---------- дома в 3D: процедурные фасады и крыши ----------
+/*
+ * Дом строится по контуру участка (объединению его частей), а не из готовой
+ * модели. Каждая сторона контура классифицируется:
+ *   уличный фасад — сторона лежит на кромке улицы (у углового дома — на обеих);
+ *   брандмауэр    — глухая стена вплотную к соседнему дому (без окон);
+ *   задний/боковой фасад — остальное.
+ * Уличный фасад: цоколь (первый этаж другого цвета, крупные окна, двери) и
+ * этажи с окнами — одно окно на клетку по горизонтали и на этаж по вертикали.
+ * Сверху выступающий карниз по всему контуру, крыша — плоская или
+ * «мансардная» (скат по периметру и плоский верх; подходит для любой формы).
+ * Окна — процедурные текстуры (по стилю), стены одного стиля и вида
+ * склеены в общие сетки: это дёшево и для телефона.
+ */
+var GLASS='#3F4D66',GLASS2='#5C6E8C',LIT='#F3E2A6',texCache={};
+function signedArea(P){var a=0;for(var i=0;i<P.length;i++){var q=P[(i+1)%P.length];a+=P[i][0]*q[1]-q[0]*P[i][1]}return a/2}
+// сдвиг контура наружу (d>0) или внутрь (d<0) со скосом углов
+function offsetPoly(P,d){
+var sg=signedArea(P)>0?1:-1,out=[];
+for(var i=0;i<P.length;i++){var pr=P[(i+P.length-1)%P.length],cu=P[i],nx=P[(i+1)%P.length];
+var e1=nrm(sub(cu,pr)),e2=nrm(sub(nx,cu)),n1=mul([e1[1],-e1[0]],sg),n2=mul([e2[1],-e2[0]],sg),m=add(n1,n2),lm=len(m);
+m=lm<1e-6?n1:mul(m,1/lm);var k=Math.max(0.35,dot(m,n1));out.push(add(cu,mul(m,d/k)));}
+return out;
+}
+function seeded(seed){var x=seed*9301+49297;return function(){x=(x*9301+49297)%233280;return x/233280}}
+function facadeTex(si,kind){
+var key=si+kind;if(texCache[key])return texCache[key];
+var st=STYLES[si],B=64,F=64,rows=kind==='up'?4:1,cv=document.createElement('canvas');cv.width=B*4;cv.height=F*rows;
+var g=cv.getContext('2d'),rnd=seeded(si*7+(kind==='up'?1:2));
+g.fillStyle=kind==='up'?st.wall:st.plinth;g.fillRect(0,0,cv.width,cv.height);
+function win(x,y,w,h,lit,arch){
+g.fillStyle=st.trim;g.beginPath();
+if(arch){g.moveTo(x-3,y+h+2);g.lineTo(x-3,y+w/2);g.arc(x+w/2,y+w/2,w/2+3,Math.PI,0);g.lineTo(x+w+3,y+h+2);}else g.rect(x-3,y-3,w+6,h+5);
+g.fill();
+var gr=g.createLinearGradient(0,y,0,y+h);gr.addColorStop(0,lit?LIT:GLASS2);gr.addColorStop(1,lit?'#E8C979':GLASS);g.fillStyle=gr;g.beginPath();
+if(arch){g.moveTo(x,y+h);g.lineTo(x,y+w/2);g.arc(x+w/2,y+w/2,w/2,Math.PI,0);g.lineTo(x+w,y+h);}else g.rect(x,y,w,h);
+g.fill();
+g.fillStyle=st.trim;g.fillRect(x+w/2-1,y+(arch?w/2:0),2,h-(arch?w/2:0)); // переплёт
+g.fillRect(x-5,y+h+1,w+10,3); // подоконник
+}
+for(var f=0;f<rows;f++)for(var b=0;b<4;b++){var x0=b*B,y0=f*F;
+if(kind==='up'){
+g.fillStyle='rgba(0,0,0,0.06)';g.fillRect(x0,y0,B,2); // межэтажная тяга
+win(x0+B*0.3,y0+F*0.22,B*0.4,F*0.56,rnd()<0.12,st.arch);
+}else{
+g.fillStyle='rgba(0,0,0,0.12)';for(var k=1;k<4;k++)g.fillRect(x0,y0+F*k/4,B,1); // руст
+if(b===1){g.fillStyle=st.trim;g.fillRect(x0+B*0.3,y0+F*0.22,B*0.4,F*0.78);g.fillStyle='#5A4636';g.fillRect(x0+B*0.34,y0+F*0.28,B*0.32,F*0.72);} // дверь
+else win(x0+B*0.16,y0+F*0.24,B*0.68,F*0.56,rnd()<0.3,false); // витрина
+}}
+var tx=new THREE.CanvasTexture(cv);tx.wrapS=tx.wrapT=THREE.RepeatWrapping;tx.encoding=THREE.sRGBEncoding;
+tx.anisotropy=V3.R?V3.R.capabilities.getMaxAnisotropy():1;texCache[key]=tx;return tx;
+}
+function buildHouses(sc,C){
+var T=THREE,FH=s,buckets={},outs=[],HS=window.__houseStats={street:0,party:0,back:0};
+function bucket(k){return buckets[k]||(buckets[k]={pos:[],nor:[],uv:[]})}
+// четырёхугольная грань: a,b — низ (x,z) на высоте y0, верх — y1; нормаль n (в плане)
+function wall(k,a,b,y0,y1,n,u1,v1){var B=bucket(k),P=[[a[0],y0,a[1]],[b[0],y0,b[1]],[b[0],y1,b[1]],[a[0],y1,a[1]]],U=[[0,0],[u1,0],[u1,v1],[0,v1]];
+// порядок вершин — чтобы лицевая сторона смотрела наружу
+var e1=[P[1][0]-P[0][0],0,P[1][2]-P[0][2]],cx=e1[1]*(y1-y0)*0-e1[2]*(y1-y0),cz=e1[0]*(y1-y0)-0; // (e1 × вверх) в плане
+var ord=(cx*n[0]+cz*n[1])>0?[0,1,2,0,2,3]:[0,2,1,0,3,2];
+ord.forEach(function(i){B.pos.push(P[i][0],P[i][1],P[i][2]);B.nor.push(n[0],0,n[1]);B.uv.push(U[i][0],U[i][1])});}
+function slope(k,a,b,a2,b2,y0,y1){var B=bucket(k),P=[[a[0],y0,a[1]],[b[0],y0,b[1]],[b2[0],y1,b2[1]],[a2[0],y1,a2[1]]];
+var u=[P[1][0]-P[0][0],P[1][1]-P[0][1],P[1][2]-P[0][2]],v=[P[3][0]-P[0][0],P[3][1]-P[0][1],P[3][2]-P[0][2]];
+var nn=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];if(nn[1]<0)nn=nn.map(function(x){return -x});
+var l=Math.hypot(nn[0],nn[1],nn[2])||1;nn=nn.map(function(x){return x/l});
+var ord=[0,1,2,0,2,3],cr1=[(P[1][2]-P[0][2])*(P[2][1]-P[0][1])-(P[1][1]-P[0][1])*(P[2][2]-P[0][2])];
+// треугольник (0,1,2) против часовой сверху? иначе развернуть
+var tri=(P[1][0]-P[0][0])*(P[2][2]-P[0][2])-(P[1][2]-P[0][2])*(P[2][0]-P[0][0]);if(tri>0)ord=[0,2,1,0,3,2];
+ord.forEach(function(i){B.pos.push(P[i][0],P[i][1],P[i][2]);B.nor.push(nn[0],nn[1],nn[2]);B.uv.push(0,0)});}
+function cap(k,P,y){var B=bucket(k),v2=P.map(function(q){return new T.Vector2(q[0],q[1])}),f=T.ShapeUtils.triangulateShape(v2,[]);
+f.forEach(function(tr){var a=P[tr[0]],b=P[tr[1]],c=P[tr[2]],z=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]),o=z>0?[a,c,b]:[a,b,c];
+o.forEach(function(q){B.pos.push(q[0],y,q[1]);B.nor.push(0,1,0);B.uv.push(0,0)});});}
+// контуры всех домов (для поиска глухих стен между соседями)
+lots.forEach(function(l){var S=shape(l);if(!S.parts.length)return;var o=unionOutline(S.parts);if(o.loop&&o.loop.length>=3)outs.push({l:l,loop:o.loop,bb:bbox(o.loop)});else outs.push({l:l,loop:null,parts:S.parts})});
+function isStreet(m,d){return G.bands.some(function(b){if(b.seg===undefined||!bbHit(b.bb,[m[0],m[1],m[0],m[1]],2))return false;
+return Math.abs(segDist(m,b.A,b.B)-W)<1.6&&Math.abs(dot(d,b.t))>0.95})}
+function isParty(me,a,b,d){var m=mul(add(a,b),0.5),L=len(sub(b,a));
+return outs.some(function(o){if(o===me||!o.loop||!bbHit(o.bb,[m[0],m[1],m[0],m[1]],1))return false;
+for(var i=0;i<o.loop.length;i++){var p=o.loop[i],q=o.loop[(i+1)%o.loop.length],e=sub(q,p),le=len(e);if(le<0.5)continue;
+if(Math.abs(cr(d,mul(e,1/le)))>0.03||Math.abs(cr(mul(e,1/le),sub(m,p)))>0.7)continue;
+var t0=dot(sub(a,p),e)/le,t1=dot(sub(b,p),e)/le,ov=Math.min(Math.max(t0,t1),le)-Math.max(Math.min(t0,t1),0);if(ov>L*0.5)return true;}
+return false})}
+var simple=[];
+outs.forEach(function(o){
+var l=o.l,N=l.floors||1,H=N*FH;
+if(check(l,l)||!o.loop){simple.push(o);return}
+var P=o.loop,si=styleOf(l),st=STYLES[si],sg=signedArea(P)>0?1:-1;
+for(var i=0;i<P.length;i++){var a=P[i],b=P[(i+1)%P.length],L=len(sub(b,a));if(L<0.3)continue;
+var d=mul(sub(b,a),1/L),n=mul([d[1],-d[0]],sg),m=mul(add(a,b),0.5),bays=Math.max(1,Math.round(L/s));
+if(isParty(o,a,b,d)){wall('party'+si,a,b,0,H,n,1,1);HS.party++;continue}
+if(isStreet(m,d)){HS.street++;wall('base'+si,a,b,0,FH,n,bays/4,1);if(N>1)wall('up'+si,a,b,FH,H,n,bays/4,(N-1)/4);}
+else{wall('up'+si,a,b,0,H,n,bays/4,N/4);HS.back++;}
+}
+// карниз: контур, выдвинутый наружу, от верха стены
+var Oc=offsetPoly(P,1.0),y0=H-0.3,y1=H+1.3;
+for(var j=0;j<Oc.length;j++){var a2=Oc[j],b2=Oc[(j+1)%Oc.length],L2=len(sub(b2,a2));if(L2<0.1)continue;var d2=mul(sub(b2,a2),1/L2);wall('trim'+si,a2,b2,y0,y1,mul([d2[1],-d2[0]],sg),1,1);}
+var ar=Math.abs(signedArea(P)),per=P.reduce(function(acc,q,ii){return acc+len(sub(P[(ii+1)%P.length],q))},0),inr=2*ar/per;
+if(st.roofType==='mansard'&&inr>3){
+var rd=Math.min(5,inr*0.55),In=offsetPoly(P,-rd),rh=rd*0.9;
+for(var k=0;k<Oc.length;k++)slope('roof'+si,Oc[k],Oc[(k+1)%Oc.length],In[k],In[(k+1)%In.length],y1,y1+rh);
+cap('roof'+si,In,y1+rh);
+}else{cap('roof'+si,Oc,y1);
+// плоская крыша: невысокий бортик по краю
+var Ip=offsetPoly(P,-0.2);for(var q=0;q<Ip.length;q++){var a3=Ip[q],b3=Ip[(q+1)%Ip.length],L3=len(sub(b3,a3));if(L3<0.1)continue;var d3=mul(sub(b3,a3),1/L3);wall('trim'+si,a3,b3,y1,y1+1.2,mul([d3[1],-d3[0]],-sg),1,1);}}
+});
+Object.keys(buckets).forEach(function(k){var B=buckets[k];if(!B.pos.length)return;
+var g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(B.pos,3));g.setAttribute('normal',new T.Float32BufferAttribute(B.nor,3));g.setAttribute('uv',new T.Float32BufferAttribute(B.uv,2));
+var kind=k.replace(/[0-9]+$/,''),si=+k.match(/[0-9]+$/)[0],st=STYLES[si],m;
+if(kind==='up'||kind==='base')m=new T.MeshLambertMaterial({map:facadeTex(si,kind)});
+else if(kind==='party')m=new T.MeshLambertMaterial({color:C(shade(st.wall,-0.08))});
+else if(kind==='trim')m=new T.MeshLambertMaterial({color:C(st.trim),side:T.DoubleSide});
+else m=new T.MeshLambertMaterial({color:C(st.roof),side:T.DoubleSide});
+sc.add(new T.Mesh(g,m));});
+// невалидные и без собранного контура — простые призмы
+simple.forEach(function(o){var l=o.l,h=(l.floors||1)*FH,bad=check(l,l),mat=new T.MeshLambertMaterial({color:C(bad?'#D9363E':(l.color||'#C8553D')),transparent:!!bad,opacity:bad?0.7:1});
+(o.loop?[o.loop]:o.parts).forEach(function(P){var g=new T.ExtrudeGeometry(new T.Shape(P.map(function(q){return new T.Vector2(q[0],-q[1])})),{depth:h,bevelEnabled:false});g.rotateX(-Math.PI/2);sc.add(new T.Mesh(g,mat))});});
 }
 /*
  * Контур объединения выпуклых частей участка: от каждого ребра части
