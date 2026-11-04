@@ -12,21 +12,17 @@
 /* Раскладка: шапка с часами и управлением, полоса «кто чем занят», карта слева и жители справа (на телефоне — друг под другом), дневник выбранного жителя. */
 :root{
   --bg:#EDF0EC; --surface:#FFFFFF; --fg:#1C2420; --muted:#5D6A63; --line:#D3DAD5; --accent:#1F7A8C; --accent-fg:#FFFFFF;
-  --ground:#E4E2D2; --road:#5A5F66; --road-line:#F2F2EE; --res:#B9D7A8; --res-edge:#6E9B5E; --com:#A9C6E8; --com-edge:#4F7FB5; --work:#EBCF85; --work-edge:#B48B2C;
-  --city:#D9DDE3; --city-edge:#8A93A0;
+  /* жители — одинаковые цвета на карте, в 3D и в списке, в обеих темах */
   --a-sleep:#5B5F92; --a-home:#7C8A66; --a-travel:#E0532B; --a-work:#1F7A8C; --a-shop:#B13D8C; --a-eat:#3C9A4E;
+  --hours-work:#D49A22; --hours-shop:#3D7DC8; --hours-city:#8A93A0;
   --font:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#131715; --surface:#1B201D; --fg:#E4E9E5; --muted:#97A39C; --line:#2C3430; --accent:#4DB3C7; --accent-fg:#0B1517;
-  --ground:#2A2C26; --road:#6B7078; --road-line:#C9CCC6; --res:#4F6B45; --res-edge:#7FA46F; --com:#3F5C7E; --com-edge:#7FA6D4; --work:#7A6530; --work-edge:#C9A24A;
-  --city:#2F353D; --city-edge:#6F7986;
-  --a-sleep:#8E92D0; --a-home:#A9B78E; --a-travel:#FF7A52; --a-work:#4DB3C7; --a-shop:#E06BBB; --a-eat:#5FC273; color-scheme:dark}}
+  color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#131715; --surface:#1B201D; --fg:#E4E9E5; --muted:#97A39C; --line:#2C3430; --accent:#4DB3C7; --accent-fg:#0B1517;
-  --ground:#2A2C26; --road:#6B7078; --road-line:#C9CCC6; --res:#4F6B45; --res-edge:#7FA46F; --com:#3F5C7E; --com-edge:#7FA6D4; --work:#7A6530; --work-edge:#C9A24A;
-  --city:#2F353D; --city-edge:#6F7986;
-  --a-sleep:#8E92D0; --a-home:#A9B78E; --a-travel:#FF7A52; --a-work:#4DB3C7; --a-shop:#E06BBB; --a-eat:#5FC273; color-scheme:dark}
+  color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font:15px/1.45 var(--font);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 28px}
 .app{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
@@ -59,6 +55,11 @@ label.seed input{width:64px;padding:5px 8px;border:1px solid var(--line);border-
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none}
 .main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start}
 @media (max-width:860px){.main{grid-template-columns:minmax(0,1fr)}}
+.maphead{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.maphead .hint{font-size:12.5px;color:var(--muted);flex:1 1 200px;min-width:0}
+.mapcol{min-width:0}
+#v3{position:absolute;inset:0}
+#v3 canvas{display:block;width:100%!important;height:100%!important;touch-action:none;cursor:grab}
 .mapw{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;aspect-ratio:16/9;max-width:100%}
 canvas{display:block;width:100%;height:100%;touch-action:manipulation;cursor:pointer}
 aside{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
@@ -109,7 +110,21 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
   <div class="counts" id="counts"></div>
 
   <div class="main">
-    <div class="mapw"><canvas id="map" tabindex="0" aria-label="Карта деревни: дороги, дома и жители"></canvas></div>
+    <div class="mapcol">
+      <div class="maphead">
+        <div class="seg" role="group" aria-label="Вид карты">
+          <button type="button" id="v-2d" aria-pressed="false">2D</button>
+          <button type="button" id="v-3d" aria-pressed="true">3D</button>
+        </div>
+        <div class="seg" id="g3" role="group" aria-label="Поворот и наклон">
+          <button type="button" id="r-l" aria-label="Повернуть влево">⟲</button>
+          <button type="button" id="r-r" aria-label="Повернуть вправо">⟳</button>
+          <button type="button" id="tilt">Наклон 60°</button>
+        </div>
+        <span class="hint" id="vhint">Тяните — двигать карту, двумя пальцами или правой кнопкой — вращать, колесо — масштаб.</span>
+      </div>
+      <div class="mapw"><canvas id="map" tabindex="0" aria-label="Карта деревни: дороги, дома и жители"></canvas><div id="v3" hidden></div></div>
+    </div>
     <aside>
       <h2>Жители</h2>
       <div class="nlegend"><span>усталость</span><span>голод</span><span>долг работы</span><span>еда</span></div>
@@ -126,6 +141,7 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
 
 <script>
 (()=>{
+/*@CITY3D@*/
 /*@SIM@*/
 // ---- просмотрщик ----
 const SNAP=/*@SNAPSHOT@*/;
@@ -152,8 +168,6 @@ function buildGeo(){
   // охват карты
   let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;const grow=(p,m=0)=>{x0=Math.min(x0,p[0]-m);y0=Math.min(y0,p[1]-m);x1=Math.max(x1,p[0]+m);y1=Math.max(y1,p[1]+m)};
   SNAP.nodes.forEach((p)=>grow(p,8));SNAP.buildings.forEach((b)=>b.outline.forEach((p)=>grow(p,2)));gates.forEach((g)=>grow(g.box,24));
-  // пропорции карты — по деревне (в пределах 1.4…2.4)
-  document.querySelector('.mapw').style.aspectRatio=String(Math.max(1.4,Math.min(2.4,(x1-x0)/(y1-y0))));
   return {adj,gates,gateOfPlace,bounds:[x0,y0,x1,y1],routes:new Map()};
 }
 function nodeXY(n){return SNAP.nodes[n]}
@@ -173,19 +187,24 @@ function route(p,q,car){
   const road=(a,b)=>push(a,b,Math.hypot(b[0]-a[0],b[1]-a[1])/v);
   const out=(x)=>pl.kind[x]===KIND.OUTSIDE;
   let A0=access(p),B0=access(q);
-  if(out(p)){const g=geo.gateOfPlace(p);push(g.box,g.stub,pl.extra[p]*0.8);push(g.stub,A0,pl.extra[p]*0.2)}else road(center(p),A0);
+  // за воротами: путь по Городу показываем стоянкой в его квадрате, к воротам — с обычной скоростью
+  const beyond=(x,g)=>Math.max(0,pl.extra[x]-(Math.hypot(g.box[0]-g.stub[0],g.box[1]-g.stub[1])+Math.hypot(g.stub[0]-nodeXY(g.node)[0],g.stub[1]-nodeXY(g.node)[1]))/v);
+  if(out(p)){const g=geo.gateOfPlace(p);push(g.box,g.box,beyond(p,g));road(g.box,g.stub);road(g.stub,A0)}else road(center(p),A0);
   if(pl.edge[p]>=0&&pl.edge[p]===pl.edge[q])road(A0,B0);
   else{let best=null;for(const [u,du] of ends(p))for(const [w,dw] of ends(q)){const d=du+W.dist[u*W.nodes.n+w]+dw;if(!best||d<best.d)best={d,u,w}}
     let cur=A0;for(const n of nodePath(best.u,best.w)){const P=nodeXY(n);road(cur,P);cur=P}road(cur,B0)}
-  if(out(q)){const g=geo.gateOfPlace(q);push(B0,g.stub,pl.extra[q]*0.2);push(g.stub,g.box,pl.extra[q]*0.8)}else road(B0,center(q));
+  if(out(q)){const g=geo.gateOfPlace(q);road(B0,g.stub);road(g.stub,g.box);push(g.box,g.box,beyond(q,g))}else road(B0,center(q));
   return segs;
 }
 function travelPos(a,now){
   const key=a+':'+L.depart[a];let r=geo.routes.get(a);
   if(!r||r.key!==key){r={key,segs:route(L.from[a],L.to[a],A.car[a]===1)};r.total=r.segs.reduce((s,x)=>s+x[2],0);geo.routes.set(a,r)}
   const f=Math.max(0,Math.min(1,(now-L.depart[a])/Math.max(1,L.arrive[a]-L.depart[a])));let t=f*r.total;
-  for(const [p,q,sec] of r.segs){if(t<=sec){const k=sec>0?t/sec:1;return [p[0]+(q[0]-p[0])*k,p[1]+(q[1]-p[1])*k]}t-=sec}
-  return r.segs.length?r.segs.at(-1)[1]:center(L.to[a]);
+  for(const [p,q,sec] of r.segs){if(t<=sec){const k=sec>0?t/sec:1,dx=q[0]-p[0],dy=q[1]-p[1],l=Math.hypot(dx,dy)||1;
+    // правостороннее движение: машина чуть правее оси дороги
+    if(dx===0&&dy===0)return {p:[p[0]+((a%5)-2)*5.5,p[1]+7.5],dir:null};   // ждёт в Городе — свой ряд в его квадрате
+    const off=A.car[a]?2:0;return {p:[p[0]+dx*k-dy/l*off,p[1]+dy*k+dx/l*off],dir:[dx/l,dy/l]}}t-=sec}
+  const last=r.segs.at(-1);return {p:last?last[1]:center(L.to[a]),dir:[1,0]};
 }
 
 // ---- отрисовка карты ----
@@ -197,9 +216,10 @@ function fit(){
   view={k,dpr,ox:(r.width-(x1-x0)*k)/2-x0*k,oy:(r.height-(y1-y0)*k)/2-y0*k,w:r.width,h:r.height};
 }
 const S=(p)=>[p[0]*view.k+view.ox,p[1]*view.k+view.oy];
+const dirs=[];
 function agentPositions(now){
   const pos=new Array(A.n),here=new Map();
-  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL){pos[a]=travelPos(a,now);continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
+  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL){const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
   for(const [p,list] of here){const c=center(p),out=W.places.kind[p]===KIND.OUTSIDE;
     list.forEach((a,i)=>{if(list.length===1&&!out){pos[a]=c;return}
       if(out){const cols=4,row=Math.floor(i/cols),col=i%cols;pos[a]=[c[0]+(col-1.5)*6.5,c[1]-4+row*6.5];return}
@@ -207,41 +227,85 @@ function agentPositions(now){
   return pos;
 }
 let lastPos=[];
-function draw(now){
+// 2D — те же цвета, что в редакторе дорог (общая палитра City3D.COLORS);
+// карта одинаковая в обеих темах страницы, как бумажная
+const MAPTXT='#2A2F2B';
+function draw2D(now){
   if(!view)fit();
-  const k=view.k,c={};['--ground','--road','--road-line','--res','--res-edge','--com','--com-edge','--work','--work-edge','--city','--city-edge','--fg','--surface'].forEach((n)=>c[n]=css(n));
-  ctx.setTransform(view.dpr,0,0,view.dpr,0,0);ctx.fillStyle=c['--ground'];ctx.fillRect(0,0,view.w,view.h);
+  const k=view.k,K=City3D.COLORS,font=css('--font'),RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4;
+  ctx.setTransform(view.dpr,0,0,view.dpr,0,0);ctx.fillStyle=K.ground;ctx.fillRect(0,0,view.w,view.h);
   ctx.lineCap='round';ctx.lineJoin='round';
-  // дороги и съезд к «Городу»
+  const poly=(P)=>{ctx.beginPath();P.forEach((p,i)=>{const q=S(p);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])});ctx.closePath()};
+  // клетки зон
+  ctx.fillStyle=K.zoneCell;ctx.strokeStyle='#6FA862';ctx.lineWidth=0.6;
+  for(const c of (SNAP.render&&SNAP.render.zoneCells)||[]){poly(c);ctx.fill();ctx.stroke()}
+  // дороги, дорога к «Городу» и разметка
   const line=(a,b)=>{const p=S(a),q=S(b);ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.stroke()};
-  ctx.strokeStyle=c['--road'];ctx.lineWidth=8*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));
-  geo.gates.forEach((g)=>{ctx.setLineDash([3*k,2*k]);line(nodeXY(g.node),g.stub);ctx.setLineDash([])});
-  ctx.strokeStyle=c['--road-line'];ctx.lineWidth=Math.max(1,0.35*k);ctx.setLineDash([2.5*k,2.5*k]);SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));ctx.setLineDash([]);
-  // дома
-  for(const b of SNAP.buildings){const f={res:['--res','--res-edge'],com:['--com','--com-edge'],work:['--work','--work-edge']}[b.type];
-    ctx.beginPath();b.outline.forEach((p,i)=>{const q=S(p);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])});ctx.closePath();
-    ctx.fillStyle=c[f[0]];ctx.fill();ctx.strokeStyle=c[f[1]];ctx.lineWidth=1.2;ctx.stroke();
-    if(b.type!=='res'){const q=S(b.center),lbl=b.type==='com'?'Лавка':'Мастерская';ctx.font=`600 ${Math.max(10,Math.min(13,3.2*k))}px ${css('--font')}`;ctx.textAlign='center';ctx.textBaseline='bottom';
+  ctx.strokeStyle=K.road;ctx.lineWidth=2*RW*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));
+  ctx.strokeStyle=K.roadLine;ctx.lineWidth=1.5;ctx.setLineDash([8,7]);SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));ctx.setLineDash([]);
+  // дома: цвет типа, оттенок свой у каждого
+  for(const b of SNAP.buildings){const f=City3D.lotFill(b.type,b.id);poly(b.outline);ctx.fillStyle=f;ctx.fill();ctx.strokeStyle=City3D.shade(f,-0.45);ctx.lineWidth=1.5;ctx.stroke();
+    if(b.type!=='res'){const q=S(b.center),lbl=b.type==='com'?'Лавка':'Мастерская';ctx.font=`600 ${Math.max(10,Math.min(13,3.2*k))}px ${font}`;ctx.textAlign='center';
       // подпись — со стороны, противоположной дороге
-      const ac=S(access(W.places.src.indexOf(b.id))),below=ac[1]<q[1];let top=Infinity,bot=-Infinity;b.outline.forEach((p)=>{const y=S(p)[1];top=Math.min(top,y);bot=Math.max(bot,y)});
-      ctx.textBaseline=below?'top':'bottom';ctx.fillStyle=c['--fg'];ctx.globalAlpha=.75;ctx.fillText(lbl,q[0],below?bot+3:top-3);ctx.globalAlpha=1}}
-  // «Город» за воротами
-  for(const g of geo.gates){const q=S(g.box),w=30*k,h=22*k;ctx.fillStyle=c['--city'];ctx.strokeStyle=c['--city-edge'];ctx.lineWidth=1.2;
-    ctx.beginPath();ctx.roundRect(q[0]-w/2,q[1]-h/2,w,h,4*k);ctx.fill();ctx.stroke();
-    ctx.fillStyle=c['--fg'];ctx.font=`600 ${Math.max(10,Math.min(13,3.4*k))}px ${css('--font')}`;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(g.name,q[0],q[1]-h/2-3)}
+      const ac=S(access(b.id)),below=ac[1]<q[1];let top=Infinity,bot=-Infinity;b.outline.forEach((p)=>{const y=S(p)[1];top=Math.min(top,y);bot=Math.max(bot,y)});
+      ctx.textBaseline=below?'top':'bottom';ctx.fillStyle=MAPTXT;ctx.globalAlpha=.8;ctx.fillText(lbl,q[0],below?bot+3:top-3);ctx.globalAlpha=1}}
+  // выезд (знак со стрелкой, как в редакторе) и «Город» за ним
+  for(const g of geo.gates){
+    const q=S(g.box),w=30*k,h=22*k;ctx.fillStyle=K.area;ctx.strokeStyle=K.areaEdge;ctx.lineWidth=1.2;ctx.beginPath();ctx.roundRect(q[0]-w/2,q[1]-h/2,w,h,4*k);ctx.fill();ctx.stroke();
+    ctx.fillStyle=MAPTXT;ctx.font=`600 ${Math.max(10,Math.min(13,3.4*k))}px ${font}`;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(g.name,q[0],q[1]-h/2-3);
+    const M=S([nodeXY(g.node)[0]+g.dir[0]*RW*1.6,nodeXY(g.node)[1]+g.dir[1]*RW*1.6]),r=Math.max(7,RW*0.95*k),d=g.dir,n=[-d[1],d[0]];
+    ctx.beginPath();ctx.arc(M[0],M[1],r,0,Math.PI*2);ctx.fillStyle=K.gate;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();
+    ctx.beginPath();ctx.moveTo(M[0]+d[0]*r*.6,M[1]+d[1]*r*.6);ctx.lineTo(M[0]-d[0]*r*.45+n[0]*r*.45,M[1]-d[1]*r*.45+n[1]*r*.45);ctx.lineTo(M[0]-d[0]*r*.45-n[0]*r*.45,M[1]-d[1]*r*.45-n[1]*r*.45);ctx.closePath();ctx.fillStyle='#fff';ctx.fill()}
   // жители
   const pos=agentPositions(now);lastPos=pos;const r=Math.max(6,2.4*k);
-  ctx.font=`600 ${Math.round(r*1.05)}px ${css('--font')}`;ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.font=`600 ${Math.round(r*1.05)}px ${font}`;ctx.textAlign='center';ctx.textBaseline='middle';
   for(let a=0;a<A.n;a++){const q=S(pos[a]),act=L.act[a];
-    ctx.globalAlpha=act===ACT.SLEEP?.7:1;ctx.beginPath();ctx.arc(q[0],q[1],r,0,Math.PI*2);ctx.fillStyle=css(ACT_COL[act]);ctx.fill();
-    ctx.lineWidth=a===sel?3:1.5;ctx.strokeStyle=a===sel?c['--fg']:c['--surface'];ctx.stroke();
+    ctx.globalAlpha=act===ACT.SLEEP?.75:1;ctx.beginPath();ctx.arc(q[0],q[1],r,0,Math.PI*2);ctx.fillStyle=css(ACT_COL[act]);ctx.fill();
+    ctx.lineWidth=a===sel?3:1.5;ctx.strokeStyle=a===sel?MAPTXT:'#fff';ctx.stroke();
     ctx.fillStyle='#fff';ctx.fillText(String(a+1),q[0],q[1]+.5);ctx.globalAlpha=1}
+}
+
+// ---- 3D: общий вид City3D (тот же, что в редакторе дорог) ----
+// единицы 3D — как в редакторе: клетка 4 м = 16 единиц
+const U=4,V3={on:true,view:null,failed:false};
+const toU=(p)=>[p[0]*U,p[1]*U];
+function sceneDesc(){
+  const RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4;
+  const boxPoly=(g)=>[[g.box[0]-15,g.box[1]-11],[g.box[0]+15,g.box[1]-11],[g.box[0]+15,g.box[1]+11],[g.box[0]-15,g.box[1]+11]].map(toU);
+  return {cell:16,roadHalfWidth:RW*U,
+    segments:SNAP.edges.map((e)=>({a:toU(nodeXY(e.a)),b:toU(nodeXY(e.b))})).concat(geo.gates.map((g)=>({a:toU(nodeXY(g.node)),b:toU(g.stub)}))),
+    nodes:SNAP.nodes.map(toU),
+    zoneCells:((SNAP.render&&SNAP.render.zoneCells)||[]).map((c)=>c.map(toU)),
+    buildings:SNAP.buildings.map((b)=>({outline:b.outline.map(toU),floors:b.floors,style:b.style||0,type:b.type})),
+    gates:geo.gates.map((g)=>({at:toU(nodeXY(g.node)),dir:g.dir,ok:true})),
+    areas:geo.gates.map((g)=>({poly:boxPoly(g),label:g.name}))};
+}
+function draw3D(now){
+  if(!V3.view)return;
+  const pos=agentPositions(now);lastPos=pos;
+  V3.view.setMarkers(pos.map((p,a)=>{const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
+    // на крыше своего места, в пути — машина на дороге
+    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[at].floors||1)*16+10:4;
+    return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:String(a+1),selected:a===sel,car:tr&&A.car[a]===1&&!!dirs[a],heading:tr&&dirs[a]?Math.atan2(dirs[a][1],dirs[a][0]):0}}));
+  V3.view.render();
+}
+function draw(now){if(V3.on&&V3.view)draw3D(now);else if(!V3.on)draw2D(now)}
+function setView3D(on){
+  V3.on=on&&!V3.failed;
+  $('v-3d').setAttribute('aria-pressed',String(V3.on));$('v-2d').setAttribute('aria-pressed',String(!V3.on));
+  $('g3').hidden=!V3.on;$('v3').hidden=!V3.on;cv.style.visibility=V3.on?'hidden':'visible';
+  // 2D — по пропорциям деревни; 3D — кадр повыше (на телефоне 4:3)
+  const b=geo.bounds;document.querySelector('.mapw').style.aspectRatio=V3.on?(innerWidth<600?'4/3':'16/9'):String(Math.max(1.4,Math.min(2.4,(b[2]-b[0])/(b[3]-b[1]))));
+  $('vhint').textContent=V3.on?'Тяните — двигать карту, двумя пальцами или правой кнопкой — вращать, колесо — масштаб.':'Нажмите на жителя, чтобы открыть его дневник.';
+  if(!V3.on){view=null;draw(L.tick+acc);return}
+  City3D.loadThree(()=>{if(!V3.view){V3.view=City3D.createView($('v3'));V3.view.setScene(sceneDesc());const b=geo.bounds;const el=$('v3'),asp=(el.clientWidth||16)/(el.clientHeight||9);V3.view.fit([b[0]*U,b[1]*U,b[2]*U,b[3]*U],{k:0.72*Math.max(1,1.7/asp),bearing:0})}draw(L.tick+acc)},
+    ()=>{V3.failed=true;setView3D(false);$('vhint').textContent='3D-вид не загрузился (нет доступа к three.js) — показываю 2D.'});
 }
 
 // ---- панели ----
 function buildPanels(){
   // полоса суток: часы работы мест
-  const day=$('day'),rows=[['Мастерская',W.cfg.hours.work,'--work-edge'],['Лавка',W.cfg.hours.shop,'--com-edge'],['Город',W.cfg.hours.outside,'--city-edge']];
+  const day=$('day'),rows=[['Мастерская',W.cfg.hours.work,'--hours-work'],['Лавка',W.cfg.hours.shop,'--hours-shop'],['Город',W.cfg.hours.outside,'--hours-city']];
   let h='';rows.forEach(([n,[o,c],col],i)=>{const top=4+i*12;h+=`<div class="row" style="top:${top}px"><div class="bar" style="left:${o/24*100}%;width:${(c-o)/24*100}%;background:var(${col})"></div></div><div class="rl" style="top:${top-2}px;right:calc(${100-o/24*100}% + 6px)">${n} ${o}–${c}</div>`});
   for(let i=0;i<=24;i+=3)h+=`<div class="tick" style="left:${i/24*100}%"></div>`;
   for(const i of [3,6,9,12,15,18,21])h+=`<div class="hr" style="left:${i/24*100}%">${i}</div>`;
@@ -274,8 +338,15 @@ function updatePanels(){
 function start(seed){
   sim=createSim(SNAP,{seed});W=sim.world;A=sim.agents;L=sim.life;geo=buildGeo();view=null;acc=0;
   for(let i=0;i<START_MIN;i++)step(W,A,L);
-  buildPanels();fit();updatePanels();draw(L.tick);
+  buildPanels();fit();updatePanels();
+  if(V3.view){V3.view.setScene(sceneDesc())}
+  setView3D(V3.on);
 }
+$('v-3d').addEventListener('click',()=>setView3D(true));
+$('v-2d').addEventListener('click',()=>setView3D(false));
+$('r-l').addEventListener('click',()=>V3.view&&V3.view.rotate(Math.PI/12));
+$('r-r').addEventListener('click',()=>V3.view&&V3.view.rotate(-Math.PI/12));
+$('tilt').addEventListener('click',()=>{if(V3.view)$('tilt').textContent='Наклон '+V3.view.toggleTilt()+'°'});
 $('play').addEventListener('click',()=>{playing=!playing;$('play').setAttribute('aria-pressed',String(playing));$('play').textContent=playing?'Пауза':'Пуск'});
 document.querySelectorAll('[data-mps]').forEach((b)=>b.addEventListener('click',()=>{mps=+b.dataset.mps;document.querySelectorAll('[data-mps]').forEach((x)=>x.setAttribute('aria-pressed',String(x===b)))}));
 $('restart').addEventListener('click',()=>start(Math.max(1,Math.round(+$('seed').value||1))));

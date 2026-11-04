@@ -12,21 +12,17 @@
 /* Раскладка: шапка с часами и управлением, полоса «кто чем занят», карта слева и жители справа (на телефоне — друг под другом), дневник выбранного жителя. */
 :root{
   --bg:#EDF0EC; --surface:#FFFFFF; --fg:#1C2420; --muted:#5D6A63; --line:#D3DAD5; --accent:#1F7A8C; --accent-fg:#FFFFFF;
-  --ground:#E4E2D2; --road:#5A5F66; --road-line:#F2F2EE; --res:#B9D7A8; --res-edge:#6E9B5E; --com:#A9C6E8; --com-edge:#4F7FB5; --work:#EBCF85; --work-edge:#B48B2C;
-  --city:#D9DDE3; --city-edge:#8A93A0;
+  /* жители — одинаковые цвета на карте, в 3D и в списке, в обеих темах */
   --a-sleep:#5B5F92; --a-home:#7C8A66; --a-travel:#E0532B; --a-work:#1F7A8C; --a-shop:#B13D8C; --a-eat:#3C9A4E;
+  --hours-work:#D49A22; --hours-shop:#3D7DC8; --hours-city:#8A93A0;
   --font:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#131715; --surface:#1B201D; --fg:#E4E9E5; --muted:#97A39C; --line:#2C3430; --accent:#4DB3C7; --accent-fg:#0B1517;
-  --ground:#2A2C26; --road:#6B7078; --road-line:#C9CCC6; --res:#4F6B45; --res-edge:#7FA46F; --com:#3F5C7E; --com-edge:#7FA6D4; --work:#7A6530; --work-edge:#C9A24A;
-  --city:#2F353D; --city-edge:#6F7986;
-  --a-sleep:#8E92D0; --a-home:#A9B78E; --a-travel:#FF7A52; --a-work:#4DB3C7; --a-shop:#E06BBB; --a-eat:#5FC273; color-scheme:dark}}
+  color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#131715; --surface:#1B201D; --fg:#E4E9E5; --muted:#97A39C; --line:#2C3430; --accent:#4DB3C7; --accent-fg:#0B1517;
-  --ground:#2A2C26; --road:#6B7078; --road-line:#C9CCC6; --res:#4F6B45; --res-edge:#7FA46F; --com:#3F5C7E; --com-edge:#7FA6D4; --work:#7A6530; --work-edge:#C9A24A;
-  --city:#2F353D; --city-edge:#6F7986;
-  --a-sleep:#8E92D0; --a-home:#A9B78E; --a-travel:#FF7A52; --a-work:#4DB3C7; --a-shop:#E06BBB; --a-eat:#5FC273; color-scheme:dark}
+  color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font:15px/1.45 var(--font);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 28px}
 .app{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
@@ -59,6 +55,11 @@ label.seed input{width:64px;padding:5px 8px;border:1px solid var(--line);border-
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none}
 .main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start}
 @media (max-width:860px){.main{grid-template-columns:minmax(0,1fr)}}
+.maphead{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.maphead .hint{font-size:12.5px;color:var(--muted);flex:1 1 200px;min-width:0}
+.mapcol{min-width:0}
+#v3{position:absolute;inset:0}
+#v3 canvas{display:block;width:100%!important;height:100%!important;touch-action:none;cursor:grab}
 .mapw{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;aspect-ratio:16/9;max-width:100%}
 canvas{display:block;width:100%;height:100%;touch-action:manipulation;cursor:pointer}
 aside{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
@@ -109,7 +110,21 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
   <div class="counts" id="counts"></div>
 
   <div class="main">
-    <div class="mapw"><canvas id="map" tabindex="0" aria-label="Карта деревни: дороги, дома и жители"></canvas></div>
+    <div class="mapcol">
+      <div class="maphead">
+        <div class="seg" role="group" aria-label="Вид карты">
+          <button type="button" id="v-2d" aria-pressed="false">2D</button>
+          <button type="button" id="v-3d" aria-pressed="true">3D</button>
+        </div>
+        <div class="seg" id="g3" role="group" aria-label="Поворот и наклон">
+          <button type="button" id="r-l" aria-label="Повернуть влево">⟲</button>
+          <button type="button" id="r-r" aria-label="Повернуть вправо">⟳</button>
+          <button type="button" id="tilt">Наклон 60°</button>
+        </div>
+        <span class="hint" id="vhint">Тяните — двигать карту, двумя пальцами или правой кнопкой — вращать, колесо — масштаб.</span>
+      </div>
+      <div class="mapw"><canvas id="map" tabindex="0" aria-label="Карта деревни: дороги, дома и жители"></canvas><div id="v3" hidden></div></div>
+    </div>
     <aside>
       <h2>Жители</h2>
       <div class="nlegend"><span>усталость</span><span>голод</span><span>долг работы</span><span>еда</span></div>
@@ -126,6 +141,295 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
 
 <script>
 (()=>{
+/*
+ * City3D — общий 3D-вид города для всех прототипов (редактор дорог,
+ * просмотрщик симуляции жизни). Один и тот же код рисует землю, дороги,
+ * процедурные дома, выезды и жителей, и одинаково управляет камерой.
+ *
+ * Обычный скрипт без модулей: задаёт глобальный объект City3D. Нужен
+ * three.js r128 (глобальный THREE) — City3D.loadThree() подгружает его с
+ * cdnjs. Единицы — как в редакторе: клетка = 16 единиц (4 м), этаж = клетка.
+ *
+ * Описание сцены (setScene):
+ *   roadHalfWidth  — полуширина дороги;
+ *   segments       — [{a:[x,y], b:[x,y]}] оси звеньев; полосы дорог и
+ *                    «пятачки» узлов строятся здесь же;
+ *   nodes          — [[x,y]] узлы (пятачки);
+ *   zoneCells      — [многоугольник] клетки зонирования (необязательно);
+ *   buildings      — [{outline, parts?, floors, style, type, bad?, color?}]:
+ *                    outline — контур дома (если нет — простые призмы по parts);
+ *                    style — индекс в City3D.STYLES; type — res / com / work;
+ *   gates          — [{at:[x,y], dir:[dx,dy], ok}] выезды во внешний мир;
+ *   areas          — [{poly, color, label}] плоские площадки (например, «Город»).
+ * Жители — setMarkers([{x, y, z, color, label, car, heading, selected}]).
+ */
+(function(){
+'use strict';
+var STYLES=[
+{name:'охра',wall:'#D6B36A',trim:'#F1EADB',plinth:'#B89A6A',roof:'#2F4B3F',roofType:'mansard',arch:true},
+{name:'кремовый сталинский',wall:'#E2D2BA',trim:'#F5EFE4',plinth:'#8F6A5A',roof:'#3A4048',roofType:'mansard',arch:false},
+{name:'оливковый',wall:'#C6CB9C',trim:'#ECEADB',plinth:'#A2A682',roof:'#4D535A',roofType:'mansard',arch:false},
+{name:'серо-сиреневый',wall:'#A7AAC2',trim:'#CDCFDD',plinth:'#8A8DA6',roof:'#6C6F84',roofType:'flat',arch:false},
+{name:'красно-белый',wall:'#B5533F',trim:'#EEE6D8',plinth:'#E2D8C8',roof:'#3D6A56',roofType:'mansard',arch:true},
+{name:'терракотовый',wall:'#D58B7B',trim:'#F2E8DE',plinth:'#C4AC93',roof:'#7A3D35',roofType:'mansard',arch:true},
+{name:'светло-серый',wall:'#CEC8BE',trim:'#E8E3DA',plinth:'#9B948A',roof:'#5D6066',roofType:'flat',arch:false},
+{name:'бежевый кирпич',wall:'#C7A07C',trim:'#EADDC9',plinth:'#8A6C56',roof:'#4E4846',roofType:'mansard',arch:false}];
+// цвета карты — общие для 2D и 3D во всех прототипах
+var COLORS={ground:'#E6E0CC',sky:'#DFE7EA',road:'#5A5F66',roadLine:'#F2F2F2',zoneCell:'#9ED38F',zoneCell3D:'#B5D8A4',
+  zone:{res:'#3F8F4E',com:'#3D7DC8',work:'#D49A22'},gate:'#2F6F8F',bad:'#D9363E',area:'#D6DAE0',areaEdge:'#8A93A0'};
+// стили домов по типу: из них выбирает редактор, по ним же красит симуляция
+var ZONE_STYLES={res:[0,5,7,1,2,4],com:[6],work:[3]};
+function shade(hex,f){var n=parseInt(hex.slice(1),16),c=[n>>16,(n>>8)&255,n&255].map(function(v){return Math.round(f<0?v*(1+f):v+(255-v)*f)});return '#'+c.map(function(v){return ('0'+v.toString(16)).slice(-2)}).join('')}
+// цвет дома в 2D: цвет типа, оттенок свой у каждого дома (k — любое целое)
+function lotFill(type,k){return shade(COLORS.zone[type]||COLORS.zone.res,(((k%5)+5)%5-2)*0.06)}
+
+function add(a,b){return [a[0]+b[0],a[1]+b[1]]}function sub(a,b){return [a[0]-b[0],a[1]-b[1]]}function mul(a,k){return [a[0]*k,a[1]*k]}
+function dot(a,b){return a[0]*b[0]+a[1]*b[1]}function len(a){return Math.hypot(a[0],a[1])}function nrm(a){var l=len(a);return [a[0]/l,a[1]/l]}
+function cr(a,b){return a[0]*b[1]-a[1]*b[0]}
+function segDist(p,a,b){var ab=sub(b,a),l2=dot(ab,ab),t=l2?Math.max(0,Math.min(1,dot(sub(p,a),ab)/l2)):0;return len(sub(p,add(a,mul(ab,t))))}
+function bbox(P){var b=[Infinity,Infinity,-Infinity,-Infinity];P.forEach(function(q){if(q[0]<b[0])b[0]=q[0];if(q[1]<b[1])b[1]=q[1];if(q[0]>b[2])b[2]=q[0];if(q[1]>b[3])b[3]=q[1]});return b}
+function bbHit(a,b,m){m=m||0;return a[0]<=b[2]+m&&b[0]<=a[2]+m&&a[1]<=b[3]+m&&b[1]<=a[3]+m}
+function signedArea(P){var a=0;for(var i=0;i<P.length;i++){var q=P[(i+1)%P.length];a+=P[i][0]*q[1]-q[0]*P[i][1]}return a/2}
+// сдвиг контура наружу (d>0) или внутрь (d<0) со скосом углов
+function offsetPoly(P,d){
+var sg=signedArea(P)>0?1:-1,out=[];
+for(var i=0;i<P.length;i++){var pr=P[(i+P.length-1)%P.length],cu=P[i],nx=P[(i+1)%P.length];
+var e1=nrm(sub(cu,pr)),e2=nrm(sub(nx,cu)),n1=mul([e1[1],-e1[0]],sg),n2=mul([e2[1],-e2[0]],sg),m=add(n1,n2),lm=len(m);
+m=lm<1e-6?n1:mul(m,1/lm);var k=Math.max(0.35,dot(m,n1));out.push(add(cu,mul(m,d/k)));}
+return out;
+}
+function seeded(seed){var x=seed*9301+49297;return function(){x=(x*9301+49297)%233280;return x/233280}}
+
+function loadThree(cb,onError){
+if(window.THREE)return cb();
+var sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+sc.onload=cb;sc.onerror=function(){if(onError)onError()};document.head.appendChild(sc);
+}
+
+// ---------- окна: процедурные текстуры фасада по стилю ----------
+var GLASS='#3F4D66',GLASS2='#5C6E8C',LIT='#F3E2A6',texCache={};
+function facadeTex(si,kind,R){
+var key=si+kind;if(texCache[key])return texCache[key];
+var st=STYLES[si],B=64,F=64,rows=kind==='up'?4:1,cv=document.createElement('canvas');cv.width=B*4;cv.height=F*rows;
+var g=cv.getContext('2d'),rnd=seeded(si*7+(kind==='up'?1:2));
+g.fillStyle=kind==='up'?st.wall:st.plinth;g.fillRect(0,0,cv.width,cv.height);
+function win(x,y,w,h,lit,arch){
+g.fillStyle=st.trim;g.beginPath();
+if(arch){g.moveTo(x-3,y+h+2);g.lineTo(x-3,y+w/2);g.arc(x+w/2,y+w/2,w/2+3,Math.PI,0);g.lineTo(x+w+3,y+h+2);}else g.rect(x-3,y-3,w+6,h+5);
+g.fill();
+var gr=g.createLinearGradient(0,y,0,y+h);gr.addColorStop(0,lit?LIT:GLASS2);gr.addColorStop(1,lit?'#E8C979':GLASS);g.fillStyle=gr;g.beginPath();
+if(arch){g.moveTo(x,y+h);g.lineTo(x,y+w/2);g.arc(x+w/2,y+w/2,w/2,Math.PI,0);g.lineTo(x+w,y+h);}else g.rect(x,y,w,h);
+g.fill();
+g.fillStyle=st.trim;g.fillRect(x+w/2-1,y+(arch?w/2:0),2,h-(arch?w/2:0)); // переплёт
+g.fillRect(x-5,y+h+1,w+10,3); // подоконник
+}
+for(var f=0;f<rows;f++)for(var b=0;b<4;b++){var x0=b*B,y0=f*F;
+if(kind==='up'){
+g.fillStyle='rgba(0,0,0,0.06)';g.fillRect(x0,y0,B,2); // межэтажная тяга
+win(x0+B*0.3,y0+F*0.22,B*0.4,F*0.56,rnd()<0.12,st.arch);
+}else{
+g.fillStyle='rgba(0,0,0,0.12)';for(var k=1;k<4;k++)g.fillRect(x0,y0+F*k/4,B,1); // руст
+if(b===1){g.fillStyle=st.trim;g.fillRect(x0+B*0.3,y0+F*0.22,B*0.4,F*0.78);g.fillStyle='#5A4636';g.fillRect(x0+B*0.34,y0+F*0.28,B*0.32,F*0.72);} // дверь
+else win(x0+B*0.16,y0+F*0.24,B*0.68,F*0.56,rnd()<0.3,false); // витрина
+}}
+var tx=new THREE.CanvasTexture(cv);tx.wrapS=tx.wrapT=THREE.RepeatWrapping;tx.encoding=THREE.sRGBEncoding;
+tx.anisotropy=R?R.capabilities.getMaxAnisotropy():1;texCache[key]=tx;return tx;
+}
+function flatGeo(polys,yy){ // плоские выпуклые многоугольники в одну геометрию (веером)
+var T=THREE,pos=[];
+polys.forEach(function(p){for(var i=1;i<p.length-1;i++)[p[0],p[i],p[i+1]].forEach(function(q){pos.push(q[0],yy,q[1])})});
+var g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.computeVertexNormals();return g;
+}
+// полосы дорог: прямоугольник вдоль каждого звена и восьмиугольник в каждом узле
+function roadBands(desc){
+var W=desc.roadHalfWidth,bands=[];
+(desc.segments||[]).forEach(function(sg){var A=sg.a,B=sg.b,t=nrm(sub(B,A)),nl=[-t[1],t[0]];
+var poly=[add(A,mul(nl,W)),add(B,mul(nl,W)),add(B,mul(nl,-W)),add(A,mul(nl,-W))];bands.push({poly:poly,A:A,B:B,t:t,bb:bbox(poly)})});
+(desc.nodes||[]).forEach(function(c){var p=[];for(var i=0;i<8;i++){var a=i*Math.PI/4+Math.PI/8;p.push([c[0]+W*Math.cos(a),c[1]+W*Math.sin(a)])}bands.push({poly:p,node:true,bb:bbox(p)})});
+return bands;
+}
+
+// ---------- дома: процедурные фасады и крыши ----------
+/*
+ * Дом строится по своему контуру, а не из готовой модели. Каждая сторона
+ * контура классифицируется:
+ *   уличный фасад — лежит на кромке улицы (у углового дома — на обеих);
+ *   брандмауэр    — глухая стена вплотную к соседнему дому (без окон);
+ *   задний/боковой фасад — остальное.
+ * Уличный фасад: цоколь (первый этаж другого цвета, витрины и двери) и этажи
+ * с окнами — одно окно на клетку по горизонтали и на этаж по вертикали; у
+ * одноэтажного жилого дома на улицу смотрят окна, а не витрины. Сверху —
+ * выступающий карниз; крыша плоская или «мансардная». Стены одного стиля и
+ * вида склеены в общие сетки: это дёшево и для телефона.
+ */
+function buildHouses(sc,C,desc,bands,R){
+var T=THREE,FH=desc.cell||16,W=desc.roadHalfWidth,buckets={},outs=[],HS=window.__houseStats={street:0,party:0,back:0};
+function bucket(k){return buckets[k]||(buckets[k]={pos:[],nor:[],uv:[]})}
+// четырёхугольная грань: a,b — низ (x,z) на высоте y0, верх — y1; нормаль n (в плане)
+function wall(k,a,b,y0,y1,n,u1,v1){var B=bucket(k),P=[[a[0],y0,a[1]],[b[0],y0,b[1]],[b[0],y1,b[1]],[a[0],y1,a[1]]],U=[[0,0],[u1,0],[u1,v1],[0,v1]];
+var e1=[P[1][0]-P[0][0],0,P[1][2]-P[0][2]],cx=-e1[2]*(y1-y0),cz=e1[0]*(y1-y0); // (e1 × вверх) в плане
+var ord=(cx*n[0]+cz*n[1])>0?[0,1,2,0,2,3]:[0,2,1,0,3,2];
+ord.forEach(function(i){B.pos.push(P[i][0],P[i][1],P[i][2]);B.nor.push(n[0],0,n[1]);B.uv.push(U[i][0],U[i][1])});}
+function slope(k,a,b,a2,b2,y0,y1){var B=bucket(k),P=[[a[0],y0,a[1]],[b[0],y0,b[1]],[b2[0],y1,b2[1]],[a2[0],y1,a2[1]]];
+var u=[P[1][0]-P[0][0],P[1][1]-P[0][1],P[1][2]-P[0][2]],v=[P[3][0]-P[0][0],P[3][1]-P[0][1],P[3][2]-P[0][2]];
+var nn=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];if(nn[1]<0)nn=nn.map(function(x){return -x});
+var l=Math.hypot(nn[0],nn[1],nn[2])||1;nn=nn.map(function(x){return x/l});
+var ord=[0,1,2,0,2,3],tri=(P[1][0]-P[0][0])*(P[2][2]-P[0][2])-(P[1][2]-P[0][2])*(P[2][0]-P[0][0]);if(tri>0)ord=[0,2,1,0,3,2];
+ord.forEach(function(i){B.pos.push(P[i][0],P[i][1],P[i][2]);B.nor.push(nn[0],nn[1],nn[2]);B.uv.push(0,0)});}
+function cap(k,P,y){var B=bucket(k),v2=P.map(function(q){return new T.Vector2(q[0],q[1])}),f=T.ShapeUtils.triangulateShape(v2,[]);
+f.forEach(function(tr){var a=P[tr[0]],b=P[tr[1]],c=P[tr[2]],z=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]),o=z>0?[a,c,b]:[a,b,c];
+o.forEach(function(q){B.pos.push(q[0],y,q[1]);B.nor.push(0,1,0);B.uv.push(0,0)});});}
+(desc.buildings||[]).forEach(function(b){var ok=b.outline&&b.outline.length>=3;outs.push({b:b,loop:ok?b.outline:null,parts:b.parts,bb:ok?bbox(b.outline):null})});
+var streets=bands.filter(function(x){return !x.node});
+function isStreet(m,d){return streets.some(function(x){if(!bbHit(x.bb,[m[0],m[1],m[0],m[1]],2))return false;
+return Math.abs(segDist(m,x.A,x.B)-W)<1.6&&Math.abs(dot(d,x.t))>0.95})}
+function isParty(me,a,b,d){var m=mul(add(a,b),0.5),L=len(sub(b,a));
+return outs.some(function(o){if(o===me||!o.loop||!bbHit(o.bb,[m[0],m[1],m[0],m[1]],1))return false;
+for(var i=0;i<o.loop.length;i++){var p=o.loop[i],q=o.loop[(i+1)%o.loop.length],e=sub(q,p),le=len(e);if(le<0.5)continue;
+if(Math.abs(cr(d,mul(e,1/le)))>0.03||Math.abs(cr(mul(e,1/le),sub(m,p)))>0.7)continue;
+var t0=dot(sub(a,p),e)/le,t1=dot(sub(b,p),e)/le,ov=Math.min(Math.max(t0,t1),le)-Math.max(Math.min(t0,t1),0);if(ov>L*0.5)return true;}
+return false})}
+var simple=[];
+outs.forEach(function(o){
+var b=o.b,N=b.floors||1,H=N*FH;
+if(b.bad||!o.loop){simple.push(o);return}
+var P=o.loop,si=b.style||0,st=STYLES[si],sg=signedArea(P)>0?1:-1;
+for(var i=0;i<P.length;i++){var a=P[i],c=P[(i+1)%P.length],L=len(sub(c,a));if(L<0.3)continue;
+var d=mul(sub(c,a),1/L),n=mul([d[1],-d[0]],sg),m=mul(add(a,c),0.5),bays=Math.max(1,Math.round(L/FH));
+if(isParty(o,a,c,d)){wall('party'+si,a,c,0,H,n,1,1);HS.party++;continue}
+if(isStreet(m,d)&&!(N===1&&b.type==='res')){HS.street++;wall('base'+si,a,c,0,FH,n,bays/4,1);if(N>1)wall('up'+si,a,c,FH,H,n,bays/4,(N-1)/4);}
+else{wall('up'+si,a,c,0,H,n,bays/4,N/4);HS.back++;}
+}
+// карниз: контур, выдвинутый наружу, от верха стены
+var Oc=offsetPoly(P,1.0),y0=H-0.3,y1=H+1.3;
+for(var j=0;j<Oc.length;j++){var a2=Oc[j],b2=Oc[(j+1)%Oc.length],L2=len(sub(b2,a2));if(L2<0.1)continue;var d2=mul(sub(b2,a2),1/L2);wall('trim'+si,a2,b2,y0,y1,mul([d2[1],-d2[0]],sg),1,1);}
+var ar=Math.abs(signedArea(P)),per=P.reduce(function(acc,q,ii){return acc+len(sub(P[(ii+1)%P.length],q))},0),inr=2*ar/per;
+if(st.roofType==='mansard'&&inr>3){
+var rd=Math.min(5,inr*0.55),In=offsetPoly(P,-rd),rh=rd*0.9;
+for(var k=0;k<Oc.length;k++)slope('roof'+si,Oc[k],Oc[(k+1)%Oc.length],In[k],In[(k+1)%In.length],y1,y1+rh);
+cap('roof'+si,In,y1+rh);
+}else{cap('roof'+si,Oc,y1);
+// плоская крыша: невысокий бортик по краю
+var Ip=offsetPoly(P,-0.2);for(var q=0;q<Ip.length;q++){var a3=Ip[q],b3=Ip[(q+1)%Ip.length],L3=len(sub(b3,a3));if(L3<0.1)continue;var d3=mul(sub(b3,a3),1/L3);wall('trim'+si,a3,b3,y1,y1+1.2,mul([d3[1],-d3[0]],-sg),1,1);}}
+});
+Object.keys(buckets).forEach(function(k){var B=buckets[k];if(!B.pos.length)return;
+var g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(B.pos,3));g.setAttribute('normal',new T.Float32BufferAttribute(B.nor,3));g.setAttribute('uv',new T.Float32BufferAttribute(B.uv,2));
+var kind=k.replace(/[0-9]+$/,''),si=+k.match(/[0-9]+$/)[0],st=STYLES[si],m;
+if(kind==='up'||kind==='base')m=new T.MeshLambertMaterial({map:facadeTex(si,kind,R)});
+else if(kind==='party')m=new T.MeshLambertMaterial({color:C(shade(st.wall,-0.08))});
+else if(kind==='trim')m=new T.MeshLambertMaterial({color:C(st.trim),side:T.DoubleSide});
+else m=new T.MeshLambertMaterial({color:C(st.roof),side:T.DoubleSide});
+sc.add(new T.Mesh(g,m));});
+// невалидные и без собранного контура — простые призмы
+simple.forEach(function(o){var b=o.b,h=(b.floors||1)*FH,bad=!!b.bad,mat=new T.MeshLambertMaterial({color:C(bad?COLORS.bad:(b.color||STYLES[b.style||0].wall)),transparent:bad,opacity:bad?0.7:1});
+(o.loop?[o.loop]:(o.parts||[])).forEach(function(P){var g=new T.ExtrudeGeometry(new T.Shape(P.map(function(q){return new T.Vector2(q[0],-q[1])})),{depth:h,bevelEnabled:false});g.rotateX(-Math.PI/2);sc.add(new T.Mesh(g,mat))});});
+}
+
+// ---------- метки жителей: кружок с номером (как в 2D) и машина в пути ----------
+var markTex={};
+function markerTexture(color,label,selected){
+var key=color+'|'+label+'|'+(selected?1:0);if(markTex[key])return markTex[key];
+var S=96,cv=document.createElement('canvas');cv.width=cv.height=S;var g=cv.getContext('2d');
+g.beginPath();g.arc(S/2,S/2,S/2-6,0,Math.PI*2);g.fillStyle=color;g.fill();
+g.lineWidth=selected?10:6;g.strokeStyle=selected?'#1C2420':'#FFFFFF';g.stroke();
+g.fillStyle='#fff';g.font='600 '+(label.length>1?40:46)+'px system-ui,sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(label,S/2,S/2+2);
+var tx=new THREE.CanvasTexture(cv);tx.encoding=THREE.sRGBEncoding;markTex[key]=tx;return tx;
+}
+var labelTex={};
+function textSprite(text){
+if(!labelTex[text]){var cv=document.createElement('canvas'),g=cv.getContext('2d');g.font='600 44px system-ui,sans-serif';var w=Math.ceil(g.measureText(text).width)+28;cv.width=w;cv.height=64;
+g=cv.getContext('2d');g.fillStyle='rgba(255,255,255,0.88)';g.beginPath();if(g.roundRect)g.roundRect(0,4,w,56,14);else g.rect(0,4,w,56);g.fill();
+g.fillStyle='#1C2420';g.font='600 44px system-ui,sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(text,w/2,34);
+var tx=new THREE.CanvasTexture(cv);tx.encoding=THREE.sRGBEncoding;labelTex[text]={tx:tx,aspect:w/64};}
+var L=labelTex[text],sp=new THREE.Sprite(new THREE.SpriteMaterial({map:L.tx,depthTest:false}));sp.scale.set(20*L.aspect,20,1);sp.renderOrder=5;return sp;
+}
+
+// ---------- вид: сцена, камера, управление ----------
+function createView(el,opts){
+opts=opts||{};
+var T=THREE,V={bearing:-0.5,elev:60,tgt:[0,0],dist:700,ptrs:{},last:null,rot:false,scene:null,marks:null,markers:[],cars:[]};
+var R=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,logarithmicDepthBuffer:true});R.outputEncoding=T.sRGBEncoding;R.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+el.appendChild(R.domElement);
+var cam=new T.PerspectiveCamera(40,680/460,1,30000),cv=R.domElement;
+function C(h){return new T.Color(h).convertSRGBToLinear()}
+function camUpdate(){var e=V.elev*Math.PI/180,b=V.bearing;
+cam.position.set(V.tgt[0]+V.dist*Math.cos(e)*Math.sin(b),V.dist*Math.sin(e),V.tgt[1]+V.dist*Math.cos(e)*Math.cos(b));cam.lookAt(V.tgt[0],0,V.tgt[1]);}
+function size(){var w=el.clientWidth||680,h=el.clientHeight||Math.round(w*460/680);R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();}
+function render(){if(!V.scene||!el.offsetParent&&el.offsetWidth===0)return;size();camUpdate();R.render(V.scene,cam);if(opts.onRender)opts.onRender()}
+var api={
+setScene:function(desc){
+var sc=new T.Scene();sc.background=C(COLORS.sky);
+// плоское (земля, клетки, дороги) — без освещения, цвета как в 2D; дома — со светом
+sc.add(new T.HemisphereLight(0xffffff,0x8d8573,0.6));
+var sun=new T.DirectionalLight(0xffffff,0.6);sun.position.set(-400,700,-250);sc.add(sun);
+var ground=new T.Mesh(new T.PlaneGeometry(20000,20000),new T.MeshBasicMaterial({color:C(COLORS.ground)}));ground.rotation.x=-Math.PI/2;sc.add(ground);
+var side=T.DoubleSide,bands=roadBands(desc),W=desc.roadHalfWidth,H=2.2*(desc.cell||16);
+if(desc.zoneCells&&desc.zoneCells.length)sc.add(new T.Mesh(flatGeo(desc.zoneCells,0.8),new T.MeshBasicMaterial({color:C(COLORS.zoneCell3D),side:side})));
+(desc.areas||[]).forEach(function(a){sc.add(new T.Mesh(flatGeo([a.poly],1.2),new T.MeshBasicMaterial({color:C(a.color||COLORS.area),side:side})));
+if(a.label){var sp=textSprite(a.label),c=a.poly.reduce(function(s,q){return [s[0]+q[0]/a.poly.length,s[1]+q[1]/a.poly.length]},[0,0]),top=Math.min.apply(null,a.poly.map(function(q){return q[1]}));sp.position.set(c[0],24,top-8);sc.add(sp)}});
+if(bands.length)sc.add(new T.Mesh(flatGeo(bands.map(function(b){return b.poly}),1.6),new T.MeshBasicMaterial({color:C(COLORS.road),side:side})));
+buildHouses(sc,C,desc,bands,R);
+// выезды: арка-портал над концом дороги
+(desc.gates||[]).forEach(function(x){var d=x.dir,n=[-d[1],d[0]],P=add(x.at,mul(d,W*0.6)),ang=-Math.atan2(n[1],n[0]);
+var post=new T.MeshLambertMaterial({color:C('#ECEDEA')}),beam=new T.MeshLambertMaterial({color:C(x.ok===false?COLORS.bad:COLORS.gate)});
+[-1,1].forEach(function(sd){var m=new T.Mesh(new T.BoxGeometry(4,H,4),post),q=add(P,mul(n,sd*(W+3)));m.position.set(q[0],H/2,q[1]);sc.add(m)});
+var bm=new T.Mesh(new T.BoxGeometry(2*W+10,9,3),beam);bm.position.set(P[0],H-4.5,P[1]);bm.rotation.y=ang;sc.add(bm);
+if(x.label){var sp=textSprite(x.label);sp.position.set(P[0],H+12,P[1]);sc.add(sp)}});
+V.marks=new T.Group();sc.add(V.marks);V.markers=[];V.cars=[];
+V.scene=sc;
+},
+// метки жителей; car — ехать машиной (кузов цвета жителя по направлению heading)
+setMarkers:function(list){
+if(!V.marks)return;
+while(V.markers.length<list.length){var sp=new T.Sprite(new T.SpriteMaterial({depthTest:true}));sp.renderOrder=4;V.marks.add(sp);
+var body=new T.Mesh(new T.BoxGeometry(18,6,8),new T.MeshLambertMaterial({color:0xffffff}));var top=new T.Mesh(new T.BoxGeometry(9,4,7),new T.MeshLambertMaterial({color:C('#DDE3EA')}));top.position.set(-1,5,0);body.add(top);V.marks.add(body);
+V.markers.push(sp);V.cars.push(body);}
+for(var i=0;i<V.markers.length;i++){var sp2=V.markers[i],car=V.cars[i],m=list[i];
+if(!m){sp2.visible=false;car.visible=false;continue}
+sp2.visible=true;sp2.material.map=markerTexture(m.color,m.label,m.selected);sp2.material.needsUpdate=true;
+var sz=m.selected?22:17;sp2.scale.set(sz,sz,1);
+car.visible=!!m.car;
+if(m.car){car.position.set(m.x,4,m.y);car.rotation.y=-(m.heading||0);car.material.color.copy(C(m.color));sp2.position.set(m.x,(m.z||0)+20,m.y)}
+else sp2.position.set(m.x,(m.z||0)+8,m.y);}
+},
+// навести камеру на охват b = [x0, y0, x1, y1]; o.k — множитель расстояния (1.25 — с запасом), o.bearing — поворот
+fit:function(b,o){o=o||{};if(o.bearing!=null)V.bearing=o.bearing;if(!b){V.tgt=[340,230];V.dist=700;return}V.tgt=[(b[0]+b[2])/2,(b[1]+b[3])/2];V.dist=Math.max(300,Math.max(b[2]-b[0],b[3]-b[1])*(o.k||1.25)+120)},
+render:render,
+rotate:function(d){V.bearing+=d;render()},
+zoom:function(f){V.dist=Math.max(80,Math.min(6000,V.dist/f));render()},
+toggleTilt:function(){V.elev=V.elev===60?30:60;render();return V.elev},
+get elev(){return V.elev},
+dom:cv
+};
+cv.addEventListener('contextmenu',function(e){e.preventDefault()});
+cv.addEventListener('pointerdown',function(e){try{cv.setPointerCapture(e.pointerId)}catch(_){}
+V.ptrs[e.pointerId]={x:e.clientX,y:e.clientY};V.rot=e.button===2||e.shiftKey;V.last=null;});
+cv.addEventListener('pointermove',function(e){
+if(!V.ptrs[e.pointerId])return;
+var prev=V.ptrs[e.pointerId];V.ptrs[e.pointerId]={x:e.clientX,y:e.clientY};
+var ids=Object.keys(V.ptrs),kpx=2*V.dist*Math.tan(20*Math.PI/180)/(cv.clientHeight||460);
+if(ids.length===1){
+var dx=e.clientX-prev.x,dy=e.clientY-prev.y;
+if(V.rot){V.bearing-=dx*0.006}
+else{var b=V.bearing,rx=Math.cos(b),rz=-Math.sin(b),fx=-Math.sin(b),fz=-Math.cos(b),sy=1/Math.sin(V.elev*Math.PI/180);
+V.tgt[0]-=(rx*dx-fx*dy*sy)*kpx;V.tgt[1]-=(rz*dx-fz*dy*sy)*kpx;}
+}else if(ids.length>=2){
+// два пальца: поворот и масштаб
+var a=V.ptrs[ids[0]],c=V.ptrs[ids[1]],ang=Math.atan2(c.y-a.y,c.x-a.x),d=Math.hypot(c.x-a.x,c.y-a.y);
+if(V.last){V.bearing+=ang-V.last.ang;V.dist=Math.max(80,Math.min(6000,V.dist*V.last.d/d));}
+V.last={ang:ang,d:d};
+}
+render();});
+function up(e){delete V.ptrs[e.pointerId];V.last=null;}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+cv.addEventListener('wheel',function(e){e.preventDefault();V.dist=Math.max(80,Math.min(6000,V.dist*(e.deltaY>0?1.12:1/1.12)));render()},{passive:false});
+window.addEventListener('resize',render);
+return api;
+}
+
+window.City3D={STYLES:STYLES,COLORS:COLORS,ZONE_STYLES:ZONE_STYLES,shade:shade,lotFill:lotFill,loadThree:loadThree,createView:createView,offsetPoly:offsetPoly};
+})();
+
 // ---- rng.mjs ----
 // Детерминированный генератор случайных чисел (mulberry32): одна и та же
 // последовательность при одном seed на любой машине. Math.random в симуляции
@@ -548,468 +852,7 @@ function advance(sim,ticks,{check=false,onTick}={}){
 const ticksPerDay=(sim)=>Math.round(86400/sim.cfg.tickSeconds);
 
 // ---- просмотрщик ----
-const SNAP={
- "format": "city-builder/world@1",
- "units": "m",
- "nodes": [
-  [
-   -96,
-   0
-  ],
-  [
-   -32,
-   0
-  ],
-  [
-   32,
-   0
-  ],
-  [
-   96,
-   0
-  ],
-  [
-   -32,
-   -40
-  ],
-  [
-   -32,
-   40
-  ],
-  [
-   32,
-   -40
-  ],
-  [
-   32,
-   40
-  ]
- ],
- "edges": [
-  {
-   "a": 0,
-   "b": 1,
-   "length": 64
-  },
-  {
-   "a": 1,
-   "b": 2,
-   "length": 64
-  },
-  {
-   "a": 2,
-   "b": 3,
-   "length": 64
-  },
-  {
-   "a": 4,
-   "b": 1,
-   "length": 40
-  },
-  {
-   "a": 1,
-   "b": 5,
-   "length": 40
-  },
-  {
-   "a": 6,
-   "b": 2,
-   "length": 40
-  },
-  {
-   "a": 2,
-   "b": 7,
-   "length": 40
-  },
-  {
-   "a": 4,
-   "b": 6,
-   "length": 64
-  }
- ],
- "buildings": [
-  {
-   "id": 0,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 0,
-   "t": 0.219,
-   "center": [
-    -82,
-    -8
-   ],
-   "outline": [
-    [
-     -84,
-     -12
-    ],
-    [
-     -80,
-     -12
-    ],
-    [
-     -80,
-     -4
-    ],
-    [
-     -84,
-     -4
-    ]
-   ]
-  },
-  {
-   "id": 1,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 0,
-   "t": 0.469,
-   "center": [
-    -66,
-    -8
-   ],
-   "outline": [
-    [
-     -68,
-     -12
-    ],
-    [
-     -64,
-     -12
-    ],
-    [
-     -64,
-     -4
-    ],
-    [
-     -68,
-     -4
-    ]
-   ]
-  },
-  {
-   "id": 2,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 0,
-   "t": 0.719,
-   "center": [
-    -50,
-    -8
-   ],
-   "outline": [
-    [
-     -52,
-     -12
-    ],
-    [
-     -48,
-     -12
-    ],
-    [
-     -48,
-     -4
-    ],
-    [
-     -52,
-     -4
-    ]
-   ]
-  },
-  {
-   "id": 3,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 0,
-   "t": 0.219,
-   "center": [
-    -82,
-    8
-   ],
-   "outline": [
-    [
-     -84,
-     4
-    ],
-    [
-     -80,
-     4
-    ],
-    [
-     -80,
-     12
-    ],
-    [
-     -84,
-     12
-    ]
-   ]
-  },
-  {
-   "id": 4,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 0,
-   "t": 0.469,
-   "center": [
-    -66,
-    8
-   ],
-   "outline": [
-    [
-     -68,
-     4
-    ],
-    [
-     -64,
-     4
-    ],
-    [
-     -64,
-     12
-    ],
-    [
-     -68,
-     12
-    ]
-   ]
-  },
-  {
-   "id": 5,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 0,
-   "t": 0.719,
-   "center": [
-    -50,
-    8
-   ],
-   "outline": [
-    [
-     -52,
-     4
-    ],
-    [
-     -48,
-     4
-    ],
-    [
-     -48,
-     12
-    ],
-    [
-     -52,
-     12
-    ]
-   ]
-  },
-  {
-   "id": 6,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 4,
-   "t": 0.45,
-   "center": [
-    -40,
-    18
-   ],
-   "outline": [
-    [
-     -36,
-     16
-    ],
-    [
-     -36,
-     20
-    ],
-    [
-     -44,
-     20
-    ],
-    [
-     -44,
-     16
-    ]
-   ]
-  },
-  {
-   "id": 7,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 4,
-   "t": 0.75,
-   "center": [
-    -40,
-    30
-   ],
-   "outline": [
-    [
-     -36,
-     28
-    ],
-    [
-     -36,
-     32
-    ],
-    [
-     -44,
-     32
-    ],
-    [
-     -44,
-     28
-    ]
-   ]
-  },
-  {
-   "id": 8,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 6,
-   "t": 0.55,
-   "center": [
-    40,
-    22
-   ],
-   "outline": [
-    [
-     44,
-     20
-    ],
-    [
-     44,
-     24
-    ],
-    [
-     36,
-     24
-    ],
-    [
-     36,
-     20
-    ]
-   ]
-  },
-  {
-   "id": 9,
-   "type": "res",
-   "floors": 1,
-   "cells": 2,
-   "capacity": 1,
-   "edge": 7,
-   "t": 0.531,
-   "center": [
-    2,
-    -48
-   ],
-   "outline": [
-    [
-     0,
-     -52
-    ],
-    [
-     4,
-     -52
-    ],
-    [
-     4,
-     -44
-    ],
-    [
-     0,
-     -44
-    ]
-   ]
-  },
-  {
-   "id": 10,
-   "type": "com",
-   "floors": 1,
-   "cells": 4,
-   "capacity": 2,
-   "edge": 1,
-   "t": 0.5,
-   "center": [
-    0,
-    -8
-   ],
-   "outline": [
-    [
-     -4,
-     -12
-    ],
-    [
-     4,
-     -12
-    ],
-    [
-     4,
-     -4
-    ],
-    [
-     -4,
-     -4
-    ]
-   ]
-  },
-  {
-   "id": 11,
-   "type": "work",
-   "floors": 1,
-   "cells": 8,
-   "capacity": 2,
-   "edge": 2,
-   "t": 0.5,
-   "center": [
-    64,
-    12
-   ],
-   "outline": [
-    [
-     60,
-     4
-    ],
-    [
-     68,
-     4
-    ],
-    [
-     68,
-     20
-    ],
-    [
-     60,
-     20
-    ]
-   ]
-  }
- ],
- "gates": [
-  {
-   "id": 0,
-   "node": 3,
-   "name": "Город"
-  }
- ],
- "name": "Деревня 10"
-};
+const SNAP={"format":"city-builder/world@1","units":"m","nodes":[[-96,0],[-32,0],[32,0],[96,0],[-32,-40],[-32,40],[32,-40],[32,40]],"edges":[{"a":0,"b":1,"length":64},{"a":1,"b":2,"length":64},{"a":2,"b":3,"length":64},{"a":4,"b":1,"length":40},{"a":1,"b":5,"length":40},{"a":6,"b":2,"length":40},{"a":2,"b":7,"length":40},{"a":4,"b":6,"length":64}],"buildings":[{"id":0,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.219,"center":[-82,-8],"outline":[[-84,-12],[-80,-12],[-80,-4],[-84,-4]],"style":0},{"id":1,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.469,"center":[-66,-8],"outline":[[-68,-12],[-64,-12],[-64,-4],[-68,-4]],"style":5},{"id":2,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.719,"center":[-50,-8],"outline":[[-52,-12],[-48,-12],[-48,-4],[-52,-4]],"style":7},{"id":3,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.219,"center":[-82,8],"outline":[[-84,4],[-80,4],[-80,12],[-84,12]],"style":1},{"id":4,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.469,"center":[-66,8],"outline":[[-68,4],[-64,4],[-64,12],[-68,12]],"style":2},{"id":5,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.719,"center":[-50,8],"outline":[[-52,4],[-48,4],[-48,12],[-52,12]],"style":4},{"id":6,"type":"res","floors":1,"cells":2,"capacity":1,"edge":4,"t":0.45,"center":[-40,18],"outline":[[-36,16],[-36,20],[-44,20],[-44,16]],"style":0},{"id":7,"type":"res","floors":1,"cells":2,"capacity":1,"edge":4,"t":0.75,"center":[-40,30],"outline":[[-36,28],[-36,32],[-44,32],[-44,28]],"style":5},{"id":8,"type":"res","floors":1,"cells":2,"capacity":1,"edge":6,"t":0.55,"center":[40,22],"outline":[[44,20],[44,24],[36,24],[36,20]],"style":7},{"id":9,"type":"res","floors":1,"cells":2,"capacity":1,"edge":7,"t":0.531,"center":[2,-48],"outline":[[0,-52],[4,-52],[4,-44],[0,-44]],"style":1},{"id":10,"type":"com","floors":1,"cells":4,"capacity":2,"edge":1,"t":0.5,"center":[0,-8],"outline":[[-4,-12],[4,-12],[4,-4],[-4,-4]],"style":6},{"id":11,"type":"work","floors":1,"cells":8,"capacity":2,"edge":2,"t":0.5,"center":[64,12],"outline":[[60,4],[68,4],[68,20],[60,20]],"style":3}],"gates":[{"id":0,"node":3,"name":"Город"}],"render":{"cell":4,"roadHalfWidth":4,"zoneCells":[[[-96,4],[-92,4],[-92,8],[-96,8]],[[-96,8],[-92,8],[-92,12],[-96,12]],[[-96,12],[-92,12],[-92,16],[-96,16]],[[-96,16],[-92,16],[-92,20],[-96,20]],[[-92,4],[-88,4],[-88,8],[-92,8]],[[-92,8],[-88,8],[-88,12],[-92,12]],[[-92,12],[-88,12],[-88,16],[-92,16]],[[-92,16],[-88,16],[-88,20],[-92,20]],[[-88,4],[-84,4],[-84,8],[-88,8]],[[-88,8],[-84,8],[-84,12],[-88,12]],[[-88,12],[-84,12],[-84,16],[-88,16]],[[-88,16],[-84,16],[-84,20],[-88,20]],[[-84,4],[-80,4],[-80,8],[-84,8]],[[-84,8],[-80,8],[-80,12],[-84,12]],[[-84,12],[-80,12],[-80,16],[-84,16]],[[-84,16],[-80,16],[-80,20],[-84,20]],[[-80,4],[-76,4],[-76,8],[-80,8]],[[-80,8],[-76,8],[-76,12],[-80,12]],[[-80,12],[-76,12],[-76,16],[-80,16]],[[-80,16],[-76,16],[-76,20],[-80,20]],[[-76,4],[-72,4],[-72,8],[-76,8]],[[-76,8],[-72,8],[-72,12],[-76,12]],[[-76,12],[-72,12],[-72,16],[-76,16]],[[-76,16],[-72,16],[-72,20],[-76,20]],[[-72,4],[-68,4],[-68,8],[-72,8]],[[-72,8],[-68,8],[-68,12],[-72,12]],[[-72,12],[-68,12],[-68,16],[-72,16]],[[-72,16],[-68,16],[-68,20],[-72,20]],[[-68,4],[-64,4],[-64,8],[-68,8]],[[-68,8],[-64,8],[-64,12],[-68,12]],[[-68,12],[-64,12],[-64,16],[-68,16]],[[-68,16],[-64,16],[-64,20],[-68,20]],[[-64,4],[-60,4],[-60,8],[-64,8]],[[-64,8],[-60,8],[-60,12],[-64,12]],[[-64,12],[-60,12],[-60,16],[-64,16]],[[-64,16],[-60,16],[-60,20],[-64,20]],[[-60,4],[-56,4],[-56,8],[-60,8]],[[-60,8],[-56,8],[-56,12],[-60,12]],[[-60,12],[-56,12],[-56,16],[-60,16]],[[-60,16],[-56,16],[-56,20],[-60,20]],[[-56,4],[-52,4],[-52,8],[-56,8]],[[-56,8],[-52,8],[-52,12],[-56,12]],[[-56,12],[-52,12],[-52,16],[-56,16]],[[-56,16],[-52,16],[-52,20],[-56,20]],[[-52,4],[-48,4],[-48,8],[-52,8]],[[-52,8],[-48,8],[-48,12],[-52,12]],[[-52,12],[-48,12],[-48,16],[-52,16]],[[-52,16],[-48,16],[-48,16],[-52,20],[-52,20]],[[-48,4],[-44,4],[-44,8],[-48,8]],[[-48,8],[-44,8],[-44,12],[-48,12]],[[-48,12],[-44,12],[-44,12],[-48,16],[-48,16]],[[-44,4],[-40,4],[-40,8],[-44,8]],[[-44,8],[-40,8],[-40,8],[-44,12],[-44,12]],[[-40,4],[-36,4],[-36,4],[-40,8],[-40,8]],[[-96,-4],[-92,-4],[-92,-8],[-96,-8]],[[-96,-8],[-92,-8],[-92,-12],[-96,-12]],[[-96,-12],[-92,-12],[-92,-16],[-96,-16]],[[-96,-16],[-92,-16],[-92,-20],[-96,-20]],[[-92,-4],[-88,-4],[-88,-8],[-92,-8]],[[-92,-8],[-88,-8],[-88,-12],[-92,-12]],[[-92,-12],[-88,-12],[-88,-16],[-92,-16]],[[-92,-16],[-88,-16],[-88,-20],[-92,-20]],[[-88,-4],[-84,-4],[-84,-8],[-88,-8]],[[-88,-8],[-84,-8],[-84,-12],[-88,-12]],[[-88,-12],[-84,-12],[-84,-16],[-88,-16]],[[-88,-16],[-84,-16],[-84,-20],[-88,-20]],[[-84,-4],[-80,-4],[-80,-8],[-84,-8]],[[-84,-8],[-80,-8],[-80,-12],[-84,-12]],[[-84,-12],[-80,-12],[-80,-16],[-84,-16]],[[-84,-16],[-80,-16],[-80,-20],[-84,-20]],[[-80,-4],[-76,-4],[-76,-8],[-80,-8]],[[-80,-8],[-76,-8],[-76,-12],[-80,-12]],[[-80,-12],[-76,-12],[-76,-16],[-80,-16]],[[-80,-16],[-76,-16],[-76,-20],[-80,-20]],[[-76,-4],[-72,-4],[-72,-8],[-76,-8]],[[-76,-8],[-72,-8],[-72,-12],[-76,-12]],[[-76,-12],[-72,-12],[-72,-16],[-76,-16]],[[-76,-16],[-72,-16],[-72,-20],[-76,-20]],[[-72,-4],[-68,-4],[-68,-8],[-72,-8]],[[-72,-8],[-68,-8],[-68,-12],[-72,-12]],[[-72,-12],[-68,-12],[-68,-16],[-72,-16]],[[-72,-16],[-68,-16],[-68,-20],[-72,-20]],[[-68,-4],[-64,-4],[-64,-8],[-68,-8]],[[-68,-8],[-64,-8],[-64,-12],[-68,-12]],[[-68,-12],[-64,-12],[-64,-16],[-68,-16]],[[-68,-16],[-64,-16],[-64,-20],[-68,-20]],[[-64,-4],[-60,-4],[-60,-8],[-64,-8]],[[-64,-8],[-60,-8],[-60,-12],[-64,-12]],[[-64,-12],[-60,-12],[-60,-16],[-64,-16]],[[-64,-16],[-60,-16],[-60,-20],[-64,-20]],[[-60,-4],[-56,-4],[-56,-8],[-60,-8]],[[-60,-8],[-56,-8],[-56,-12],[-60,-12]],[[-60,-12],[-56,-12],[-56,-16],[-60,-16]],[[-60,-16],[-56,-16],[-56,-20],[-60,-20]],[[-56,-4],[-52,-4],[-52,-8],[-56,-8]],[[-56,-8],[-52,-8],[-52,-12],[-56,-12]],[[-56,-12],[-52,-12],[-52,-16],[-56,-16]],[[-56,-16],[-52,-16],[-52,-20],[-56,-20]],[[-52,-4],[-48,-4],[-48,-8],[-52,-8]],[[-52,-8],[-48,-8],[-48,-12],[-52,-12]],[[-52,-12],[-48,-12],[-48,-16],[-52,-16]],[[-52,-16],[-48,-16],[-48,-16],[-52,-20],[-52,-20]],[[-48,-4],[-44,-4],[-44,-8],[-48,-8]],[[-48,-8],[-44,-8],[-44,-12],[-48,-12]],[[-48,-12],[-44,-12],[-44,-12],[-48,-16],[-48,-16]],[[-44,-4],[-40,-4],[-40,-8],[-44,-8]],[[-44,-8],[-40,-8],[-40,-8],[-44,-12],[-44,-12]],[[-40,-4],[-36,-4],[-36,-4],[-40,-8],[-40,-8]],[[-28,4],[-24,4],[-24,8],[-24,8],[-28,4]],[[-24,4],[-20,4],[-20,8],[-24,8]],[[-24,8],[-20,8],[-20,12],[-20,12],[-24,8]],[[-20,4],[-16,4],[-16,8],[-20,8]],[[-20,8],[-16,8],[-16,12],[-20,12]],[[-20,12],[-16,12],[-16,16],[-16,16],[-20,12]],[[-16,4],[-12,4],[-12,8],[-16,8]],[[-16,8],[-12,8],[-12,12],[-16,12]],[[-16,12],[-12,12],[-12,16],[-16,16]],[[-16,16],[-12,16],[-12,20],[-12,20],[-16,16]],[[-12,4],[-8,4],[-8,8],[-12,8]],[[-12,8],[-8,8],[-8,12],[-12,12]],[[-12,12],[-8,12],[-8,16],[-12,16]],[[-12,16],[-8,16],[-8,20],[-12,20]],[[-8,4],[-4,4],[-4,8],[-8,8]],[[-8,8],[-4,8],[-4,12],[-8,12]],[[-8,12],[-4,12],[-4,16],[-8,16]],[[-8,16],[-4,16],[-4,20],[-8,20]],[[-4,4],[0,4],[0,8],[-4,8]],[[-4,8],[0,8],[0,12],[-4,12]],[[-4,12],[0,12],[0,16],[-4,16]],[[-4,16],[0,16],[0,20],[-4,20]],[[0,4],[4,4],[4,8],[0,8]],[[0,8],[4,8],[4,12],[0,12]],[[0,12],[4,12],[4,16],[0,16]],[[0,16],[4,16],[4,20],[0,20]],[[4,4],[8,4],[8,8],[4,8]],[[4,8],[8,8],[8,12],[4,12]],[[4,12],[8,12],[8,16],[4,16]],[[4,16],[8,16],[8,20],[4,20]],[[8,4],[12,4],[12,8],[8,8]],[[8,8],[12,8],[12,12],[8,12]],[[8,12],[12,12],[12,16],[8,16]],[[8,16],[12,16],[12,20],[8,20]],[[12,4],[16,4],[16,8],[12,8]],[[12,8],[16,8],[16,12],[12,12]],[[12,12],[16,12],[16,16],[12,16]],[[12,16],[16,16],[16,16],[12,20],[12,20]],[[16,4],[20,4],[20,8],[16,8]],[[16,8],[20,8],[20,12],[16,12]],[[16,12],[20,12],[20,12],[16,16],[16,16]],[[20,4],[24,4],[24,8],[20,8]],[[20,8],[24,8],[24,8],[20,12],[20,12]],[[24,4],[28,4],[28,4],[24,8],[24,8]],[[-28,-4],[-24,-4],[-24,-8],[-24,-8],[-28,-4]],[[-24,-4],[-20,-4],[-20,-8],[-24,-8]],[[-24,-8],[-20,-8],[-20,-12],[-20,-12],[-24,-8]],[[-20,-4],[-16,-4],[-16,-8],[-20,-8]],[[-20,-8],[-16,-8],[-16,-12],[-20,-12]],[[-20,-12],[-16,-12],[-16,-16],[-16,-16],[-20,-12]],[[-16,-4],[-12,-4],[-12,-8],[-16,-8]],[[-16,-8],[-12,-8],[-12,-12],[-16,-12]],[[-16,-12],[-12,-12],[-12,-16],[-16,-16]],[[-16,-16],[-12,-16],[-12,-20],[-12,-20],[-16,-16]],[[-12,-4],[-8,-4],[-8,-8],[-12,-8]],[[-12,-8],[-8,-8],[-8,-12],[-12,-12]],[[-12,-12],[-8,-12],[-8,-16],[-12,-16]],[[-12,-16],[-8,-16],[-8,-20],[-12,-20]],[[-8,-4],[-4,-4],[-4,-8],[-8,-8]],[[-8,-8],[-4,-8],[-4,-12],[-8,-12]],[[-8,-12],[-4,-12],[-4,-16],[-8,-16]],[[-8,-16],[-4,-16],[-4,-20],[-8,-20]],[[-4,-4],[0,-4],[0,-8],[-4,-8]],[[-4,-8],[0,-8],[0,-12],[-4,-12]],[[-4,-12],[0,-12],[0,-16],[-4,-16]],[[-4,-16],[0,-16],[0,-20],[-4,-20]],[[0,-4],[4,-4],[4,-8],[0,-8]],[[0,-8],[4,-8],[4,-12],[0,-12]],[[0,-12],[4,-12],[4,-16],[0,-16]],[[0,-16],[4,-16],[4,-20],[0,-20]],[[4,-4],[8,-4],[8,-8],[4,-8]],[[4,-8],[8,-8],[8,-12],[4,-12]],[[4,-12],[8,-12],[8,-16],[4,-16]],[[4,-16],[8,-16],[8,-20],[4,-20]],[[8,-4],[12,-4],[12,-8],[8,-8]],[[8,-8],[12,-8],[12,-12],[8,-12]],[[8,-12],[12,-12],[12,-16],[8,-16]],[[8,-16],[12,-16],[12,-20],[8,-20]],[[12,-4],[16,-4],[16,-8],[12,-8]],[[12,-8],[16,-8],[16,-12],[12,-12]],[[12,-12],[16,-12],[16,-16],[12,-16]],[[12,-16],[16,-16],[16,-16],[12,-20],[12,-20]],[[16,-4],[20,-4],[20,-8],[16,-8]],[[16,-8],[20,-8],[20,-12],[16,-12]],[[16,-12],[20,-12],[20,-12],[16,-16],[16,-16]],[[20,-4],[24,-4],[24,-8],[20,-8]],[[20,-8],[24,-8],[24,-8],[20,-12],[20,-12]],[[24,-4],[28,-4],[28,-4],[24,-8],[24,-8]],[[36,4],[40,4],[40,8],[40,8],[36,4]],[[40,4],[44,4],[44,8],[40,8]],[[40,8],[44,8],[44,12],[44,12],[40,8]],[[44,4],[48,4],[48,8],[44,8]],[[44,8],[48,8],[48,12],[44,12]],[[44,12],[48,12],[48,16],[48,16],[44,12]],[[48,4],[52,4],[52,8],[48,8]],[[48,8],[52,8],[52,12],[48,12]],[[48,12],[52,12],[52,16],[48,16]],[[48,16],[52,16],[52,20],[52,20],[48,16]],[[52,4],[56,4],[56,8],[52,8]],[[52,8],[56,8],[56,12],[52,12]],[[52,12],[56,12],[56,16],[52,16]],[[52,16],[56,16],[56,20],[52,20]],[[56,4],[60,4],[60,8],[56,8]],[[56,8],[60,8],[60,12],[56,12]],[[56,12],[60,12],[60,16],[56,16]],[[56,16],[60,16],[60,20],[56,20]],[[60,4],[64,4],[64,8],[60,8]],[[60,8],[64,8],[64,12],[60,12]],[[60,12],[64,12],[64,16],[60,16]],[[60,16],[64,16],[64,20],[60,20]],[[64,4],[68,4],[68,8],[64,8]],[[64,8],[68,8],[68,12],[64,12]],[[64,12],[68,12],[68,16],[64,16]],[[64,16],[68,16],[68,20],[64,20]],[[68,4],[72,4],[72,8],[68,8]],[[68,8],[72,8],[72,12],[68,12]],[[68,12],[72,12],[72,16],[68,16]],[[68,16],[72,16],[72,20],[68,20]],[[72,4],[76,4],[76,8],[72,8]],[[72,8],[76,8],[76,12],[72,12]],[[72,12],[76,12],[76,16],[72,16]],[[72,16],[76,16],[76,20],[72,20]],[[76,4],[80,4],[80,8],[76,8]],[[76,8],[80,8],[80,12],[76,12]],[[76,12],[80,12],[80,16],[76,16]],[[76,16],[80,16],[80,20],[76,20]],[[80,4],[84,4],[84,8],[80,8]],[[80,8],[84,8],[84,12],[80,12]],[[80,12],[84,12],[84,16],[80,16]],[[80,16],[84,16],[84,20],[80,20]],[[84,4],[88,4],[88,8],[84,8]],[[84,8],[88,8],[88,12],[84,12]],[[84,12],[88,12],[88,16],[84,16]],[[84,16],[88,16],[88,20],[84,20]],[[88,4],[92,4],[92,8],[88,8]],[[88,8],[92,8],[92,12],[88,12]],[[88,12],[92,12],[92,16],[88,16]],[[88,16],[92,16],[92,20],[88,20]],[[92,4],[96,4],[96,8],[92,8]],[[92,8],[96,8],[96,12],[92,12]],[[92,12],[96,12],[96,16],[92,16]],[[92,16],[96,16],[96,20],[92,20]],[[36,-4],[40,-4],[40,-8],[40,-8],[36,-4]],[[40,-4],[44,-4],[44,-8],[40,-8]],[[40,-8],[44,-8],[44,-12],[44,-12],[40,-8]],[[44,-4],[48,-4],[48,-8],[44,-8]],[[44,-8],[48,-8],[48,-12],[44,-12]],[[44,-12],[48,-12],[48,-16],[48,-16],[44,-12]],[[48,-4],[52,-4],[52,-8],[48,-8]],[[48,-8],[52,-8],[52,-12],[48,-12]],[[48,-12],[52,-12],[52,-16],[48,-16]],[[48,-16],[52,-16],[52,-20],[52,-20],[48,-16]],[[52,-4],[56,-4],[56,-8],[52,-8]],[[52,-8],[56,-8],[56,-12],[52,-12]],[[52,-12],[56,-12],[56,-16],[52,-16]],[[52,-16],[56,-16],[56,-20],[52,-20]],[[56,-4],[60,-4],[60,-8],[56,-8]],[[56,-8],[60,-8],[60,-12],[56,-12]],[[56,-12],[60,-12],[60,-16],[56,-16]],[[56,-16],[60,-16],[60,-20],[56,-20]],[[60,-4],[64,-4],[64,-8],[60,-8]],[[60,-8],[64,-8],[64,-12],[60,-12]],[[60,-12],[64,-12],[64,-16],[60,-16]],[[60,-16],[64,-16],[64,-20],[60,-20]],[[64,-4],[68,-4],[68,-8],[64,-8]],[[64,-8],[68,-8],[68,-12],[64,-12]],[[64,-12],[68,-12],[68,-16],[64,-16]],[[64,-16],[68,-16],[68,-20],[64,-20]],[[68,-4],[72,-4],[72,-8],[68,-8]],[[68,-8],[72,-8],[72,-12],[68,-12]],[[68,-12],[72,-12],[72,-16],[68,-16]],[[68,-16],[72,-16],[72,-20],[68,-20]],[[72,-4],[76,-4],[76,-8],[72,-8]],[[72,-8],[76,-8],[76,-12],[72,-12]],[[72,-12],[76,-12],[76,-16],[72,-16]],[[72,-16],[76,-16],[76,-20],[72,-20]],[[76,-4],[80,-4],[80,-8],[76,-8]],[[76,-8],[80,-8],[80,-12],[76,-12]],[[76,-12],[80,-12],[80,-16],[76,-16]],[[76,-16],[80,-16],[80,-20],[76,-20]],[[80,-4],[84,-4],[84,-8],[80,-8]],[[80,-8],[84,-8],[84,-12],[80,-12]],[[80,-12],[84,-12],[84,-16],[80,-16]],[[80,-16],[84,-16],[84,-20],[80,-20]],[[84,-4],[88,-4],[88,-8],[84,-8]],[[84,-8],[88,-8],[88,-12],[84,-12]],[[84,-12],[88,-12],[88,-16],[84,-16]],[[84,-16],[88,-16],[88,-20],[84,-20]],[[88,-4],[92,-4],[92,-8],[88,-8]],[[88,-8],[92,-8],[92,-12],[88,-12]],[[88,-12],[92,-12],[92,-16],[88,-16]],[[88,-16],[92,-16],[92,-20],[88,-20]],[[92,-4],[96,-4],[96,-8],[92,-8]],[[92,-8],[96,-8],[96,-12],[92,-12]],[[92,-12],[96,-12],[96,-16],[92,-16]],[[92,-16],[96,-16],[96,-20],[92,-20]],[[-36,-40],[-36,-36],[-40,-36],[-40,-40]],[[-40,-40],[-40,-36],[-44,-36],[-44,-40]],[[-44,-40],[-44,-36],[-48,-36],[-48,-40]],[[-48,-40],[-48,-36],[-52,-36],[-52,-40]],[[-36,-36],[-36,-32],[-40,-32],[-40,-36]],[[-40,-36],[-40,-32],[-44,-32],[-44,-36]],[[-44,-36],[-44,-32],[-48,-32],[-48,-36]],[[-48,-36],[-48,-32],[-52,-32],[-52,-36]],[[-36,-32],[-36,-28],[-40,-28],[-40,-32]],[[-40,-32],[-40,-28],[-44,-28],[-44,-32]],[[-44,-32],[-44,-28],[-48,-28],[-48,-32]],[[-48,-32],[-48,-28],[-52,-28],[-52,-32]],[[-36,-28],[-36,-24],[-40,-24],[-40,-28]],[[-40,-28],[-40,-24],[-44,-24],[-44,-28]],[[-44,-28],[-44,-24],[-48,-24],[-48,-28]],[[-48,-28],[-48,-24],[-52,-24],[-52,-28]],[[-36,-24],[-36,-20],[-40,-20],[-40,-24]],[[-40,-24],[-40,-20],[-44,-20],[-44,-24]],[[-44,-24],[-44,-20],[-48,-20],[-48,-24]],[[-48,-24],[-48,-20],[-52,-20],[-52,-24]],[[-36,-20],[-36,-16],[-40,-16],[-40,-20]],[[-40,-20],[-40,-16],[-44,-16],[-44,-20]],[[-44,-20],[-44,-16],[-48,-16],[-48,-20]],[[-48,-20],[-48,-16],[-48,-16],[-52,-20],[-52,-20]],[[-36,-16],[-36,-12],[-40,-12],[-40,-16]],[[-40,-16],[-40,-12],[-44,-12],[-44,-16]],[[-44,-16],[-44,-12],[-44,-12],[-48,-16],[-48,-16]],[[-36,-12],[-36,-8],[-40,-8],[-40,-12]],[[-40,-12],[-40,-8],[-40,-8],[-44,-12],[-44,-12]],[[-36,-8],[-36,-4],[-36,-4],[-40,-8],[-40,-8]],[[-28,-36],[-28,-32],[-24,-32],[-24,-32],[-28,-36]],[[-28,-32],[-28,-28],[-24,-28],[-24,-32]],[[-24,-32],[-24,-28],[-20,-28],[-20,-28],[-24,-32]],[[-28,-28],[-28,-24],[-24,-24],[-24,-28]],[[-24,-28],[-24,-24],[-20,-24],[-20,-28]],[[-20,-28],[-20,-24],[-16,-24],[-16,-24],[-20,-28]],[[-28,-24],[-28,-20],[-24,-20],[-24,-24]],[[-24,-24],[-24,-20],[-20,-20],[-20,-24]],[[-20,-24],[-20,-20],[-16,-20],[-16,-24]],[[-16,-24],[-16,-20],[-12,-20],[-12,-20],[-16,-24]],[[-28,-20],[-28,-16],[-24,-16],[-24,-20]],[[-24,-20],[-24,-16],[-20,-16],[-20,-20]],[[-20,-20],[-20,-16],[-16,-16],[-16,-20]],[[-16,-20],[-16,-16],[-16,-16],[-12,-20],[-12,-20]],[[-28,-16],[-28,-12],[-24,-12],[-24,-16]],[[-24,-16],[-24,-12],[-20,-12],[-20,-16]],[[-20,-16],[-20,-12],[-20,-12],[-16,-16],[-16,-16]],[[-28,-12],[-28,-8],[-24,-8],[-24,-12]],[[-24,-12],[-24,-8],[-24,-8],[-20,-12],[-20,-12]],[[-28,-8],[-28,-4],[-28,-4],[-24,-8],[-24,-8]],[[-36,4],[-36,8],[-40,8],[-40,8],[-36,4]],[[-36,8],[-36,12],[-40,12],[-40,8]],[[-40,8],[-40,12],[-44,12],[-44,12],[-40,8]],[[-36,12],[-36,16],[-40,16],[-40,12]],[[-40,12],[-40,16],[-44,16],[-44,12]],[[-44,12],[-44,16],[-48,16],[-48,16],[-44,12]],[[-36,16],[-36,20],[-40,20],[-40,16]],[[-40,16],[-40,20],[-44,20],[-44,16]],[[-44,16],[-44,20],[-48,20],[-48,16]],[[-48,16],[-48,20],[-52,20],[-52,20],[-48,16]],[[-36,20],[-36,24],[-40,24],[-40,20]],[[-40,20],[-40,24],[-44,24],[-44,20]],[[-44,20],[-44,24],[-48,24],[-48,20]],[[-48,20],[-48,24],[-52,24],[-52,20]],[[-36,24],[-36,28],[-40,28],[-40,24]],[[-40,24],[-40,28],[-44,28],[-44,24]],[[-44,24],[-44,28],[-48,28],[-48,24]],[[-48,24],[-48,28],[-52,28],[-52,24]],[[-36,28],[-36,32],[-40,32],[-40,28]],[[-40,28],[-40,32],[-44,32],[-44,28]],[[-44,28],[-44,32],[-48,32],[-48,28]],[[-48,28],[-48,32],[-52,32],[-52,28]],[[-36,32],[-36,36],[-40,36],[-40,32]],[[-40,32],[-40,36],[-44,36],[-44,32]],[[-44,32],[-44,36],[-48,36],[-48,32]],[[-48,32],[-48,36],[-52,36],[-52,32]],[[-36,36],[-36,40],[-40,40],[-40,36]],[[-40,36],[-40,40],[-44,40],[-44,36]],[[-44,36],[-44,40],[-48,40],[-48,36]],[[-48,36],[-48,40],[-52,40],[-52,36]],[[-28,4],[-28,8],[-24,8],[-24,8],[-28,4]],[[-28,8],[-28,12],[-24,12],[-24,8]],[[-24,8],[-24,12],[-20,12],[-20,12],[-24,8]],[[-28,12],[-28,16],[-24,16],[-24,12]],[[-24,12],[-24,16],[-20,16],[-20,12]],[[-20,12],[-20,16],[-16,16],[-16,16],[-20,12]],[[-28,16],[-28,20],[-24,20],[-24,16]],[[-24,16],[-24,20],[-20,20],[-20,16]],[[-20,16],[-20,20],[-16,20],[-16,16]],[[-16,16],[-16,20],[-12,20],[-12,20],[-16,16]],[[-28,20],[-28,24],[-24,24],[-24,20]],[[-24,20],[-24,24],[-20,24],[-20,20]],[[-20,20],[-20,24],[-16,24],[-16,20]],[[-16,20],[-16,24],[-12,24],[-12,20]],[[-28,24],[-28,28],[-24,28],[-24,24]],[[-24,24],[-24,28],[-20,28],[-20,24]],[[-20,24],[-20,28],[-16,28],[-16,24]],[[-16,24],[-16,28],[-12,28],[-12,24]],[[-28,28],[-28,32],[-24,32],[-24,28]],[[-24,28],[-24,32],[-20,32],[-20,28]],[[-20,28],[-20,32],[-16,32],[-16,28]],[[-16,28],[-16,32],[-12,32],[-12,28]],[[-28,32],[-28,36],[-24,36],[-24,32]],[[-24,32],[-24,36],[-20,36],[-20,32]],[[-20,32],[-20,36],[-16,36],[-16,32]],[[-16,32],[-16,36],[-12,36],[-12,32]],[[-28,36],[-28,40],[-24,40],[-24,36]],[[-24,36],[-24,40],[-20,40],[-20,36]],[[-20,36],[-20,40],[-16,40],[-16,36]],[[-16,36],[-16,40],[-12,40],[-12,36]],[[28,-36],[28,-32],[24,-32],[24,-32],[28,-36]],[[28,-32],[28,-28],[24,-28],[24,-32]],[[24,-32],[24,-28],[20,-28],[20,-28],[24,-32]],[[28,-28],[28,-24],[24,-24],[24,-28]],[[24,-28],[24,-24],[20,-24],[20,-28]],[[20,-28],[20,-24],[16,-24],[16,-24],[20,-28]],[[28,-24],[28,-20],[24,-20],[24,-24]],[[24,-24],[24,-20],[20,-20],[20,-24]],[[20,-24],[20,-20],[16,-20],[16,-24]],[[16,-24],[16,-20],[12,-20],[12,-20],[16,-24]],[[28,-20],[28,-16],[24,-16],[24,-20]],[[24,-20],[24,-16],[20,-16],[20,-20]],[[20,-20],[20,-16],[16,-16],[16,-20]],[[16,-20],[16,-16],[16,-16],[12,-20],[12,-20]],[[28,-16],[28,-12],[24,-12],[24,-16]],[[24,-16],[24,-12],[20,-12],[20,-16]],[[20,-16],[20,-12],[20,-12],[16,-16],[16,-16]],[[28,-12],[28,-8],[24,-8],[24,-12]],[[24,-12],[24,-8],[24,-8],[20,-12],[20,-12]],[[28,-8],[28,-4],[28,-4],[24,-8],[24,-8]],[[36,-40],[36,-36],[40,-36],[40,-40]],[[40,-40],[40,-36],[44,-36],[44,-40]],[[44,-40],[44,-36],[48,-36],[48,-40]],[[48,-40],[48,-36],[52,-36],[52,-40]],[[36,-36],[36,-32],[40,-32],[40,-36]],[[40,-36],[40,-32],[44,-32],[44,-36]],[[44,-36],[44,-32],[48,-32],[48,-36]],[[48,-36],[48,-32],[52,-32],[52,-36]],[[36,-32],[36,-28],[40,-28],[40,-32]],[[40,-32],[40,-28],[44,-28],[44,-32]],[[44,-32],[44,-28],[48,-28],[48,-32]],[[48,-32],[48,-28],[52,-28],[52,-32]],[[36,-28],[36,-24],[40,-24],[40,-28]],[[40,-28],[40,-24],[44,-24],[44,-28]],[[44,-28],[44,-24],[48,-24],[48,-28]],[[48,-28],[48,-24],[52,-24],[52,-28]],[[36,-24],[36,-20],[40,-20],[40,-24]],[[40,-24],[40,-20],[44,-20],[44,-24]],[[44,-24],[44,-20],[48,-20],[48,-24]],[[48,-24],[48,-20],[52,-20],[52,-24]],[[36,-20],[36,-16],[40,-16],[40,-20]],[[40,-20],[40,-16],[44,-16],[44,-20]],[[44,-20],[44,-16],[48,-16],[48,-20]],[[48,-20],[48,-16],[48,-16],[52,-20],[52,-20]],[[36,-16],[36,-12],[40,-12],[40,-16]],[[40,-16],[40,-12],[44,-12],[44,-16]],[[44,-16],[44,-12],[44,-12],[48,-16],[48,-16]],[[36,-12],[36,-8],[40,-8],[40,-12]],[[40,-12],[40,-8],[40,-8],[44,-12],[44,-12]],[[36,-8],[36,-4],[36,-4],[40,-8],[40,-8]],[[28,4],[28,8],[24,8],[24,8],[28,4]],[[28,8],[28,12],[24,12],[24,8]],[[24,8],[24,12],[20,12],[20,12],[24,8]],[[28,12],[28,16],[24,16],[24,12]],[[24,12],[24,16],[20,16],[20,12]],[[20,12],[20,16],[16,16],[16,16],[20,12]],[[28,16],[28,20],[24,20],[24,16]],[[24,16],[24,20],[20,20],[20,16]],[[20,16],[20,20],[16,20],[16,16]],[[16,16],[16,20],[12,20],[12,20],[16,16]],[[28,20],[28,24],[24,24],[24,20]],[[24,20],[24,24],[20,24],[20,20]],[[20,20],[20,24],[16,24],[16,20]],[[16,20],[16,24],[12,24],[12,20]],[[28,24],[28,28],[24,28],[24,24]],[[24,24],[24,28],[20,28],[20,24]],[[20,24],[20,28],[16,28],[16,24]],[[16,24],[16,28],[12,28],[12,24]],[[28,28],[28,32],[24,32],[24,28]],[[24,28],[24,32],[20,32],[20,28]],[[20,28],[20,32],[16,32],[16,28]],[[16,28],[16,32],[12,32],[12,28]],[[28,32],[28,36],[24,36],[24,32]],[[24,32],[24,36],[20,36],[20,32]],[[20,32],[20,36],[16,36],[16,32]],[[16,32],[16,36],[12,36],[12,32]],[[28,36],[28,40],[24,40],[24,36]],[[24,36],[24,40],[20,40],[20,36]],[[20,36],[20,40],[16,40],[16,36]],[[16,36],[16,40],[12,40],[12,36]],[[36,4],[36,8],[40,8],[40,8],[36,4]],[[36,8],[36,12],[40,12],[40,8]],[[40,8],[40,12],[44,12],[44,12],[40,8]],[[36,12],[36,16],[40,16],[40,12]],[[40,12],[40,16],[44,16],[44,12]],[[44,12],[44,16],[48,16],[48,16],[44,12]],[[36,16],[36,20],[40,20],[40,16]],[[40,16],[40,20],[44,20],[44,16]],[[44,16],[44,20],[48,20],[48,16]],[[48,16],[48,20],[52,20],[52,20],[48,16]],[[36,20],[36,24],[40,24],[40,20]],[[40,20],[40,24],[44,24],[44,20]],[[44,20],[44,24],[48,24],[48,20]],[[48,20],[48,24],[52,24],[52,20]],[[36,24],[36,28],[40,28],[40,24]],[[40,24],[40,28],[44,28],[44,24]],[[44,24],[44,28],[48,28],[48,24]],[[48,24],[48,28],[52,28],[52,24]],[[36,28],[36,32],[40,32],[40,28]],[[40,28],[40,32],[44,32],[44,28]],[[44,28],[44,32],[48,32],[48,28]],[[48,28],[48,32],[52,32],[52,28]],[[36,32],[36,36],[40,36],[40,32]],[[40,32],[40,36],[44,36],[44,32]],[[44,32],[44,36],[48,36],[48,32]],[[48,32],[48,36],[52,36],[52,32]],[[36,36],[36,40],[40,40],[40,36]],[[40,36],[40,40],[44,40],[44,36]],[[44,36],[44,40],[48,40],[48,36]],[[48,36],[48,40],[52,40],[52,36]],[[-28,-36],[-24,-36],[-24,-32],[-24,-32],[-28,-36]],[[-24,-36],[-20,-36],[-20,-32],[-24,-32]],[[-24,-32],[-20,-32],[-20,-28],[-20,-28],[-24,-32]],[[-20,-36],[-16,-36],[-16,-32],[-20,-32]],[[-20,-32],[-16,-32],[-16,-28],[-20,-28]],[[-20,-28],[-16,-28],[-16,-24],[-16,-24],[-20,-28]],[[-16,-36],[-12,-36],[-12,-32],[-16,-32]],[[-16,-32],[-12,-32],[-12,-28],[-16,-28]],[[-16,-28],[-12,-28],[-12,-24],[-16,-24]],[[-16,-24],[-12,-24],[-12,-20],[-12,-20],[-16,-24]],[[-12,-36],[-8,-36],[-8,-32],[-12,-32]],[[-12,-32],[-8,-32],[-8,-28],[-12,-28]],[[-12,-28],[-8,-28],[-8,-24],[-12,-24]],[[-12,-24],[-8,-24],[-8,-20],[-12,-20]],[[-8,-36],[-4,-36],[-4,-32],[-8,-32]],[[-8,-32],[-4,-32],[-4,-28],[-8,-28]],[[-8,-28],[-4,-28],[-4,-24],[-8,-24]],[[-8,-24],[-4,-24],[-4,-20],[-8,-20]],[[-4,-36],[0,-36],[0,-32],[-4,-32]],[[-4,-32],[0,-32],[0,-28],[-4,-28]],[[-4,-28],[0,-28],[0,-24],[-4,-24]],[[-4,-24],[0,-24],[0,-20],[-4,-20]],[[0,-36],[4,-36],[4,-32],[0,-32]],[[0,-32],[4,-32],[4,-28],[0,-28]],[[0,-28],[4,-28],[4,-24],[0,-24]],[[0,-24],[4,-24],[4,-20],[0,-20]],[[4,-36],[8,-36],[8,-32],[4,-32]],[[4,-32],[8,-32],[8,-28],[4,-28]],[[4,-28],[8,-28],[8,-24],[4,-24]],[[4,-24],[8,-24],[8,-20],[4,-20]],[[8,-36],[12,-36],[12,-32],[8,-32]],[[8,-32],[12,-32],[12,-28],[8,-28]],[[8,-28],[12,-28],[12,-24],[8,-24]],[[8,-24],[12,-24],[12,-20],[8,-20]],[[12,-36],[16,-36],[16,-32],[12,-32]],[[12,-32],[16,-32],[16,-28],[12,-28]],[[12,-28],[16,-28],[16,-24],[12,-24]],[[12,-24],[16,-24],[16,-24],[12,-20],[12,-20]],[[16,-36],[20,-36],[20,-32],[16,-32]],[[16,-32],[20,-32],[20,-28],[16,-28]],[[16,-28],[20,-28],[20,-28],[16,-24],[16,-24]],[[20,-36],[24,-36],[24,-32],[20,-32]],[[20,-32],[24,-32],[24,-32],[20,-28],[20,-28]],[[24,-36],[28,-36],[28,-36],[24,-32],[24,-32]],[[-32,-44],[-28,-44],[-28,-48],[-32,-48]],[[-32,-48],[-28,-48],[-28,-52],[-32,-52]],[[-32,-52],[-28,-52],[-28,-56],[-32,-56]],[[-28,-44],[-24,-44],[-24,-48],[-28,-48]],[[-28,-48],[-24,-48],[-24,-52],[-28,-52]],[[-28,-52],[-24,-52],[-24,-56],[-28,-56]],[[-28,-56],[-24,-56],[-24,-60],[-28,-60]],[[-24,-44],[-20,-44],[-20,-48],[-24,-48]],[[-24,-48],[-20,-48],[-20,-52],[-24,-52]],[[-24,-52],[-20,-52],[-20,-56],[-24,-56]],[[-24,-56],[-20,-56],[-20,-60],[-24,-60]],[[-20,-44],[-16,-44],[-16,-48],[-20,-48]],[[-20,-48],[-16,-48],[-16,-52],[-20,-52]],[[-20,-52],[-16,-52],[-16,-56],[-20,-56]],[[-20,-56],[-16,-56],[-16,-60],[-20,-60]],[[-16,-44],[-12,-44],[-12,-48],[-16,-48]],[[-16,-48],[-12,-48],[-12,-52],[-16,-52]],[[-16,-52],[-12,-52],[-12,-56],[-16,-56]],[[-16,-56],[-12,-56],[-12,-60],[-16,-60]],[[-12,-44],[-8,-44],[-8,-48],[-12,-48]],[[-12,-48],[-8,-48],[-8,-52],[-12,-52]],[[-12,-52],[-8,-52],[-8,-56],[-12,-56]],[[-12,-56],[-8,-56],[-8,-60],[-12,-60]],[[-8,-44],[-4,-44],[-4,-48],[-8,-48]],[[-8,-48],[-4,-48],[-4,-52],[-8,-52]],[[-8,-52],[-4,-52],[-4,-56],[-8,-56]],[[-8,-56],[-4,-56],[-4,-60],[-8,-60]],[[-4,-44],[0,-44],[0,-48],[-4,-48]],[[-4,-48],[0,-48],[0,-52],[-4,-52]],[[-4,-52],[0,-52],[0,-56],[-4,-56]],[[-4,-56],[0,-56],[0,-60],[-4,-60]],[[0,-44],[4,-44],[4,-48],[0,-48]],[[0,-48],[4,-48],[4,-52],[0,-52]],[[0,-52],[4,-52],[4,-56],[0,-56]],[[0,-56],[4,-56],[4,-60],[0,-60]],[[4,-44],[8,-44],[8,-48],[4,-48]],[[4,-48],[8,-48],[8,-52],[4,-52]],[[4,-52],[8,-52],[8,-56],[4,-56]],[[4,-56],[8,-56],[8,-60],[4,-60]],[[8,-44],[12,-44],[12,-48],[8,-48]],[[8,-48],[12,-48],[12,-52],[8,-52]],[[8,-52],[12,-52],[12,-56],[8,-56]],[[8,-56],[12,-56],[12,-60],[8,-60]],[[12,-44],[16,-44],[16,-48],[12,-48]],[[12,-48],[16,-48],[16,-52],[12,-52]],[[12,-52],[16,-52],[16,-56],[12,-56]],[[12,-56],[16,-56],[16,-60],[12,-60]],[[16,-44],[20,-44],[20,-48],[16,-48]],[[16,-48],[20,-48],[20,-52],[16,-52]],[[16,-52],[20,-52],[20,-56],[16,-56]],[[16,-56],[20,-56],[20,-60],[16,-60]],[[20,-44],[24,-44],[24,-48],[20,-48]],[[20,-48],[24,-48],[24,-52],[20,-52]],[[20,-52],[24,-52],[24,-56],[20,-56]],[[20,-56],[24,-56],[24,-60],[20,-60]],[[24,-44],[28,-44],[28,-48],[24,-48]],[[24,-48],[28,-48],[28,-52],[24,-52]],[[24,-52],[28,-52],[28,-56],[24,-56]],[[24,-56],[28,-56],[28,-60],[24,-60]],[[28,-44],[32,-44],[32,-48],[28,-48]],[[28,-48],[32,-48],[32,-52],[28,-52]],[[28,-52],[32,-52],[32,-56],[28,-56]]]},"name":"Деревня 10"};
 const $=(id)=>document.getElementById(id);
 const css=(n)=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const ACT_COL=['--a-home','--a-sleep','--a-eat','--a-work','--a-shop','--a-travel'];
@@ -1033,8 +876,6 @@ function buildGeo(){
   // охват карты
   let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;const grow=(p,m=0)=>{x0=Math.min(x0,p[0]-m);y0=Math.min(y0,p[1]-m);x1=Math.max(x1,p[0]+m);y1=Math.max(y1,p[1]+m)};
   SNAP.nodes.forEach((p)=>grow(p,8));SNAP.buildings.forEach((b)=>b.outline.forEach((p)=>grow(p,2)));gates.forEach((g)=>grow(g.box,24));
-  // пропорции карты — по деревне (в пределах 1.4…2.4)
-  document.querySelector('.mapw').style.aspectRatio=String(Math.max(1.4,Math.min(2.4,(x1-x0)/(y1-y0))));
   return {adj,gates,gateOfPlace,bounds:[x0,y0,x1,y1],routes:new Map()};
 }
 function nodeXY(n){return SNAP.nodes[n]}
@@ -1054,19 +895,24 @@ function route(p,q,car){
   const road=(a,b)=>push(a,b,Math.hypot(b[0]-a[0],b[1]-a[1])/v);
   const out=(x)=>pl.kind[x]===KIND.OUTSIDE;
   let A0=access(p),B0=access(q);
-  if(out(p)){const g=geo.gateOfPlace(p);push(g.box,g.stub,pl.extra[p]*0.8);push(g.stub,A0,pl.extra[p]*0.2)}else road(center(p),A0);
+  // за воротами: путь по Городу показываем стоянкой в его квадрате, к воротам — с обычной скоростью
+  const beyond=(x,g)=>Math.max(0,pl.extra[x]-(Math.hypot(g.box[0]-g.stub[0],g.box[1]-g.stub[1])+Math.hypot(g.stub[0]-nodeXY(g.node)[0],g.stub[1]-nodeXY(g.node)[1]))/v);
+  if(out(p)){const g=geo.gateOfPlace(p);push(g.box,g.box,beyond(p,g));road(g.box,g.stub);road(g.stub,A0)}else road(center(p),A0);
   if(pl.edge[p]>=0&&pl.edge[p]===pl.edge[q])road(A0,B0);
   else{let best=null;for(const [u,du] of ends(p))for(const [w,dw] of ends(q)){const d=du+W.dist[u*W.nodes.n+w]+dw;if(!best||d<best.d)best={d,u,w}}
     let cur=A0;for(const n of nodePath(best.u,best.w)){const P=nodeXY(n);road(cur,P);cur=P}road(cur,B0)}
-  if(out(q)){const g=geo.gateOfPlace(q);push(B0,g.stub,pl.extra[q]*0.2);push(g.stub,g.box,pl.extra[q]*0.8)}else road(B0,center(q));
+  if(out(q)){const g=geo.gateOfPlace(q);road(B0,g.stub);road(g.stub,g.box);push(g.box,g.box,beyond(q,g))}else road(B0,center(q));
   return segs;
 }
 function travelPos(a,now){
   const key=a+':'+L.depart[a];let r=geo.routes.get(a);
   if(!r||r.key!==key){r={key,segs:route(L.from[a],L.to[a],A.car[a]===1)};r.total=r.segs.reduce((s,x)=>s+x[2],0);geo.routes.set(a,r)}
   const f=Math.max(0,Math.min(1,(now-L.depart[a])/Math.max(1,L.arrive[a]-L.depart[a])));let t=f*r.total;
-  for(const [p,q,sec] of r.segs){if(t<=sec){const k=sec>0?t/sec:1;return [p[0]+(q[0]-p[0])*k,p[1]+(q[1]-p[1])*k]}t-=sec}
-  return r.segs.length?r.segs.at(-1)[1]:center(L.to[a]);
+  for(const [p,q,sec] of r.segs){if(t<=sec){const k=sec>0?t/sec:1,dx=q[0]-p[0],dy=q[1]-p[1],l=Math.hypot(dx,dy)||1;
+    // правостороннее движение: машина чуть правее оси дороги
+    if(dx===0&&dy===0)return {p:[p[0]+((a%5)-2)*5.5,p[1]+7.5],dir:null};   // ждёт в Городе — свой ряд в его квадрате
+    const off=A.car[a]?2:0;return {p:[p[0]+dx*k-dy/l*off,p[1]+dy*k+dx/l*off],dir:[dx/l,dy/l]}}t-=sec}
+  const last=r.segs.at(-1);return {p:last?last[1]:center(L.to[a]),dir:[1,0]};
 }
 
 // ---- отрисовка карты ----
@@ -1078,9 +924,10 @@ function fit(){
   view={k,dpr,ox:(r.width-(x1-x0)*k)/2-x0*k,oy:(r.height-(y1-y0)*k)/2-y0*k,w:r.width,h:r.height};
 }
 const S=(p)=>[p[0]*view.k+view.ox,p[1]*view.k+view.oy];
+const dirs=[];
 function agentPositions(now){
   const pos=new Array(A.n),here=new Map();
-  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL){pos[a]=travelPos(a,now);continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
+  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL){const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
   for(const [p,list] of here){const c=center(p),out=W.places.kind[p]===KIND.OUTSIDE;
     list.forEach((a,i)=>{if(list.length===1&&!out){pos[a]=c;return}
       if(out){const cols=4,row=Math.floor(i/cols),col=i%cols;pos[a]=[c[0]+(col-1.5)*6.5,c[1]-4+row*6.5];return}
@@ -1088,41 +935,85 @@ function agentPositions(now){
   return pos;
 }
 let lastPos=[];
-function draw(now){
+// 2D — те же цвета, что в редакторе дорог (общая палитра City3D.COLORS);
+// карта одинаковая в обеих темах страницы, как бумажная
+const MAPTXT='#2A2F2B';
+function draw2D(now){
   if(!view)fit();
-  const k=view.k,c={};['--ground','--road','--road-line','--res','--res-edge','--com','--com-edge','--work','--work-edge','--city','--city-edge','--fg','--surface'].forEach((n)=>c[n]=css(n));
-  ctx.setTransform(view.dpr,0,0,view.dpr,0,0);ctx.fillStyle=c['--ground'];ctx.fillRect(0,0,view.w,view.h);
+  const k=view.k,K=City3D.COLORS,font=css('--font'),RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4;
+  ctx.setTransform(view.dpr,0,0,view.dpr,0,0);ctx.fillStyle=K.ground;ctx.fillRect(0,0,view.w,view.h);
   ctx.lineCap='round';ctx.lineJoin='round';
-  // дороги и съезд к «Городу»
+  const poly=(P)=>{ctx.beginPath();P.forEach((p,i)=>{const q=S(p);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])});ctx.closePath()};
+  // клетки зон
+  ctx.fillStyle=K.zoneCell;ctx.strokeStyle='#6FA862';ctx.lineWidth=0.6;
+  for(const c of (SNAP.render&&SNAP.render.zoneCells)||[]){poly(c);ctx.fill();ctx.stroke()}
+  // дороги, дорога к «Городу» и разметка
   const line=(a,b)=>{const p=S(a),q=S(b);ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.stroke()};
-  ctx.strokeStyle=c['--road'];ctx.lineWidth=8*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));
-  geo.gates.forEach((g)=>{ctx.setLineDash([3*k,2*k]);line(nodeXY(g.node),g.stub);ctx.setLineDash([])});
-  ctx.strokeStyle=c['--road-line'];ctx.lineWidth=Math.max(1,0.35*k);ctx.setLineDash([2.5*k,2.5*k]);SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));ctx.setLineDash([]);
-  // дома
-  for(const b of SNAP.buildings){const f={res:['--res','--res-edge'],com:['--com','--com-edge'],work:['--work','--work-edge']}[b.type];
-    ctx.beginPath();b.outline.forEach((p,i)=>{const q=S(p);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])});ctx.closePath();
-    ctx.fillStyle=c[f[0]];ctx.fill();ctx.strokeStyle=c[f[1]];ctx.lineWidth=1.2;ctx.stroke();
-    if(b.type!=='res'){const q=S(b.center),lbl=b.type==='com'?'Лавка':'Мастерская';ctx.font=`600 ${Math.max(10,Math.min(13,3.2*k))}px ${css('--font')}`;ctx.textAlign='center';ctx.textBaseline='bottom';
+  ctx.strokeStyle=K.road;ctx.lineWidth=2*RW*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));
+  ctx.strokeStyle=K.roadLine;ctx.lineWidth=1.5;ctx.setLineDash([8,7]);SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));ctx.setLineDash([]);
+  // дома: цвет типа, оттенок свой у каждого
+  for(const b of SNAP.buildings){const f=City3D.lotFill(b.type,b.id);poly(b.outline);ctx.fillStyle=f;ctx.fill();ctx.strokeStyle=City3D.shade(f,-0.45);ctx.lineWidth=1.5;ctx.stroke();
+    if(b.type!=='res'){const q=S(b.center),lbl=b.type==='com'?'Лавка':'Мастерская';ctx.font=`600 ${Math.max(10,Math.min(13,3.2*k))}px ${font}`;ctx.textAlign='center';
       // подпись — со стороны, противоположной дороге
-      const ac=S(access(W.places.src.indexOf(b.id))),below=ac[1]<q[1];let top=Infinity,bot=-Infinity;b.outline.forEach((p)=>{const y=S(p)[1];top=Math.min(top,y);bot=Math.max(bot,y)});
-      ctx.textBaseline=below?'top':'bottom';ctx.fillStyle=c['--fg'];ctx.globalAlpha=.75;ctx.fillText(lbl,q[0],below?bot+3:top-3);ctx.globalAlpha=1}}
-  // «Город» за воротами
-  for(const g of geo.gates){const q=S(g.box),w=30*k,h=22*k;ctx.fillStyle=c['--city'];ctx.strokeStyle=c['--city-edge'];ctx.lineWidth=1.2;
-    ctx.beginPath();ctx.roundRect(q[0]-w/2,q[1]-h/2,w,h,4*k);ctx.fill();ctx.stroke();
-    ctx.fillStyle=c['--fg'];ctx.font=`600 ${Math.max(10,Math.min(13,3.4*k))}px ${css('--font')}`;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(g.name,q[0],q[1]-h/2-3)}
+      const ac=S(access(b.id)),below=ac[1]<q[1];let top=Infinity,bot=-Infinity;b.outline.forEach((p)=>{const y=S(p)[1];top=Math.min(top,y);bot=Math.max(bot,y)});
+      ctx.textBaseline=below?'top':'bottom';ctx.fillStyle=MAPTXT;ctx.globalAlpha=.8;ctx.fillText(lbl,q[0],below?bot+3:top-3);ctx.globalAlpha=1}}
+  // выезд (знак со стрелкой, как в редакторе) и «Город» за ним
+  for(const g of geo.gates){
+    const q=S(g.box),w=30*k,h=22*k;ctx.fillStyle=K.area;ctx.strokeStyle=K.areaEdge;ctx.lineWidth=1.2;ctx.beginPath();ctx.roundRect(q[0]-w/2,q[1]-h/2,w,h,4*k);ctx.fill();ctx.stroke();
+    ctx.fillStyle=MAPTXT;ctx.font=`600 ${Math.max(10,Math.min(13,3.4*k))}px ${font}`;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(g.name,q[0],q[1]-h/2-3);
+    const M=S([nodeXY(g.node)[0]+g.dir[0]*RW*1.6,nodeXY(g.node)[1]+g.dir[1]*RW*1.6]),r=Math.max(7,RW*0.95*k),d=g.dir,n=[-d[1],d[0]];
+    ctx.beginPath();ctx.arc(M[0],M[1],r,0,Math.PI*2);ctx.fillStyle=K.gate;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();
+    ctx.beginPath();ctx.moveTo(M[0]+d[0]*r*.6,M[1]+d[1]*r*.6);ctx.lineTo(M[0]-d[0]*r*.45+n[0]*r*.45,M[1]-d[1]*r*.45+n[1]*r*.45);ctx.lineTo(M[0]-d[0]*r*.45-n[0]*r*.45,M[1]-d[1]*r*.45-n[1]*r*.45);ctx.closePath();ctx.fillStyle='#fff';ctx.fill()}
   // жители
   const pos=agentPositions(now);lastPos=pos;const r=Math.max(6,2.4*k);
-  ctx.font=`600 ${Math.round(r*1.05)}px ${css('--font')}`;ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.font=`600 ${Math.round(r*1.05)}px ${font}`;ctx.textAlign='center';ctx.textBaseline='middle';
   for(let a=0;a<A.n;a++){const q=S(pos[a]),act=L.act[a];
-    ctx.globalAlpha=act===ACT.SLEEP?.7:1;ctx.beginPath();ctx.arc(q[0],q[1],r,0,Math.PI*2);ctx.fillStyle=css(ACT_COL[act]);ctx.fill();
-    ctx.lineWidth=a===sel?3:1.5;ctx.strokeStyle=a===sel?c['--fg']:c['--surface'];ctx.stroke();
+    ctx.globalAlpha=act===ACT.SLEEP?.75:1;ctx.beginPath();ctx.arc(q[0],q[1],r,0,Math.PI*2);ctx.fillStyle=css(ACT_COL[act]);ctx.fill();
+    ctx.lineWidth=a===sel?3:1.5;ctx.strokeStyle=a===sel?MAPTXT:'#fff';ctx.stroke();
     ctx.fillStyle='#fff';ctx.fillText(String(a+1),q[0],q[1]+.5);ctx.globalAlpha=1}
+}
+
+// ---- 3D: общий вид City3D (тот же, что в редакторе дорог) ----
+// единицы 3D — как в редакторе: клетка 4 м = 16 единиц
+const U=4,V3={on:true,view:null,failed:false};
+const toU=(p)=>[p[0]*U,p[1]*U];
+function sceneDesc(){
+  const RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4;
+  const boxPoly=(g)=>[[g.box[0]-15,g.box[1]-11],[g.box[0]+15,g.box[1]-11],[g.box[0]+15,g.box[1]+11],[g.box[0]-15,g.box[1]+11]].map(toU);
+  return {cell:16,roadHalfWidth:RW*U,
+    segments:SNAP.edges.map((e)=>({a:toU(nodeXY(e.a)),b:toU(nodeXY(e.b))})).concat(geo.gates.map((g)=>({a:toU(nodeXY(g.node)),b:toU(g.stub)}))),
+    nodes:SNAP.nodes.map(toU),
+    zoneCells:((SNAP.render&&SNAP.render.zoneCells)||[]).map((c)=>c.map(toU)),
+    buildings:SNAP.buildings.map((b)=>({outline:b.outline.map(toU),floors:b.floors,style:b.style||0,type:b.type})),
+    gates:geo.gates.map((g)=>({at:toU(nodeXY(g.node)),dir:g.dir,ok:true})),
+    areas:geo.gates.map((g)=>({poly:boxPoly(g),label:g.name}))};
+}
+function draw3D(now){
+  if(!V3.view)return;
+  const pos=agentPositions(now);lastPos=pos;
+  V3.view.setMarkers(pos.map((p,a)=>{const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
+    // на крыше своего места, в пути — машина на дороге
+    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[at].floors||1)*16+10:4;
+    return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:String(a+1),selected:a===sel,car:tr&&A.car[a]===1&&!!dirs[a],heading:tr&&dirs[a]?Math.atan2(dirs[a][1],dirs[a][0]):0}}));
+  V3.view.render();
+}
+function draw(now){if(V3.on&&V3.view)draw3D(now);else if(!V3.on)draw2D(now)}
+function setView3D(on){
+  V3.on=on&&!V3.failed;
+  $('v-3d').setAttribute('aria-pressed',String(V3.on));$('v-2d').setAttribute('aria-pressed',String(!V3.on));
+  $('g3').hidden=!V3.on;$('v3').hidden=!V3.on;cv.style.visibility=V3.on?'hidden':'visible';
+  // 2D — по пропорциям деревни; 3D — кадр повыше (на телефоне 4:3)
+  const b=geo.bounds;document.querySelector('.mapw').style.aspectRatio=V3.on?(innerWidth<600?'4/3':'16/9'):String(Math.max(1.4,Math.min(2.4,(b[2]-b[0])/(b[3]-b[1]))));
+  $('vhint').textContent=V3.on?'Тяните — двигать карту, двумя пальцами или правой кнопкой — вращать, колесо — масштаб.':'Нажмите на жителя, чтобы открыть его дневник.';
+  if(!V3.on){view=null;draw(L.tick+acc);return}
+  City3D.loadThree(()=>{if(!V3.view){V3.view=City3D.createView($('v3'));V3.view.setScene(sceneDesc());const b=geo.bounds;const el=$('v3'),asp=(el.clientWidth||16)/(el.clientHeight||9);V3.view.fit([b[0]*U,b[1]*U,b[2]*U,b[3]*U],{k:0.72*Math.max(1,1.7/asp),bearing:0})}draw(L.tick+acc)},
+    ()=>{V3.failed=true;setView3D(false);$('vhint').textContent='3D-вид не загрузился (нет доступа к three.js) — показываю 2D.'});
 }
 
 // ---- панели ----
 function buildPanels(){
   // полоса суток: часы работы мест
-  const day=$('day'),rows=[['Мастерская',W.cfg.hours.work,'--work-edge'],['Лавка',W.cfg.hours.shop,'--com-edge'],['Город',W.cfg.hours.outside,'--city-edge']];
+  const day=$('day'),rows=[['Мастерская',W.cfg.hours.work,'--hours-work'],['Лавка',W.cfg.hours.shop,'--hours-shop'],['Город',W.cfg.hours.outside,'--hours-city']];
   let h='';rows.forEach(([n,[o,c],col],i)=>{const top=4+i*12;h+=`<div class="row" style="top:${top}px"><div class="bar" style="left:${o/24*100}%;width:${(c-o)/24*100}%;background:var(${col})"></div></div><div class="rl" style="top:${top-2}px;right:calc(${100-o/24*100}% + 6px)">${n} ${o}–${c}</div>`});
   for(let i=0;i<=24;i+=3)h+=`<div class="tick" style="left:${i/24*100}%"></div>`;
   for(const i of [3,6,9,12,15,18,21])h+=`<div class="hr" style="left:${i/24*100}%">${i}</div>`;
@@ -1155,8 +1046,15 @@ function updatePanels(){
 function start(seed){
   sim=createSim(SNAP,{seed});W=sim.world;A=sim.agents;L=sim.life;geo=buildGeo();view=null;acc=0;
   for(let i=0;i<START_MIN;i++)step(W,A,L);
-  buildPanels();fit();updatePanels();draw(L.tick);
+  buildPanels();fit();updatePanels();
+  if(V3.view){V3.view.setScene(sceneDesc())}
+  setView3D(V3.on);
 }
+$('v-3d').addEventListener('click',()=>setView3D(true));
+$('v-2d').addEventListener('click',()=>setView3D(false));
+$('r-l').addEventListener('click',()=>V3.view&&V3.view.rotate(Math.PI/12));
+$('r-r').addEventListener('click',()=>V3.view&&V3.view.rotate(-Math.PI/12));
+$('tilt').addEventListener('click',()=>{if(V3.view)$('tilt').textContent='Наклон '+V3.view.toggleTilt()+'°'});
 $('play').addEventListener('click',()=>{playing=!playing;$('play').setAttribute('aria-pressed',String(playing));$('play').textContent=playing?'Пауза':'Пуск'});
 document.querySelectorAll('[data-mps]').forEach((b)=>b.addEventListener('click',()=>{mps=+b.dataset.mps;document.querySelectorAll('[data-mps]').forEach((x)=>x.setAttribute('aria-pressed',String(x===b)))}));
 $('restart').addEventListener('click',()=>start(Math.max(1,Math.round(+$('seed').value||1))));
