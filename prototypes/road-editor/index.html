@@ -67,6 +67,7 @@
   <button id="b-bg" type="button">Белград: Дорчол</button>
   <button id="b-demo" type="button">Пример</button>
   <button id="b-clr" type="button">Очистить</button>
+  <button id="b-exp" type="button">Экспорт для симуляции</button>
 </div>
 <p id="hint"></p>
 <svg id="sv" viewBox="0 0 680 460" role="img" aria-label="Поле для строительства дорог и участков">
@@ -994,6 +995,41 @@ if(degree(best)!==1){stEl.textContent='Нельзя — выезд ставит�
 openXdlg(addExit(best));drawExits();
 }
 
+// ---------- экспорт для симуляции ----------
+/*
+ * Снимок мира для симуляции жизни (prototypes/life-sim): только то, что ей
+ * нужно, без геометрии участков. Координаты и длины — в метрах (клетка 4 м).
+ *   nodes     — [x, y] узлов дорог;
+ *   edges     — {a, b, length} звенья (индексы узлов);
+ *   buildings — дом: тип, этажи, площадь в клетках, вместимость и точка
+ *               примыкания к дороге: звено edge и доля t от его узла a
+ *               (проекция середины фасада на ось звена);
+ *   gates     — выезды во внешний мир: узел и название.
+ * Невалидные дома и дома без улицы не попадают.
+ */
+function exportSim(){
+var M=4/s,ni={},nl=[],ei={},el=[];
+function r2(v){return Math.round(v*100)/100}
+Object.keys(nodes).forEach(function(n,i){ni[n]=i;nl.push([r2(nodes[n].x*M),r2(nodes[n].y*M)])});
+Object.keys(segs).forEach(function(id,i){ei[id]=i;var g=segs[id],E=segEnds(g);el.push({a:ni[g.a],b:ni[g.b],length:r2(len(sub(E[1],E[0]))*M)})});
+var bl=[];
+lots.forEach(function(l){
+if(check(l,l))return;var g=lotSeg(l);if(g===null)return;
+var E=segEnds(segs[g]),A=E[0],B=E[1],AB=sub(B,A),F;
+if(l.key!=='fixed'&&G.hs[l.key]){var S=G.hs[l.key],u0=Math.max(0,S.a0+l.k0*S.cw),u1=Math.min(S.E,S.a0+(l.k1+1)*S.cw);F=add(S.ends.a.K,mul(S.d,(u0+u1)/2))}
+else F=partsCenter(shape(l).parts);
+var tt=Math.max(0,Math.min(1,dot(sub(F,A),AB)/dot(AB,AB))),C=partsCenter(shape(l).parts);
+bl.push({id:bl.length,type:typeOf(l),floors:l.floors||1,cells:cellsOf(l),capacity:capOf(l),edge:ei[g],t:Math.round(tt*1000)/1000,center:[r2(C[0]*M),r2(C[1]*M)]});
+});
+var gl=exits.filter(exitValid).map(function(x,i){return {id:i,node:ni[x.node],name:x.name}});
+return {format:'city-builder/world@1',units:'m',nodes:nl,edges:el,buildings:bl,gates:gl};
+}
+document.getElementById('b-exp').addEventListener('click',function(){
+var a=document.createElement('a'),bl=new Blob([JSON.stringify(exportSim(),null,1)],{type:'application/json'});
+a.href=URL.createObjectURL(bl);a.download='world.snapshot.json';document.body.appendChild(a);a.click();a.remove();
+stEl.textContent='Снимок мира для симуляции сохранён: world.snapshot.json.';
+});
+
 // ---------- окно этажей ----------
 var dlg=document.getElementById('dlg'),dlgF=document.getElementById('dlg-f'),dlgLot=null,dlgNew=false,lastFloors=1,lastType='res',dlgType='res';
 // тип и вместимость в окне: вместимость пересчитывается при смене типа и этажей
@@ -1305,7 +1341,7 @@ clearLots:function(){lots=[];drawLots()},
 lotsRaw:function(){return lots},
 // внутренние функции для стресс-тестов
 api:{loadScene:loadScene,G:function(){return G},overlaps:overlaps,unionOutline:unionOutline,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
-snap:snap,endFor:endFor,capOf:capOf,totals:totals,exitLinks:exitLinks,exits:function(){return exits},buildVillage:buildVillage,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
+snap:snap,endFor:endFor,capOf:capOf,totals:totals,exportSim:exportSim,exitLinks:exitLinks,exits:function(){return exits},buildVillage:buildVillage,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
 reset:function(){nodes={};segs={};lots=[];exits=[];nid=1;sid=1;drawStatic()},addLot:function(l){l.floors=l.floors||1+Math.floor(Math.random()*8);l.color=l.color||nextColor();lots.push(l)}},
 // инвариант: каждый узел стоит на линии сетки каждой своей дороги
 gridCheck:function(){var bad=[];Object.keys(segs).forEach(function(id){var g=segs[id],E=segEnds(g),L=len(sub(E[1],E[0])),cw=segCw(g),ph=segPh(g);
