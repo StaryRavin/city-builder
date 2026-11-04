@@ -201,6 +201,24 @@ var tx=new THREE.CanvasTexture(cv);tx.encoding=THREE.sRGBEncoding;labelTex[text]
 var L=labelTex[text],sp=new THREE.Sprite(new THREE.SpriteMaterial({map:L.tx,depthTest:false}));sp.scale.set(20*L.aspect,20,1);sp.renderOrder=5;return sp;
 }
 
+// ---------- машина по умолчанию ----------
+// простая модель легковушки (4.5 × 1.9 м): кузов цвета машины, кабина со
+// стёклами, колёса, фары. Ось x — вдоль машины, вперёд — +x.
+var carGeo=null;
+function makeCar(C){
+var T=THREE;
+if(!carGeo)carGeo={body:new T.BoxGeometry(18,3.4,7.6),cabin:new T.BoxGeometry(9,3,6.8),glass:new T.BoxGeometry(9.2,2.2,6.9),
+  wheel:new T.CylinderGeometry(1.7,1.7,1.4,14),lamp:new T.BoxGeometry(0.4,0.9,1.6)};
+var g=new T.Group(),body=new T.MeshLambertMaterial({color:0xffffff}),glass=new T.MeshLambertMaterial({color:C('#2C3A4A')}),tyre=new T.MeshLambertMaterial({color:C('#1E1F22')}),
+  head=new T.MeshBasicMaterial({color:C('#FFF4D0')}),tail=new T.MeshBasicMaterial({color:C('#B5281E')});
+var b=new T.Mesh(carGeo.body,body);b.position.y=3.1;g.add(b);
+var c=new T.Mesh(carGeo.cabin,body);c.position.set(-1.2,6.3,0);g.add(c);
+var w=new T.Mesh(carGeo.glass,glass);w.position.set(-1.2,6.2,0);g.add(w);
+[[5.6,3.9],[5.6,-3.9],[-5.6,3.9],[-5.6,-3.9]].forEach(function(q){var t=new T.Mesh(carGeo.wheel,tyre);t.rotation.x=Math.PI/2;t.position.set(q[0],1.7,q[1]);g.add(t)});
+[2.6,-2.6].forEach(function(z){var h=new T.Mesh(carGeo.lamp,head);h.position.set(9.05,3.6,z);g.add(h);var r=new T.Mesh(carGeo.lamp,tail);r.position.set(-9.05,3.6,z);g.add(r)});
+g.userData={body:body,color:null};return g;
+}
+
 // ---------- вид: сцена, камера, управление ----------
 function createView(el,opts){
 opts=opts||{};
@@ -235,19 +253,19 @@ if(x.label){var sp=textSprite(x.label);sp.position.set(P[0],H+12,P[1]);sc.add(sp
 V.marks=new T.Group();sc.add(V.marks);V.markers=[];V.cars=[];
 V.scene=sc;
 },
-// метки жителей; car — ехать машиной (кузов цвета жителя по направлению heading)
+// метки жителей: m = {x, y, z, color, label, selected, car}; кружок с номером
+// висит в (x, z, y); car = {x, y, heading, color} — машина жителя (стоит или
+// едет; heading — угол направления в плане), null — без машины
 setMarkers:function(list){
 if(!V.marks)return;
 while(V.markers.length<list.length){var sp=new T.Sprite(new T.SpriteMaterial({depthTest:true}));sp.renderOrder=4;V.marks.add(sp);
-var body=new T.Mesh(new T.BoxGeometry(18,6,8),new T.MeshLambertMaterial({color:0xffffff}));var top=new T.Mesh(new T.BoxGeometry(9,4,7),new T.MeshLambertMaterial({color:C('#DDE3EA')}));top.position.set(-1,5,0);body.add(top);V.marks.add(body);
-V.markers.push(sp);V.cars.push(body);}
-for(var i=0;i<V.markers.length;i++){var sp2=V.markers[i],car=V.cars[i],m=list[i];
-if(!m){sp2.visible=false;car.visible=false;continue}
+var car=makeCar(C);V.marks.add(car);V.markers.push(sp);V.cars.push(car);}
+for(var i=0;i<V.markers.length;i++){var sp2=V.markers[i],car2=V.cars[i],m=list[i];
+if(!m){sp2.visible=false;car2.visible=false;continue}
 sp2.visible=true;sp2.material.map=markerTexture(m.color,m.label,m.selected);sp2.material.needsUpdate=true;
-var sz=m.selected?22:17;sp2.scale.set(sz,sz,1);
-car.visible=!!m.car;
-if(m.car){car.position.set(m.x,4,m.y);car.rotation.y=-(m.heading||0);car.material.color.copy(C(m.color));sp2.position.set(m.x,(m.z||0)+20,m.y)}
-else sp2.position.set(m.x,(m.z||0)+8,m.y);}
+var sz=m.selected?22:17;sp2.scale.set(sz,sz,1);sp2.position.set(m.x,(m.z||0)+8,m.y);
+car2.visible=!!m.car;
+if(m.car){car2.position.set(m.car.x,0,m.car.y);car2.rotation.y=-(m.car.heading||0);if(car2.userData.color!==m.car.color){car2.userData.body.color.copy(C(m.car.color));car2.userData.color=m.car.color}}}
 },
 // навести камеру на охват b = [x0, y0, x1, y1]; o.k — множитель расстояния (1.25 — с запасом), o.bearing — поворот
 fit:function(b,o){o=o||{};if(o.bearing!=null)V.bearing=o.bearing;if(!b){V.tgt=[340,230];V.dist=700;return}V.tgt=[(b[0]+b[2])/2,(b[1]+b[3])/2];V.dist=Math.max(300,Math.max(b[2]-b[0],b[3]-b[1])*(o.k||1.25)+120)},

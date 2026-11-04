@@ -96,7 +96,8 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
     <div class="ctl">
       <button id="play" type="button" aria-pressed="true">Пауза</button>
       <div class="seg" role="group" aria-label="Скорость">
-        <button type="button" data-mps="5" aria-pressed="false">5 мин/с</button>
+        <button type="button" data-mps="0.016666667" aria-pressed="false" title="Реальное время: игровая секунда за секунду">1 с/с</button>
+        <button type="button" data-mps="1" aria-pressed="false">1 мин/с</button>
         <button type="button" data-mps="20" aria-pressed="true">20 мин/с</button>
         <button type="button" data-mps="60" aria-pressed="false">1 ч/с</button>
         <button type="button" data-mps="180" aria-pressed="false">3 ч/с</button>
@@ -156,6 +157,11 @@ function placeLabel(p){const k=W.places.kind[p];return k===KIND.OUTSIDE?'Гор�
 function placeFull(a,p){return p===A.home[a]?'дома':placeLabel(p)}
 function goingTo(a,p){return p===A.home[a]?'едет домой':'едет: '+placeLabel(p)}
 const hhmm=(min)=>{min=((Math.round(min)%1440)+1440)%1440;return String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0')};
+const hhmmss=(min)=>{let s=Math.floor(min*60)%86400;s=(s+86400)%86400;return hhmm(Math.floor(s/60))+':'+String(s%60).padStart(2,'0')};
+// игровое время на экране, в минутах: шаг тика t описывает минуту [t, t+1), поэтому -1
+const nowT=()=>L.tick-1+acc;
+// машины жителей: свой цвет у каждого (обычные цвета легковушек)
+const CAR_COLORS=['#E9E9E6','#B8BDC3','#2A2D33','#9E2B2B','#2E4F80','#3F5F47','#C8B38A','#5A6370','#7B2F47','#D4C9B0'];
 
 // ---- геометрия для отрисовки: дороги, ворота, маршруты ----
 function buildGeo(){
@@ -226,6 +232,22 @@ function agentPositions(now){
       const ang=i/list.length*Math.PI*2-Math.PI/2,rad=3.6;pos[a]=[c[0]+Math.cos(ang)*rad,c[1]+Math.sin(ang)*rad]})}
   return pos;
 }
+// где машина жителя: в пути — на дороге (правее оси), иначе стоит у обочины
+// возле своего места (несколько машин — в ряд), у кого Город — в его квадрате
+function carPoses(now){
+  const RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4,cars=new Array(A.n),park=new Map();
+  for(let a=0;a<A.n;a++){if(!A.car[a])continue;
+    if(L.act[a]===ACT.TRAVEL){const tp=travelPos(a,now);cars[a]={p:tp.p,h:tp.dir?Math.atan2(tp.dir[1],tp.dir[0]):0};continue}
+    const p=L.at[a];if(W.places.kind[p]===KIND.OUTSIDE){const c=center(p);cars[a]={p:[c[0]+((a%5)-2)*5.5,c[1]+7.5],h:0};continue}
+    (park.get(p)||park.set(p,[]).get(p)).push(a)}
+  for(const [p,list] of park){
+    const e=SNAP.edges[W.places.edge[p]],A0=nodeXY(e.a),B0=nodeXY(e.b),l=Math.hypot(B0[0]-A0[0],B0[1]-A0[1]),d=[(B0[0]-A0[0])/l,(B0[1]-A0[1])/l];
+    const ac=access(p),c=center(p);let n=[-d[1],d[0]];if((c[0]-ac[0])*n[0]+(c[1]-ac[1])*n[1]<0)n=[-n[0],-n[1]];
+    // правостороннее движение: стоит по ходу своей полосы
+    const h=Math.atan2(d[1],d[0])+((n[0]===-d[1]&&n[1]===d[0])?0:Math.PI);
+    list.forEach((a,i)=>{const s=(i-(list.length-1)/2)*5.5;cars[a]={p:[ac[0]+n[0]*(RW-1.4)+d[0]*s,ac[1]+n[1]*(RW-1.4)+d[1]*s],h}})}
+  return cars;
+}
 let lastPos=[];
 // 2D — те же цвета, что в редакторе дорог (общая палитра City3D.COLORS);
 // карта одинаковая в обеих темах страницы, как бумажная
@@ -256,6 +278,10 @@ function draw2D(now){
     const M=S([nodeXY(g.node)[0]+g.dir[0]*RW*1.6,nodeXY(g.node)[1]+g.dir[1]*RW*1.6]),r=Math.max(7,RW*0.95*k),d=g.dir,n=[-d[1],d[0]];
     ctx.beginPath();ctx.arc(M[0],M[1],r,0,Math.PI*2);ctx.fillStyle=K.gate;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();
     ctx.beginPath();ctx.moveTo(M[0]+d[0]*r*.6,M[1]+d[1]*r*.6);ctx.lineTo(M[0]-d[0]*r*.45+n[0]*r*.45,M[1]-d[1]*r*.45+n[1]*r*.45);ctx.lineTo(M[0]-d[0]*r*.45-n[0]*r*.45,M[1]-d[1]*r*.45-n[1]*r*.45);ctx.closePath();ctx.fillStyle='#fff';ctx.fill()}
+  // машины
+  carPoses(now).forEach((c,a)=>{if(!c)return;const q=S(c.p);ctx.save();ctx.translate(q[0],q[1]);ctx.rotate(c.h);
+    ctx.fillStyle=CAR_COLORS[a%CAR_COLORS.length];ctx.strokeStyle='#1E1F22';ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(-2.25*k,-0.95*k,4.5*k,1.9*k,0.5*k);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#2C3A4A';ctx.fillRect(-0.9*k,-0.75*k,1.8*k,1.5*k);ctx.restore()});
   // жители
   const pos=agentPositions(now);lastPos=pos;const r=Math.max(6,2.4*k);
   ctx.font=`600 ${Math.round(r*1.05)}px ${font}`;ctx.textAlign='center';ctx.textBaseline='middle';
@@ -283,10 +309,13 @@ function sceneDesc(){
 function draw3D(now){
   if(!V3.view)return;
   const pos=agentPositions(now);lastPos=pos;
+  const cars=carPoses(now);
   V3.view.setMarkers(pos.map((p,a)=>{const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
-    // на крыше своего места, в пути — машина на дороге
-    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[at].floors||1)*16+10:4;
-    return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:String(a+1),selected:a===sel,car:tr&&A.car[a]===1&&!!dirs[a],heading:tr&&dirs[a]?Math.atan2(dirs[a][1],dirs[a][0]):0}}));
+    // кружок — над крышей своего места; в пути — над своей машиной
+    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[at].floors||1)*16+10:12;
+    const c=cars[a];
+    return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:String(a+1),selected:a===sel,
+      car:c?{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}:null}}));
   V3.view.render();
 }
 function draw(now){if(V3.on&&V3.view)draw3D(now);else if(!V3.on)draw2D(now)}
@@ -297,8 +326,8 @@ function setView3D(on){
   // 2D — по пропорциям деревни; 3D — кадр повыше (на телефоне 4:3)
   const b=geo.bounds;document.querySelector('.mapw').style.aspectRatio=V3.on?(innerWidth<600?'4/3':'16/9'):String(Math.max(1.4,Math.min(2.4,(b[2]-b[0])/(b[3]-b[1]))));
   $('vhint').textContent=V3.on?'Тяните — двигать карту, двумя пальцами или правой кнопкой — вращать, колесо — масштаб.':'Нажмите на жителя, чтобы открыть его дневник.';
-  if(!V3.on){view=null;draw(L.tick+acc);return}
-  City3D.loadThree(()=>{if(!V3.view){V3.view=City3D.createView($('v3'));V3.view.setScene(sceneDesc());const b=geo.bounds;const el=$('v3'),asp=(el.clientWidth||16)/(el.clientHeight||9);V3.view.fit([b[0]*U,b[1]*U,b[2]*U,b[3]*U],{k:0.72*Math.max(1,1.7/asp),bearing:0})}draw(L.tick+acc)},
+  if(!V3.on){view=null;draw(nowT());return}
+  City3D.loadThree(()=>{if(!V3.view){V3.view=City3D.createView($('v3'));V3.view.setScene(sceneDesc());const b=geo.bounds;const el=$('v3'),asp=(el.clientWidth||16)/(el.clientHeight||9);V3.view.fit([b[0]*U,b[1]*U,b[2]*U,b[3]*U],{k:0.72*Math.max(1,1.7/asp),bearing:0})}draw(nowT())},
     ()=>{V3.failed=true;setView3D(false);$('vhint').textContent='3D-вид не загрузился (нет доступа к three.js) — показываю 2D.'});
 }
 
@@ -316,7 +345,7 @@ function buildPanels(){
     <div class="needs"><div class="need"><i id="f${a}" style="background:var(--a-sleep)"></i></div><div class="need"><i id="h${a}" style="background:var(--a-eat)"></i></div><div class="need"><i id="o${a}" style="background:var(--a-work)"></i></div><span class="food" id="e${a}"></span></div></li>`).join('');
 }
 function updatePanels(){
-  const min=L.tick*W.cfg.tickSeconds/60;$('time').textContent=hhmm(min);$('dayl').textContent='День '+(Math.floor(min/1440)+1);
+  const min=nowT()*W.cfg.tickSeconds/60;$('time').textContent=mps<1?hhmmss(min):hhmm(min);$('dayl').textContent='День '+(Math.floor(min/1440)+1);
   const nw=$('now');if(nw)nw.style.left=`calc(${(min%1440)/1440*100}% - 1px)`;
   const s=snapshot(W,A,L);
   const chip=(col,label,n)=>`<span><i class="dot" style="background:var(${col})"></i>${label} <b>${n}</b></span>`;
@@ -351,15 +380,15 @@ $('play').addEventListener('click',()=>{playing=!playing;$('play').setAttribute(
 document.querySelectorAll('[data-mps]').forEach((b)=>b.addEventListener('click',()=>{mps=+b.dataset.mps;document.querySelectorAll('[data-mps]').forEach((x)=>x.setAttribute('aria-pressed',String(x===b)))}));
 $('restart').addEventListener('click',()=>start(Math.max(1,Math.round(+$('seed').value||1))));
 $('seed').addEventListener('keydown',(e)=>{if(e.key==='Enter')$('restart').click()});
-$('ppl').addEventListener('click',(e)=>{const li=e.target.closest('li');if(li){sel=+li.dataset.a;updatePanels();draw(L.tick+acc)}});
+$('ppl').addEventListener('click',(e)=>{const li=e.target.closest('li');if(li){sel=+li.dataset.a;updatePanels();draw(nowT())}});
 cv.addEventListener('click',(e)=>{const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let best=-1,bd=20;
-  lastPos.forEach((p,a)=>{const q=S(p),d=Math.hypot(q[0]-x,q[1]-y);if(d<bd){bd=d;best=a}});if(best>=0){sel=best;updatePanels();draw(L.tick+acc)}});
-window.addEventListener('resize',()=>{view=null;draw(L.tick+acc)});
+  lastPos.forEach((p,a)=>{const q=S(p),d=Math.hypot(q[0]-x,q[1]-y);if(d<bd){bd=d;best=a}});if(best>=0){sel=best;updatePanels();draw(nowT())}});
+window.addEventListener('resize',()=>{view=null;draw(nowT())});
 let last=performance.now(),lastUi=0;
 function frame(ts){
   const dt=Math.min(0.25,(ts-last)/1000);last=ts;
   if(playing){acc+=dt*mps;let n=Math.floor(acc);acc-=n;n=Math.min(n,600);for(let i=0;i<n;i++)step(W,A,L)}
-  draw(L.tick+acc);
+  draw(nowT());
   if(ts-lastUi>120){lastUi=ts;updatePanels()}
   requestAnimationFrame(frame);
 }
