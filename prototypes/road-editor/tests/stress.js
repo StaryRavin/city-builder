@@ -18,6 +18,8 @@
  * 5. Участки не пересекаются друг с другом и не заходят на дороги: на сетях
  *    ставится много случайных участков так же, как это делает интерфейс, и
  *    каждая пара проверяется независимо — по площади пересечения.
+ * 6. Контур каждого дома (для 3D) собирается в один замкнутый многоугольник
+ *    с площадью, равной площади объединения его частей.
  *
  * Законные отказы (не баги) считаются отдельно:
  * - участок задевает третью дорогу, не из этого угла;
@@ -158,6 +160,15 @@ for(let sd=1;sd<=Math.min(nets,40);sd++){
   bugs.push({net:sd,type:'lot-changed-after-split',lot:{key:bf.l.key,k0:bf.l.k0,k1:bf.l.k1,j1:bf.l.j1,ext:bf.l.ext},areaBefore:+bf.area.toFixed(2),areaAfter:+ar.toFixed(2),inter:+interArea(ps,bf.ps).toFixed(2),before:bf.ps.map(p=>p.map(q=>q.map(x=>+x.toFixed(1)))),after:ps.map(p=>p.map(q=>q.map(x=>+x.toFixed(1))))});
  }
  const shapes=placed.map(l=>A.shape(l).parts);
+ // 6. Для 3D дом вытягивается одной фигурой: контур объединения частей должен
+ //    собираться в один замкнутый многоугольник с площадью объединения.
+ shapes.forEach((ps,i)=>{const o=A.unionOutline(ps);stats.outlines=(stats.outlines||0)+1;
+  if(!o.loop||o.loop.length<3){bugs.push({net:sd,type:'outline-not-closed',lot:placed[i],parts:ps.map(p=>p.map(q=>q.map(x=>+x.toFixed(3))))});return}
+  const sum=ps.reduce((a,p)=>a+area(p),0),mx=Math.max(...ps.map(area)),la=area(o.loop);
+  // площадь объединения: сумма минус попарные пересечения частей
+  let inter=0;for(let x=0;x<ps.length;x++)for(let y=x+1;y<ps.length;y++)inter+=interArea([ps[x]],[ps[y]]);
+  if(Math.abs(la-(sum-inter))>0.5||la<mx-0.5)bugs.push({net:sd,type:'outline-wrong-area',lot:placed[i],loop:+la.toFixed(1),union:+(sum-inter).toFixed(1)});
+ });
  for(let i=0;i<placed.length;i++){
   for(let k=i+1;k<placed.length;k++){const ia=interArea(shapes[i],shapes[k]);if(ia>LIM)bugs.push({net:sd,type:'lots-overlap',area:+ia.toFixed(3),a:placed[i],b:placed[k]})}
   const ra=interArea(shapes[i],G.bands.map(b=>b.poly));if(ra>LIM)bugs.push({net:sd,type:'lot-on-road',area:+ra.toFixed(3),lot:placed[i]});

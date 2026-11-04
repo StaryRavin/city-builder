@@ -754,14 +754,75 @@ lots.forEach(function(l){
 var S=shape(l);if(!S.parts.length)return;
 var bad=check(l,l),h=(l.floors||1)*s,col=C(bad?'#D9363E':(l.color||'#C8553D'));
 var mat=new T.MeshLambertMaterial({color:col,transparent:!!bad,opacity:bad?0.7:1});
-S.parts.forEach(function(P){
+// дом — одна фигура: вытягиваем контур объединения частей (без швов на
+// крыше); если контур не собрался — части по отдельности
+var out=unionOutline(S.parts),pos=[];
+(out.loop&&out.loop.length>=3?[out.loop]:S.parts).forEach(function(P){
 var shp=new T.Shape(P.map(function(q){return new T.Vector2(q[0],-q[1])}));
 var g=new T.ExtrudeGeometry(shp,{depth:h,bevelEnabled:false});g.rotateX(-Math.PI/2);
 sc.add(new T.Mesh(g,mat));
-sc.add(new T.LineSegments(new T.EdgesGeometry(g,20),edgeM));
 });
+// рёбра — только по контуру всего дома: край крыши и вертикали в изломах
+out.segs.forEach(function(sg){pos.push(sg[0][0],h+0.05,sg[0][1],sg[1][0],h+0.05,sg[1][1])});
+out.corners.forEach(function(q){pos.push(q[0],0,q[1],q[0],h+0.05,q[1])});
+var lg=new T.BufferGeometry();lg.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+sc.add(new T.LineSegments(lg,edgeM));
 });
 V3.scene=sc;render3();
+}
+/*
+ * Контур объединения выпуклых частей участка: от каждого ребра части
+ * отрезаются куски, лежащие внутри другой части или на общем с ней ребре
+ * (шов между частями). Остаток — граница дома. Углы — точки границы, где
+ * она поворачивает (там рисуются вертикальные рёбра).
+ */
+function unionOutline(parts){
+function orient(P){var a=0;for(var i=0;i<P.length;i++){var q=P[(i+1)%P.length];a+=P[i][0]*q[1]-q[0]*P[i][1]}return a>=0?1:-1}
+parts=parts.map(function(P){return orient(P)>0?P:P.slice().reverse()}); // все части в одном обходе
+var ors=parts.map(orient),res=[];
+// интервал параметра t отрезка a→b, лежащий в замкнутой выпуклой Q (или null)
+function inside(a,b,Q,sQ,sP,dupOK){
+var d=sub(b,a),t0=0,t1=1;
+for(var i=0;i<Q.length;i++){var q0=Q[i],e=sub(Q[(i+1)%Q.length],q0),le=len(e);if(le<1e-9)continue;
+var c0=sQ*cr(e,sub(a,q0))/le,c1=sQ*cr(e,d)/le;
+if(Math.abs(c1)<1e-9){
+if(c0< -1e-4)return null;
+if(c0<1e-4){ // отрезок лежит на прямой ребра Q: шов, только если P и Q по разные стороны
+// по одну сторону — общий внешний край: оставляем его только у одной части
+var m=add(mul(add(a,b),0.5),mul([-d[1],d[0]],sP*1e-3/len(d)));if(sQ*cr(e,sub(m,q0))>0&&!dupOK)return null;}
+continue;}
+var tt=-(c0+1e-4)/c1;if(c1>0)t0=Math.max(t0,tt);else t1=Math.min(t1,tt);
+}
+return t1-t0>1e-9?[t0,t1]:null;
+}
+parts.forEach(function(P,pi){
+for(var i=0;i<P.length;i++){var a=P[i],b=P[(i+1)%P.length];if(len(sub(b,a))<1e-6)continue;
+var iv=[[0,1]];
+parts.forEach(function(Q,qi){if(qi===pi)return;var rr=inside(a,b,Q,ors[qi],ors[pi],qi<pi);if(!rr)return;
+var nv=[];iv.forEach(function(x){if(Math.min(x[1],rr[0])-x[0]>1e-6)nv.push([x[0],Math.min(x[1],rr[0])]);if(x[1]-Math.max(x[0],rr[1])>1e-6)nv.push([Math.max(x[0],rr[1]),x[1]])});iv=nv;});
+iv.forEach(function(x){if(x[1]-x[0]>1e-4)res.push([add(a,mul(sub(b,a),x[0])),add(a,mul(sub(b,a),x[1]))])});
+}});
+// углы: в точке сходятся куски не на одной прямой
+var pts={},corners=[];
+res.forEach(function(sg){[[sg[0],sg[1]],[sg[1],sg[0]]].forEach(function(pr){var k=Math.round(pr[0][0]*100)+':'+Math.round(pr[0][1]*100);(pts[k]=pts[k]||{p:pr[0],dirs:[]}).dirs.push(nrm(sub(pr[1],pr[0])))})});
+Object.keys(pts).forEach(function(k){var o=pts[k];if(o.dirs.length===2&&dot(o.dirs[0],o.dirs[1])<-0.9999)return;corners.push(o.p)});
+// замкнутый контур: куски одинаково ориентированы, сцепляем конец к началу;
+// крошечные обрезки (меньше 0.05) выбрасываем, а концы соседей склеиваем по
+// ближайшей точке, а не по точному совпадению
+res=res.filter(function(sg){return len(sub(sg[1],sg[0]))>0.05});
+var key=function(q){return Math.round(q[0]*10)+':'+Math.round(q[1]*10)},byStart={};
+res.forEach(function(sg,i){(byStart[key(sg[0])]=byStart[key(sg[0])]||[]).push(i)});
+var loop=null;
+if(res.length){var used={},cur=0,lp=[];
+for(var n=0;n<res.length;n++){used[cur]=1;lp.push(res[cur][0]);var e1=res[cur][1],nx=res.map(function(sg,j){return j}).filter(function(j){return !used[j]&&len(sub(res[j][0],e1))<0.1});
+if(!nx.length){if(n===res.length-1&&len(sub(res[cur][1],res[0][0]))<0.1)loop=lp;break}
+nx.sort(function(x,y){return len(sub(res[x][0],e1))-len(sub(res[y][0],e1))});cur=nx[0];}
+}
+if(loop){ // по замкнутому контуру: убрать точки на прямой, углы — оставшиеся вершины
+var L=[];loop.forEach(function(q,i){var pr=loop[(i+loop.length-1)%loop.length],nx=loop[(i+1)%loop.length];
+var u=sub(q,pr),v=sub(nx,q);if(len(u)<1e-6||len(v)<1e-6)return;if(Math.abs(cr(nrm(u),nrm(v)))<1e-3&&dot(u,v)>0)return;L.push(q)});
+loop=L;corners=L.slice();res=L.map(function(q,i){return [q,L[(i+1)%L.length]]});}
+return {segs:res,corners:corners,loop:loop};
 }
 function camUpdate(){
 var c=V3.cam,e=V3.elev*Math.PI/180,b=V3.bearing;
@@ -831,7 +892,7 @@ toScreen:function(P){var pt=sv.createSVGPoint();pt.x=P[0]*view.k+view.tx;pt.y=P[
 clearLots:function(){lots=[];drawLots()},
 lotsRaw:function(){return lots},
 // внутренние функции для стресс-тестов
-api:{G:function(){return G},overlaps:overlaps,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
+api:{G:function(){return G},overlaps:overlaps,unionOutline:unionOutline,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
 snap:snap,endFor:endFor,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
 reset:function(){nodes={};segs={};lots=[];nid=1;sid=1;drawStatic()},addLot:function(l){l.floors=l.floors||1+Math.floor(Math.random()*8);l.color=l.color||nextColor();lots.push(l)}},
 // инвариант: каждый узел стоит на линии сетки каждой своей дороги
