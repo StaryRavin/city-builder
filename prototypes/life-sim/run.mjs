@@ -12,6 +12,6 @@ const here=path.dirname(fileURLToPath(import.meta.url));
 const arg=(k,d)=>{const i=process.argv.indexOf('--'+k);return i>0?process.argv[i+1]:d};
 const scene=arg('scene',path.join(here,'scenes/village.snapshot.json'));
 const sim=createSim(JSON.parse(readFileSync(scene,'utf8')),{
-  seed:+arg('seed',1),cars:+arg('cars',20),outside:{jobs:+arg('outside-jobs',40)}});
+  seed:+arg('seed',1),cars:arg('cars',null)==null?null:+arg('cars'),outside:{jobs:+arg('outside-jobs',40)}});
 console.log(`seed ${sim.cfg.seed}`);
 console.log(formatCensus(sim.world,census(sim.world,sim.agents)));

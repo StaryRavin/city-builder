@@ -5,7 +5,7 @@
  *   car  — 1, если есть машина.
  *
  * Расселение: по жилым домам по порядку, пока есть места.
- * Машины: у cfg.cars случайных жителей (по seed).
+ * Машины: у cfg.cars случайных жителей (по seed), по умолчанию у всех.
  * Работа (временное правило этапа 1, на этапе 3 заменится выбором по
  * полезности): жители в случайном порядке берут ближайшую по времени пути
  * свободную вакансию из тех, куда могут добраться; нет такой — безработный.
@@ -22,7 +22,8 @@ export function createPopulation(w,rng){
   for(let p=0;p<pl.n&&a<n;p++)for(let k=0;k<pl.beds[p]&&a<n;k++)A.home[a++]=p;
   // машины
   const order=rng.shuffle([...Array(n).keys()]);
-  for(let i=0;i<Math.min(cfg.cars,n);i++)A.car[order[i]]=1;
+  const cars=cfg.cars==null?n:Math.min(cfg.cars,n);
+  for(let i=0;i<cars;i++)A.car[order[i]]=1;
   assignJobs(w,A,rng);
   return A;
 }

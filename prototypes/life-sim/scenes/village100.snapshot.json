@@ -1,0 +1,461 @@
+{
+ "format": "city-builder/world@1",
+ "units": "m",
+ "nodes": [
+  [
+   0,
+   0
+  ],
+  [
+   120,
+   0
+  ],
+  [
+   -120,
+   0
+  ],
+  [
+   0,
+   -80
+  ],
+  [
+   0,
+   80
+  ]
+ ],
+ "edges": [
+  {
+   "a": 2,
+   "b": 0,
+   "length": 120
+  },
+  {
+   "a": 0,
+   "b": 1,
+   "length": 120
+  },
+  {
+   "a": 3,
+   "b": 0,
+   "length": 80
+  },
+  {
+   "a": 0,
+   "b": 4,
+   "length": 80
+  }
+ ],
+ "buildings": [
+  {
+   "id": 0,
+   "type": "res",
+   "floors": 1,
+   "cells": 8,
+   "capacity": 4,
+   "edge": 0,
+   "t": 0.433,
+   "center": [
+    -68,
+    -8
+   ]
+  },
+  {
+   "id": 1,
+   "type": "res",
+   "floors": 1,
+   "cells": 6,
+   "capacity": 3,
+   "edge": 0,
+   "t": 0.617,
+   "center": [
+    -46,
+    -8
+   ]
+  },
+  {
+   "id": 2,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 0,
+   "t": 0.75,
+   "center": [
+    -30,
+    -10
+   ]
+  },
+  {
+   "id": 3,
+   "type": "com",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 0,
+   "t": 0.883,
+   "center": [
+    -14,
+    -10
+   ]
+  },
+  {
+   "id": 4,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 0,
+   "t": 0.517,
+   "center": [
+    -58,
+    10
+   ]
+  },
+  {
+   "id": 5,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 0,
+   "t": 0.65,
+   "center": [
+    -42,
+    10
+   ]
+  },
+  {
+   "id": 6,
+   "type": "res",
+   "floors": 1,
+   "cells": 12,
+   "capacity": 6,
+   "edge": 0,
+   "t": 0.8,
+   "center": [
+    -24,
+    10
+   ]
+  },
+  {
+   "id": 7,
+   "type": "com",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 1,
+   "t": 0.083,
+   "center": [
+    10,
+    -10
+   ]
+  },
+  {
+   "id": 8,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 1,
+   "t": 0.217,
+   "center": [
+    26,
+    -10
+   ]
+  },
+  {
+   "id": 9,
+   "type": "res",
+   "floors": 1,
+   "cells": 6,
+   "capacity": 3,
+   "edge": 1,
+   "t": 0.35,
+   "center": [
+    42,
+    -8
+   ]
+  },
+  {
+   "id": 10,
+   "type": "res",
+   "floors": 1,
+   "cells": 6,
+   "capacity": 3,
+   "edge": 1,
+   "t": 0.517,
+   "center": [
+    62,
+    -8
+   ]
+  },
+  {
+   "id": 11,
+   "type": "work",
+   "floors": 1,
+   "cells": 20,
+   "capacity": 5,
+   "edge": 1,
+   "t": 0.683,
+   "center": [
+    82,
+    -12
+   ]
+  },
+  {
+   "id": 12,
+   "type": "work",
+   "floors": 1,
+   "cells": 20,
+   "capacity": 5,
+   "edge": 1,
+   "t": 0.883,
+   "center": [
+    106,
+    -12
+   ]
+  },
+  {
+   "id": 13,
+   "type": "com",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 1,
+   "t": 0.083,
+   "center": [
+    10,
+    10
+   ]
+  },
+  {
+   "id": 14,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 1,
+   "t": 0.217,
+   "center": [
+    26,
+    10
+   ]
+  },
+  {
+   "id": 15,
+   "type": "res",
+   "floors": 1,
+   "cells": 6,
+   "capacity": 3,
+   "edge": 1,
+   "t": 0.35,
+   "center": [
+    42,
+    8
+   ]
+  },
+  {
+   "id": 16,
+   "type": "res",
+   "floors": 1,
+   "cells": 6,
+   "capacity": 3,
+   "edge": 1,
+   "t": 0.483,
+   "center": [
+    58,
+    8
+   ]
+  },
+  {
+   "id": 17,
+   "type": "work",
+   "floors": 1,
+   "cells": 20,
+   "capacity": 5,
+   "edge": 1,
+   "t": 0.683,
+   "center": [
+    82,
+    12
+   ]
+  },
+  {
+   "id": 18,
+   "type": "work",
+   "floors": 1,
+   "cells": 20,
+   "capacity": 5,
+   "edge": 1,
+   "t": 0.883,
+   "center": [
+    106,
+    12
+   ]
+  },
+  {
+   "id": 19,
+   "type": "res",
+   "floors": 1,
+   "cells": 8,
+   "capacity": 4,
+   "edge": 2,
+   "t": 0.1,
+   "center": [
+    8,
+    -72
+   ]
+  },
+  {
+   "id": 20,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 2,
+   "t": 0.375,
+   "center": [
+    10,
+    -50
+   ]
+  },
+  {
+   "id": 21,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 2,
+   "t": 0.575,
+   "center": [
+    10,
+    -34
+   ]
+  },
+  {
+   "id": 22,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 2,
+   "t": 0.325,
+   "center": [
+    -10,
+    -54
+   ]
+  },
+  {
+   "id": 23,
+   "type": "res",
+   "floors": 1,
+   "cells": 6,
+   "capacity": 3,
+   "edge": 2,
+   "t": 0.575,
+   "center": [
+    -8,
+    -34
+   ]
+  },
+  {
+   "id": 24,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 3,
+   "t": 0.275,
+   "center": [
+    10,
+    22
+   ]
+  },
+  {
+   "id": 25,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 3,
+   "t": 0.475,
+   "center": [
+    10,
+    38
+   ]
+  },
+  {
+   "id": 26,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 3,
+   "t": 0.725,
+   "center": [
+    10,
+    58
+   ]
+  },
+  {
+   "id": 27,
+   "type": "com",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 3,
+   "t": 0.125,
+   "center": [
+    -10,
+    10
+   ]
+  },
+  {
+   "id": 28,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 3,
+   "t": 0.325,
+   "center": [
+    -10,
+    26
+   ]
+  },
+  {
+   "id": 29,
+   "type": "res",
+   "floors": 1,
+   "cells": 9,
+   "capacity": 5,
+   "edge": 3,
+   "t": 0.525,
+   "center": [
+    -10,
+    42
+   ]
+  },
+  {
+   "id": 30,
+   "type": "res",
+   "floors": 1,
+   "cells": 6,
+   "capacity": 3,
+   "edge": 3,
+   "t": 0.725,
+   "center": [
+    -8,
+    58
+   ]
+  }
+ ],
+ "gates": [
+  {
+   "id": 0,
+   "node": 1,
+   "name": "Шоссе"
+  }
+ ],
+ "name": "Деревня 100"
+}

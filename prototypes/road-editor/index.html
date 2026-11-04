@@ -63,7 +63,8 @@
     <button id="t-tilt" type="button">Наклон 60°</button>
   </div>
   <span class="sp"></span>
-  <button id="b-vil" type="button">Деревня</button>
+  <button id="b-vil10" type="button">Деревня 10</button>
+  <button id="b-vil" type="button">Деревня 100</button>
   <button id="b-bg" type="button">Белград: Дорчол</button>
   <button id="b-demo" type="button">Пример</button>
   <button id="b-clr" type="button">Очистить</button>
@@ -920,6 +921,39 @@ if(V3.on){fit3();build3D()}
 }
 document.getElementById('b-vil').addEventListener('click',buildVillage);
 
+/*
+ * Маленькая деревня на 10 жителей для симуляции жизни: у каждого свой домик
+ * (1×2 клетки — ровно 1 житель), главная улица с двумя перекрёстками,
+ * переулок на севере замыкает квартал. Работы и магазинов в деревне меньше,
+ * чем нужно: одна лавка (2 работника) и одна мастерская (2 работника) — за
+ * остальным жители ездят во внешний мир через ворота на востоке.
+ * Раскладка ручная: дом ставится в клетку у улицы по мировой точке (в клетках).
+ */
+function buildHamlet(){
+nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=W0;ghost=[];
+function nd(x,y){var n=nid++;nodes[n]={x:x*s,y:y*s};return n}
+function sg(a,b){segs[sid++]={a:a,b:b}}
+var w=nd(-24,0),c1=nd(-8,0),c2=nd(8,0),e=nd(24,0),n1=nd(-8,-10),s1=nd(-8,10),n2=nd(8,-10),s2=nd(8,10);
+sg(w,c1);sg(c1,c2);sg(c2,e);sg(n1,c1);sg(c1,s1);sg(n2,c2);sg(c2,s2);sg(n1,n2);
+addExit(e,'Город');
+derive();
+// дом: клетка у улицы в точке (x, y) в клетках, ширина w колонок, глубина d
+function put(x,y,w,d,type){var h=hitCell([x*s,y*s]);if(!h)throw new Error('нет клетки в '+x+','+y);
+var l={key:h.key,k0:h.k,k1:h.k+w-1,j1:d-1,ext:null,floors:1,type:type};
+if(check(l,null)){l.k0=h.k-w+1;l.k1=h.k}           // колонки идут в другую сторону
+var why=check(l,null);if(why)throw new Error('дом в '+x+','+y+': '+why);
+l.color=nextColor(type);lots.push(l);}
+// 10 домиков
+[[-20.5,-1.5],[-16.5,-1.5],[-12.5,-1.5],[-20.5,1.5],[-16.5,1.5],[-12.5,1.5]].forEach(function(p){put(p[0],p[1],1,2,'res')});
+put(-9.5,4.5,1,2,'res');put(-9.5,7.5,1,2,'res');put(9.5,5.5,1,2,'res');put(0.5,-11.5,1,2,'res');
+put(-0.5,-1.5,2,2,'com');   // лавка: 2 работника, 4 покупателя одновременно
+put(15.5,1.5,2,4,'work');   // мастерская у выезда: 2 работника
+fitView();drawStatic();idle();
+stEl.textContent='Деревня 10: '+lots.length+' домов, жителей '+totals().res+', рабочих мест '+(totals().com+totals().work)+'.';
+if(V3.on){fit3();build3D()}
+}
+document.getElementById('b-vil10').addEventListener('click',buildHamlet);
+
 // ---------- выезды во внешний мир ----------
 /*
  * Выезд — мета-объект на конце дороги (в тупике): точка, где дорога уходит
@@ -1341,7 +1375,7 @@ clearLots:function(){lots=[];drawLots()},
 lotsRaw:function(){return lots},
 // внутренние функции для стресс-тестов
 api:{loadScene:loadScene,G:function(){return G},overlaps:overlaps,unionOutline:unionOutline,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
-snap:snap,endFor:endFor,capOf:capOf,totals:totals,exportSim:exportSim,exitLinks:exitLinks,exits:function(){return exits},buildVillage:buildVillage,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
+snap:snap,endFor:endFor,capOf:capOf,totals:totals,exportSim:exportSim,exitLinks:exitLinks,exits:function(){return exits},buildVillage:buildVillage,buildHamlet:buildHamlet,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
 reset:function(){nodes={};segs={};lots=[];exits=[];nid=1;sid=1;drawStatic()},addLot:function(l){l.floors=l.floors||1+Math.floor(Math.random()*8);l.color=l.color||nextColor();lots.push(l)}},
 // инвариант: каждый узел стоит на линии сетки каждой своей дороги
 gridCheck:function(){var bad=[];Object.keys(segs).forEach(function(id){var g=segs[id],E=segEnds(g),L=len(sub(E[1],E[0])),cw=segCw(g),ph=segPh(g);
@@ -1351,7 +1385,7 @@ uvToWorld:function(key,u,v){var S=G.hs[key];return add(S.ends.a.K,add(mul(S.d,u)
 state:function(){return {nodes:nodes,segs:segs,lots:lots.map(function(l){var S=shape(l);return Object.assign({bad:check(l,l),corner:!!S.corner},l)}),sides:Object.keys(G.hs).map(function(k){var h=G.hs[k];function ca(e){var c=h.ends[e].corner;return c?Math.round(c.alpha*180/Math.PI):(h.ends[e].corner===null?'-':'-')}return {key:k,E:+h.E.toFixed(1),a0:+h.a0.toFixed(1),nC:h.nC,anchor:h.anchor,a:ca('a'),b:ca('b')}})}}
 };
 setMode('road');
-buildVillage();
+buildHamlet();
 })();
 </script>
 </body>
