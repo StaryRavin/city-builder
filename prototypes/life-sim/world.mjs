@@ -55,7 +55,10 @@ export function buildWorld(snap,cfg){
     places.jobs[i]=cfg.outside.jobs;places.visitors[i]=1e9;places.extra[i]=cfg.outside.minutesBeyondGate*60;places.src[i]=g.id;
     places.name[i]='внешний мир: '+g.name;i++;
   }
-  return {name:snap.name||'',nodes,edges,dist,places,cfg};
+  // для парковки на свободной земле движению нужны контуры зданий и ширина дороги
+  const outlines=snap.buildings.map((b)=>b.outline||[]);
+  const roadHalfWidth=(snap.render&&snap.render.roadHalfWidth)||cfg.traffic.roadHalfWidth;
+  return {name:snap.name||'',nodes,edges,dist,places,cfg,outlines,roadHalfWidth};
 }
 
 // расстояние по дорогам между местами p и q, м (без пути за воротами)

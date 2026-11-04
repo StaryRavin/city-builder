@@ -869,7 +869,7 @@ document.getElementById('b-bg').addEventListener('click',function(){loadScene(JS
 var VILLAGE={residents:100,seed:11,main:30,cross:20,comR:5,workX:18};
 function buildVillage(){
 var V=VILLAGE;
-nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=W0;ghost=[];
+nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=VILLAGE_W;ghost=[];
 function nd(x,y){var n=nid++;nodes[n]={x:x,y:y};return n}
 function sg(a,b){segs[sid++]={a:a,b:b}}
 var c=nd(0,0),east=nd(V.main*s,0);
@@ -923,8 +923,10 @@ document.getElementById('b-vil').addEventListener('click',buildVillage);
  * остальным жители ездят во внешний мир через ворота на востоке.
  * Раскладка ручная: дом ставится в клетку у улицы по мировой точке (в клетках).
  */
+// улицы деревень — 10 м: две полосы и парковка вдоль бордюра с обеих сторон
+var VILLAGE_W=20;
 function buildHamlet(){
-nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=W0;ghost=[];
+nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=VILLAGE_W;ghost=[];
 function nd(x,y){var n=nid++;nodes[n]={x:x*s,y:y*s};return n}
 function sg(a,b){segs[sid++]={a:a,b:b}}
 var w=nd(-24,0),c1=nd(-8,0),c2=nd(8,0),e=nd(24,0),n1=nd(-8,-10),s1=nd(-8,10),n2=nd(8,-10),s2=nd(8,10);
