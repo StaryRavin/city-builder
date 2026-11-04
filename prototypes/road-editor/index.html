@@ -36,6 +36,10 @@
   .dlg input { font:inherit; width:90px; padding:6px 8px; border:1px solid var(--btn-b); border-radius:6px; background:var(--bg); color:var(--fg); }
   .dlg .row { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
   .dlg .row .sp { flex:1; }
+  .dlg .types { display:flex; margin:0 0 12px; }
+  .dlg .types button { flex:1; padding:5px 6px; }
+  .dlg .cap { font-size:13px; color:var(--muted); margin:10px 0 0; min-height:1.5em; }
+  #stats { font-size:14px; margin:6px 0 0; font-weight:600; }
   .dlg .sw { display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; margin-right:6px; }
 </style>
 </head>
@@ -58,6 +62,7 @@
     <button id="t-tilt" type="button">Наклон 60°</button>
   </div>
   <span class="sp"></span>
+  <button id="b-vil" type="button">Деревня</button>
   <button id="b-bg" type="button">Белград: Дорчол</button>
   <button id="b-demo" type="button">Пример</button>
   <button id="b-clr" type="button">Очистить</button>
@@ -68,11 +73,14 @@
 <g id="world"><g id="cells"></g><g id="ghost"></g><g id="roads"></g><g id="lots"></g><g id="nodes"></g><g id="prev"></g></g>
 </svg>
 <div id="v3d" hidden></div>
+<p id="stats"></p>
 <p id="st"></p>
 <div class="legend">
   <span><i style="background:#9ED38F"></i>Клетка зоны</span>
   <span><i style="background:#F2B866"></i>Угловая клетка</span>
-  <span><i style="background:linear-gradient(90deg,#C8553D 33%,#5B8DB8 33% 66%,#C2A14D 66%)"></i>Дом (свой цвет у каждого)</span>
+  <span><i style="background:#3F8F4E"></i>Жилой</span>
+  <span><i style="background:#3D7DC8"></i>Коммерческий</span>
+  <span><i style="background:#D49A22"></i>Рабочий</span>
   <span><i style="background:#3E9B5B;opacity:.6"></i>Можно</span>
   <span><i style="background:#D9363E;opacity:.6"></i>Нельзя</span>
 </div>
@@ -80,7 +88,13 @@
 <div class="dlg" id="dlg" hidden role="dialog" aria-modal="true" aria-labelledby="dlg-t">
   <div class="card">
     <h2 id="dlg-t"><span class="sw" id="dlg-sw"></span><span id="dlg-tt">Новый дом</span></h2>
+    <div class="grp types" role="group" aria-label="Тип дома">
+      <button id="ty-res" type="button" aria-pressed="true">Жилой</button>
+      <button id="ty-com" type="button" aria-pressed="false">Коммерч.</button>
+      <button id="ty-work" type="button" aria-pressed="false">Рабочий</button>
+    </div>
     <label for="dlg-f">Этажей <input id="dlg-f" type="number" inputmode="numeric" min="1" max="99" step="1" value="3"></label>
+    <p class="cap" id="dlg-cap"></p>
     <div class="row">
       <button id="dlg-del" type="button">Удалить</button>
       <span class="sp"></span>
@@ -594,7 +608,26 @@ var STYLES=[
 {name:'светло-серый',wall:'#CEC8BE',trim:'#E8E3DA',plinth:'#9B948A',roof:'#5D6066',roofType:'flat',arch:false},
 {name:'бежевый кирпич',wall:'#C7A07C',trim:'#EADDC9',plinth:'#8A6C56',roof:'#4E4846',roofType:'mansard',arch:false}];
 var PALETTE=STYLES.map(function(x){return x.wall}),colorN=0;
-function nextColor(){return PALETTE[(colorN++)%PALETTE.length]}
+/*
+ * Типы домов, как в большинстве градостроительных игр: жилой, коммерческий,
+ * рабочий (промышленный). Вместимость дома считается от площади участка в
+ * клетках (клетка 4×4 м) и этажей: площадь × этажи × плотность, округлённо,
+ * не меньше 1. Жилой дом вмещает жителей, коммерческий и рабочий — рабочие
+ * места. Цвет в 2D — цвет типа (оттенок свой у каждого дома), стиль в 3D —
+ * из стилей своего типа.
+ */
+var ZONES={
+res:{name:'Жилой',short:'Ж',unit:'жит.',color:'#3F8F4E',dens:0.5,styles:[0,5,7,1,2,4]},  // ~32 м² на жителя
+com:{name:'Коммерческий',short:'К',unit:'раб.',color:'#3D7DC8',dens:0.5,styles:[6]},      // магазины, кафе, услуги
+work:{name:'Рабочий',short:'Р',unit:'раб.',color:'#D49A22',dens:0.25,styles:[3]}};       // мастерские, склады, фермы — просторнее
+var ZORDER=['res','com','work'];
+function typeOf(l){return ZONES[l.type]?l.type:'res'}
+function cellsOf(l){var S=shape(l);return S.bad?0:Math.round(partsArea(S.parts)/(s*s)*100)/100}
+function capOf(l){var c=cellsOf(l);return c?Math.max(1,Math.round(c*(l.floors||1)*ZONES[typeOf(l)].dens)):0}
+function nextColor(type){var st=ZONES[type||'res'].styles;return PALETTE[st[(colorN++)%st.length]]}
+// оттенок дома внутри цвета типа: соседние дома чуть различаются
+function lotFill(l){if(!l.uid)l.uid=lotUid++;var h=0;String(l.color||'').split('').forEach(function(c){h=(h*31+c.charCodeAt(0))>>>0});h=(h+(l.uid||0)*7)%5;return shade(ZONES[typeOf(l)].color,(h-2)*0.06)}
+var lotUid=1;
 function styleOf(l){var i=PALETTE.indexOf(l.color);if(i>=0)return i;var h=0;String(l.color).split('').forEach(function(c){h=(h*31+c.charCodeAt(0))>>>0});return h%STYLES.length}
 function shade(hex,f){var n=parseInt(hex.slice(1),16),c=[n>>16,(n>>8)&255,n&255].map(function(v){return Math.round(f<0?v*(1+f):v+(255-v)*f)});return '#'+c.map(function(v){return ('0'+v.toString(16)).slice(-2)}).join('')}
 function lotSvg(l,fill,stroke,op,sw){
@@ -605,8 +638,10 @@ S.parts.forEach(function(P){out+='<polygon points="'+pts(P)+'" fill="'+fill+'" s
 S.cells.forEach(function(c){out+='<polygon class="ns" points="'+pts(c)+'" fill="none" stroke="'+stroke+'" stroke-width="0.5" stroke-opacity="0.6"/>'});
 var P0=S.parts[0],cx=0,cy=0;P0.forEach(function(p){cx+=p[0];cy+=p[1]});cx/=P0.length;cy/=P0.length;
 // подпись — только если помещается в дом на экране (иначе при отдалении каша)
-var lab=S.w+'×'+S.h+(l.floors?' · '+l.floors+' эт.':'');
-if(S.bb&&Math.min(S.bb[2]-S.bb[0],S.bb[3]-S.bb[1])*view.k<14||S.bb&&Math.max(S.bb[2]-S.bb[0],S.bb[3]-S.bb[1])*view.k<lab.length*6.2)return out+'</g>';
+var z=ZONES[typeOf(l)],cap=capOf(l),bw=S.bb?Math.max(S.bb[2]-S.bb[0],S.bb[3]-S.bb[1])*view.k:0;
+var lab=S.w+'×'+S.h+(l.floors?' · '+l.floors+' эт.':'')+(cap?' · '+cap+' '+z.unit:'');
+if(bw<lab.length*6.2)lab=z.short+(cap?' '+cap:''); // не помещается — коротко: тип и вместимость
+if(S.bb&&Math.min(S.bb[2]-S.bb[0],S.bb[3]-S.bb[1])*view.k<14||bw<lab.length*6.2)return out+'</g>';
 out+='<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" font-size="'+(11/view.k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600;paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:2.5px">'+lab+'</text>';
 return out+'</g>';
 }
@@ -637,7 +672,7 @@ drawLots();
 }
 function drawLots(){
 var out='';
-lots.forEach(function(l){var c=l.color||'#C8553D';out+=check(l,l)?lotSvg(l,'#D9363E','#8E1B21',0.75,1):lotSvg(l,c,shade(c,-0.45),1,1)});
+lots.forEach(function(l){var c=lotFill(l);out+=check(l,l)?lotSvg(l,'#D9363E','#8E1B21',0.75,1):lotSvg(l,c,shade(c,-0.45),1,1)});
 document.getElementById('lots').innerHTML=out;
 }
 function applyView(){document.getElementById('world').setAttribute('transform','translate('+view.tx.toFixed(1)+' '+view.ty.toFixed(1)+') scale('+view.k.toFixed(3)+')');}
@@ -650,7 +685,12 @@ var LWHY={road:'нельзя — задевает дорогу',lot:'нельз�
 function idle(){
 var bad=lots.filter(function(l){return check(l,l)}).length;
 stEl.textContent='Звеньев: '+Object.keys(segs).length+', узлов: '+Object.keys(nodes).length+', участков: '+lots.length+(bad?', из них невалидных: '+bad:'')+'.';
+drawStats();
 }
+// итоги по городу: жилые места и рабочие места по типам (невалидные дома не считаются)
+function totals(){var t={res:0,com:0,work:0,n:{res:0,com:0,work:0}};lots.forEach(function(l){if(check(l,l))return;var k=typeOf(l);t[k]+=capOf(l);t.n[k]++});return t}
+function drawStats(){var t=totals();
+document.getElementById('stats').textContent='Жителей: '+t.res+' (домов '+t.n.res+') · Рабочих мест: '+(t.com+t.work)+' — коммерческих '+t.com+' (домов '+t.n.com+'), рабочих '+t.work+' (домов '+t.n.work+')';}
 function setMode(m){mode=m;['road','lot','pan'].forEach(function(x){document.getElementById('m-'+x).setAttribute('aria-pressed',x===m?'true':'false')});
 hintEl.textContent=HINT[m];document.getElementById('prev').innerHTML='';drawStatic();idle();}
 
@@ -702,7 +742,7 @@ if(!d.moved){var g=segUnder(d.P0);if(g!==null){removeSeg(g);drawStatic()}}
 else if(!validate(d.S,d.E)){addRoad(d.S,d.E);drawStatic()}
 }else if(d.lot){
 if(!d.moved&&d.onLot>=0)openDlg(lots[d.onLot],false);
-else if(!d.none){drag=d;var l=selLot();drag=null;if(!check(l,null)){l.color=nextColor();openDlg(l,true);}}
+else if(!d.none){drag=d;var l=selLot();drag=null;if(!check(l,null)){l.type=lastType;l.color=nextColor(lastType);openDlg(l,true);}}
 drawLots();
 }
 idle();
@@ -798,20 +838,88 @@ return st;
 }
 document.getElementById('b-bg').addEventListener('click',function(){loadScene(JSON.parse(document.getElementById('scene-dorcol').textContent))});
 
+// ---------- деревня ----------
+/*
+ * Базовая деревня на 100 жителей: перекрёсток главной улицы и поперечной,
+ * все дома в один этаж. У перекрёстка — коммерческие дома (лавки), на
+ * восточном конце главной улицы — рабочие (мастерские, склады), остальное —
+ * жилые дома с промежутками-огородами. Жилые дома ставятся от центра наружу,
+ * пока жителей не станет ровно VILLAGE.residents: последний дом уменьшается до
+ * нужной вместимости, лишние не строятся. Раскладка детерминирована (seed).
+ */
+var VILLAGE={residents:100,seed:11,main:30,cross:20,comR:5,workX:18};
+function buildVillage(){
+var V=VILLAGE;
+nodes={};segs={};lots=[];nid=1;sid=1;colorN=0;W=W0;ghost=[];
+function nd(x,y){var n=nid++;nodes[n]={x:x,y:y};return n}
+function sg(a,b){segs[sid++]={a:a,b:b}}
+var c=nd(0,0);
+sg(nd(-V.main*s,0),c);sg(c,nd(V.main*s,0));sg(nd(0,-V.cross*s),c);sg(c,nd(0,V.cross*s));
+derive();
+var rnd=seeded(V.seed),res=[];
+// зона по месту на улице: у перекрёстка — коммерция, на востоке — работа
+function zoneAt(P){if(len(P)<V.comR*s)return 'com';if(P[0]>V.workX*s&&Math.abs(P[1])<6*s)return 'work';return 'res'}
+Object.keys(G.hs).sort().forEach(function(k){
+var S=G.hs[k];
+for(var i=0;i<S.nC;){
+var mid=add(S.ends.a.K,mul(S.d,S.a0+(i+1)*S.cw)),z=zoneAt(mid),w,d,gap;
+if(z==='com'){w=3;d=3;gap=1}
+else if(z==='work'){w=5;d=4;gap=1}
+else{w=3+(rnd()<0.35?1:0);d=rnd()<0.6?3:2;gap=1+(rnd()<0.4?1:0)}
+var l={key:k,k0:i,k1:i+w-1,j1:d-1,ext:null,floors:1,type:z};
+if(l.k1>S.nC-1)break;
+if(check(l,null)){i++;continue}
+l.color=nextColor(z);lots.push(l);if(z==='res')res.push(l);
+i=l.k1+1+gap;
+}
+});
+// жилые — от центра наружу, ровно V.residents жителей
+res.sort(function(a,b){return len(partsCenter(shape(a).parts))-len(partsCenter(shape(b).parts))});
+var left=V.residents,keep={};
+res.forEach(function(l){
+if(left<=0)return;
+var cap=capOf(l);
+if(cap>left){
+// уменьшить до нужной вместимости: уже или мельче, от той же клетки у улицы
+var best=null;
+for(var w=l.k1-l.k0+1;w>=1;w--)for(var j=l.j1;j>=0;j--){var v=Object.assign({},l,{k1:l.k0+w-1,j1:j});
+var cv=capOf(v);if(cv<=left&&!check(v,l)&&(!best||cv>best.c))best={v:v,c:cv};}
+if(!best)return;
+l.k1=best.v.k1;l.j1=best.v.j1;cap=best.c;
+}
+left-=cap;keep[lots.indexOf(l)]=1;
+});
+lots=lots.filter(function(l,i){return l.type!=='res'||keep[i]});
+fitView();drawStatic();idle();
+stEl.textContent='Деревня: '+lots.length+' домов в один этаж, жителей '+totals().res+'.';
+if(V3.on){fit3();build3D()}
+}
+document.getElementById('b-vil').addEventListener('click',buildVillage);
+
 // ---------- окно этажей ----------
-var dlg=document.getElementById('dlg'),dlgF=document.getElementById('dlg-f'),dlgLot=null,dlgNew=false,lastFloors=3;
+var dlg=document.getElementById('dlg'),dlgF=document.getElementById('dlg-f'),dlgLot=null,dlgNew=false,lastFloors=1,lastType='res',dlgType='res';
+// тип и вместимость в окне: вместимость пересчитывается при смене типа и этажей
+function dlgFloors(){return Math.max(1,Math.min(99,Math.round(+dlgF.value||1)))}
+function dlgShow(){
+ZORDER.forEach(function(k){document.getElementById('ty-'+k).setAttribute('aria-pressed',k===dlgType?'true':'false')});
+var tmp=Object.assign({},dlgLot,{type:dlgType,floors:dlgFloors()}),c=capOf(tmp),z=ZONES[dlgType];
+document.getElementById('dlg-sw').style.background=z.color;
+document.getElementById('dlg-cap').textContent='Площадь '+cellsOf(tmp)+' кл. → '+(dlgType==='res'?'жителей: ':'рабочих мест: ')+c;
+}
+ZORDER.forEach(function(k){document.getElementById('ty-'+k).addEventListener('click',function(){dlgType=k;dlgShow()})});
+dlgF.addEventListener('input',dlgShow);
 function openDlg(l,isNew){
-dlgLot=l;dlgNew=isNew;
+dlgLot=l;dlgNew=isNew;dlgType=isNew?lastType:typeOf(l);
 document.getElementById('dlg-tt').textContent=isNew?'Новый дом':'Дом';
-document.getElementById('dlg-sw').style.background=l.color||'#C8553D';
 document.getElementById('dlg-ok').textContent=isNew?'Построить':'Сохранить';
 document.getElementById('dlg-del').hidden=isNew;
 dlgF.value=isNew?lastFloors:(l.floors||1);
-dlg.hidden=false;setTimeout(function(){dlgF.focus();dlgF.select()},0);
+dlgShow();dlg.hidden=false;setTimeout(function(){dlgF.focus();dlgF.select()},0);
 }
 function closeDlg(){dlg.hidden=true;dlgLot=null;drawLots();idle();if(V3.on)build3D();}
 document.getElementById('dlg-ok').addEventListener('click',function(){
-var f=Math.max(1,Math.min(99,Math.round(+dlgF.value||1)));lastFloors=f;
+var f=dlgFloors();lastFloors=f;lastType=dlgType;
+if(typeOf(dlgLot)!==dlgType||!dlgLot.type){dlgLot.type=dlgType;dlgLot.color=nextColor(dlgType)}
 dlgLot.floors=f;if(dlgNew&&lots.indexOf(dlgLot)<0&&!check(dlgLot,null))lots.push(dlgLot);closeDlg();});
 document.getElementById('dlg-no').addEventListener('click',closeDlg);
 document.getElementById('dlg-del').addEventListener('click',function(){var i=lots.indexOf(dlgLot);if(i>=0)lots.splice(i,1);closeDlg();});
@@ -944,7 +1052,7 @@ var P=o.loop,si=styleOf(l),st=STYLES[si],sg=signedArea(P)>0?1:-1;
 for(var i=0;i<P.length;i++){var a=P[i],b=P[(i+1)%P.length],L=len(sub(b,a));if(L<0.3)continue;
 var d=mul(sub(b,a),1/L),n=mul([d[1],-d[0]],sg),m=mul(add(a,b),0.5),bays=Math.max(1,Math.round(L/s));
 if(isParty(o,a,b,d)){wall('party'+si,a,b,0,H,n,1,1);HS.party++;continue}
-if(isStreet(m,d)){HS.street++;wall('base'+si,a,b,0,FH,n,bays/4,1);if(N>1)wall('up'+si,a,b,FH,H,n,bays/4,(N-1)/4);}
+if(isStreet(m,d)&&!(N===1&&typeOf(l)==='res')){HS.street++;wall('base'+si,a,b,0,FH,n,bays/4,1);if(N>1)wall('up'+si,a,b,FH,H,n,bays/4,(N-1)/4);}
 else{wall('up'+si,a,b,0,H,n,bays/4,N/4);HS.back++;}
 }
 // карниз: контур, выдвинутый наружу, от верха стены
@@ -1094,7 +1202,7 @@ clearLots:function(){lots=[];drawLots()},
 lotsRaw:function(){return lots},
 // внутренние функции для стресс-тестов
 api:{loadScene:loadScene,G:function(){return G},overlaps:overlaps,unionOutline:unionOutline,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
-snap:snap,endFor:endFor,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
+snap:snap,endFor:endFor,capOf:capOf,totals:totals,buildVillage:buildVillage,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
 reset:function(){nodes={};segs={};lots=[];nid=1;sid=1;drawStatic()},addLot:function(l){l.floors=l.floors||1+Math.floor(Math.random()*8);l.color=l.color||nextColor();lots.push(l)}},
 // инвариант: каждый узел стоит на линии сетки каждой своей дороги
 gridCheck:function(){var bad=[];Object.keys(segs).forEach(function(id){var g=segs[id],E=segEnds(g),L=len(sub(E[1],E[0])),cw=segCw(g),ph=segPh(g);
@@ -1104,6 +1212,7 @@ uvToWorld:function(key,u,v){var S=G.hs[key];return add(S.ends.a.K,add(mul(S.d,u)
 state:function(){return {nodes:nodes,segs:segs,lots:lots.map(function(l){var S=shape(l);return Object.assign({bad:check(l,l),corner:!!S.corner},l)}),sides:Object.keys(G.hs).map(function(k){var h=G.hs[k];function ca(e){var c=h.ends[e].corner;return c?Math.round(c.alpha*180/Math.PI):(h.ends[e].corner===null?'-':'-')}return {key:k,E:+h.E.toFixed(1),a0:+h.a0.toFixed(1),nC:h.nC,anchor:h.anchor,a:ca('a'),b:ca('b')}})}}
 };
 setMode('road');
+buildVillage();
 })();
 </script>
 </body>
