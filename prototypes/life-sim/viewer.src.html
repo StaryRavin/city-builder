@@ -1,0 +1,298 @@
+<title>Жизнь деревни</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<!--
+  Просмотрщик симуляции жизни деревни. Исходник: viewer.src.html; собранный
+  файл viewer.html делает tools/build-viewer.mjs (вставляет код симуляции и
+  снимок деревни). Симуляция — тот же код, что в Node; здесь только отрисовка.
+-->
+<style>
+/* Раскладка: шапка с часами и управлением, полоса «кто чем занят», карта слева и жители справа (на телефоне — друг под другом), дневник выбранного жителя. */
+:root{
+  --bg:#EDF0EC; --surface:#FFFFFF; --fg:#1C2420; --muted:#5D6A63; --line:#D3DAD5; --accent:#1F7A8C; --accent-fg:#FFFFFF;
+  --ground:#E4E2D2; --road:#5A5F66; --road-line:#F2F2EE; --res:#B9D7A8; --res-edge:#6E9B5E; --com:#A9C6E8; --com-edge:#4F7FB5; --work:#EBCF85; --work-edge:#B48B2C;
+  --city:#D9DDE3; --city-edge:#8A93A0;
+  --a-sleep:#5B5F92; --a-home:#7C8A66; --a-travel:#E0532B; --a-work:#1F7A8C; --a-shop:#B13D8C; --a-eat:#3C9A4E;
+  --font:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#131715; --surface:#1B201D; --fg:#E4E9E5; --muted:#97A39C; --line:#2C3430; --accent:#4DB3C7; --accent-fg:#0B1517;
+  --ground:#2A2C26; --road:#6B7078; --road-line:#C9CCC6; --res:#4F6B45; --res-edge:#7FA46F; --com:#3F5C7E; --com-edge:#7FA6D4; --work:#7A6530; --work-edge:#C9A24A;
+  --city:#2F353D; --city-edge:#6F7986;
+  --a-sleep:#8E92D0; --a-home:#A9B78E; --a-travel:#FF7A52; --a-work:#4DB3C7; --a-shop:#E06BBB; --a-eat:#5FC273; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#131715; --surface:#1B201D; --fg:#E4E9E5; --muted:#97A39C; --line:#2C3430; --accent:#4DB3C7; --accent-fg:#0B1517;
+  --ground:#2A2C26; --road:#6B7078; --road-line:#C9CCC6; --res:#4F6B45; --res-edge:#7FA46F; --com:#3F5C7E; --com-edge:#7FA6D4; --work:#7A6530; --work-edge:#C9A24A;
+  --city:#2F353D; --city-edge:#6F7986;
+  --a-sleep:#8E92D0; --a-home:#A9B78E; --a-travel:#FF7A52; --a-work:#4DB3C7; --a-shop:#E06BBB; --a-eat:#5FC273; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 var(--font);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 28px}
+.app{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 24px}
+.ttl{flex:1 1 260px;min-width:0}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13px;margin:2px 0 0}
+.clock{font-family:var(--mono);font-size:30px;line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.clock small{font-family:var(--font);font-size:13px;color:var(--muted);margin-right:8px;letter-spacing:.02em}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,input{font:inherit;font-size:13px;color:var(--fg)}
+button{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.seg{display:flex}.seg button{border-radius:0;margin-left:-1px}.seg button:first-child{border-radius:6px 0 0 6px;margin-left:0}.seg button:last-child{border-radius:0 6px 6px 0}
+#play{min-width:96px}
+label.seed{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}
+label.seed input{width:64px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.day{position:relative;height:56px;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.day .row{position:absolute;left:0;right:0;height:9px}
+.day .bar{position:absolute;top:0;bottom:0;border-radius:3px;opacity:.85}
+.day .rl{position:absolute;font-size:10.5px;color:var(--muted);letter-spacing:.02em;white-space:nowrap}
+.day .tick{position:absolute;bottom:0;width:1px;height:5px;background:var(--line)}
+.day .hr{position:absolute;bottom:4px;font-size:10px;color:var(--muted);transform:translateX(-50%);font-variant-numeric:tabular-nums}
+.day .now{position:absolute;top:0;bottom:0;width:2px;background:var(--fg);border-radius:1px}
+.counts{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted)}
+.counts span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.counts b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums;min-width:1ch}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start}
+@media (max-width:860px){.main{grid-template-columns:minmax(0,1fr)}}
+.mapw{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;aspect-ratio:16/9;max-width:100%}
+canvas{display:block;width:100%;height:100%;touch-action:manipulation;cursor:pointer}
+aside{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
+aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:0;padding:10px 12px 6px}
+.ppl{list-style:none;margin:0;padding:0 6px 6px}
+.ppl li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:2px 8px;padding:6px;border-radius:7px;cursor:pointer}
+.ppl li:hover{background:var(--bg)}
+.ppl li[aria-selected="true"]{background:var(--bg);box-shadow:inset 0 0 0 1px var(--line)}
+.num{grid-row:span 2;width:22px;height:22px;border-radius:50%;color:#fff;font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+.who{display:flex;justify-content:space-between;gap:8px;font-size:13px;min-width:0}
+.who .act{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .job{color:var(--muted);font-size:12px;white-space:nowrap}
+.needs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:6px;align-items:center}
+.need{height:5px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.need i{position:absolute;inset:0 auto 0 0;border-radius:3px}
+.food{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.nlegend{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:6px;font-size:10.5px;color:var(--muted);padding:0 12px 4px 44px;letter-spacing:.02em}
+.diary{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.diary ol{list-style:none;margin:0;padding:0 12px 10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:2px 18px;font-size:13px}
+.diary li{display:flex;gap:10px;min-width:0}
+.diary time{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;flex:none;padding-top:1px}
+.diary li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:12.5px;color:var(--muted);margin:0;max-width:75ch}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <header>
+    <div class="ttl">
+      <h1>Деревня 10</h1>
+      <p class="sub">10 жителей с машинами, лавка, мастерская и выезд в Город. Один шаг симуляции — игровая минута.</p>
+    </div>
+    <div class="clock" aria-live="off"><small id="dayl">День 1</small><span id="time">07:30</span></div>
+    <div class="ctl">
+      <button id="play" type="button" aria-pressed="true">Пауза</button>
+      <div class="seg" role="group" aria-label="Скорость">
+        <button type="button" data-mps="5" aria-pressed="false">5 мин/с</button>
+        <button type="button" data-mps="20" aria-pressed="true">20 мин/с</button>
+        <button type="button" data-mps="60" aria-pressed="false">1 ч/с</button>
+        <button type="button" data-mps="180" aria-pressed="false">3 ч/с</button>
+      </div>
+      <label class="seed" for="seed">seed <input id="seed" type="number" inputmode="numeric" value="1" min="1" step="1"></label>
+      <button id="restart" type="button">Заново</button>
+    </div>
+  </header>
+
+  <div class="day" id="day" aria-label="Часы работы мест и текущее время"></div>
+  <div class="counts" id="counts"></div>
+
+  <div class="main">
+    <div class="mapw"><canvas id="map" tabindex="0" aria-label="Карта деревни: дороги, дома и жители"></canvas></div>
+    <aside>
+      <h2>Жители</h2>
+      <div class="nlegend"><span>усталость</span><span>голод</span><span>долг работы</span><span>еда</span></div>
+      <ul class="ppl" id="ppl" role="listbox" aria-label="Жители"></ul>
+    </aside>
+  </div>
+
+  <section class="diary">
+    <h2 id="dh">Дневник</h2>
+    <ol id="diary"></ol>
+  </section>
+  <p class="note">У жителей нет расписания, только потребности: усталость, голод, долг рабочих часов (8 в сутки) и запас еды дома. Расписание есть у мест — их часы работы на полосе выше. Время в пути считается по дорогам с ровной скоростью; пробок пока нет. Нажмите на жителя на карте или в списке, чтобы открыть его дневник.</p>
+</div>
+
+<script>
+(()=>{
+/*@SIM@*/
+// ---- просмотрщик ----
+const SNAP=/*@SNAPSHOT@*/;
+const $=(id)=>document.getElementById(id);
+const css=(n)=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const ACT_COL=['--a-home','--a-sleep','--a-eat','--a-work','--a-shop','--a-travel'];
+const ACT_LABEL=['дома','спит','ест','работает','покупки','в пути'];
+const START_MIN=7*60+30;               // открываем утро, когда деревня уже на ногах
+let sim,W,A,L,geo,sel=0,playing=!matchMedia('(prefers-reduced-motion: reduce)').matches,mps=20,acc=0;
+
+function placeLabel(p){const k=W.places.kind[p];return k===KIND.OUTSIDE?'Город':k===KIND.SHOP?'лавка':k===KIND.WORK?'мастерская':'дом'}
+function placeFull(a,p){return p===A.home[a]?'дома':placeLabel(p)}
+function goingTo(a,p){return p===A.home[a]?'едет домой':'едет: '+placeLabel(p)}
+const hhmm=(min)=>{min=((Math.round(min)%1440)+1440)%1440;return String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0')};
+
+// ---- геометрия для отрисовки: дороги, ворота, маршруты ----
+function buildGeo(){
+  const N=SNAP.nodes.length,adj=[...Array(N)].map(()=>[]);
+  SNAP.edges.forEach((e,i)=>{adj[e.a].push([e.b,e.length,i]);adj[e.b].push([e.a,e.length,i])});
+  const gates=SNAP.gates.map((g)=>{const nb=adj[g.node][0],P=SNAP.nodes[g.node],Q=SNAP.nodes[nb[0]];
+    const d=[P[0]-Q[0],P[1]-Q[1]],l=Math.hypot(d[0],d[1]);const u=[d[0]/l,d[1]/l];
+    return {node:g.node,name:g.name,dir:u,stub:[P[0]+u[0]*26,P[1]+u[1]*26],box:[P[0]+u[0]*52,P[1]+u[1]*52]}});
+  const gateOfPlace=(p)=>gates.find((g)=>g.node===W.places.node[p]);
+  // охват карты
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;const grow=(p,m=0)=>{x0=Math.min(x0,p[0]-m);y0=Math.min(y0,p[1]-m);x1=Math.max(x1,p[0]+m);y1=Math.max(y1,p[1]+m)};
+  SNAP.nodes.forEach((p)=>grow(p,8));SNAP.buildings.forEach((b)=>b.outline.forEach((p)=>grow(p,2)));gates.forEach((g)=>grow(g.box,24));
+  // пропорции карты — по деревне (в пределах 1.4…2.4)
+  document.querySelector('.mapw').style.aspectRatio=String(Math.max(1.4,Math.min(2.4,(x1-x0)/(y1-y0))));
+  return {adj,gates,gateOfPlace,bounds:[x0,y0,x1,y1],routes:new Map()};
+}
+function nodeXY(n){return SNAP.nodes[n]}
+function access(p){const pl=W.places;if(pl.edge[p]<0)return nodeXY(pl.node[p]).slice();const e=SNAP.edges[pl.edge[p]],a=nodeXY(e.a),b=nodeXY(e.b),t=pl.t[p];return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}
+function center(p){if(W.places.kind[p]===KIND.OUTSIDE)return geo.gateOfPlace(p).box.slice();return [W.places.x[p],W.places.y[p]]}
+// кратчайший путь по узлам — по той же матрице расстояний, что у симуляции
+function nodePath(u,v){const N=W.nodes.n,out=[u];let guard=0;
+  while(u!==v&&guard++<N){const target=W.dist[u*N+v];let nx=-1;
+    for(const [w,l] of geo.adj[u])if(Math.abs(l+W.dist[w*N+v]-target)<1e-6){nx=w;break}
+    if(nx<0)break;out.push(nx);u=nx}
+  return out}
+// маршрут места p → места q: отрезки [из, в, секунды]; за воротами — отрезок до «Города»
+function route(p,q,car){
+  const pl=W.places,v=car?W.cfg.speed.car:W.cfg.speed.walk,pts=[];
+  const ends=(x)=>pl.edge[x]<0?[[pl.node[x],0]]:[[SNAP.edges[pl.edge[x]].a,pl.t[x]*SNAP.edges[pl.edge[x]].length],[SNAP.edges[pl.edge[x]].b,(1-pl.t[x])*SNAP.edges[pl.edge[x]].length]];
+  const segs=[];const push=(a,b,sec)=>{if(Math.hypot(b[0]-a[0],b[1]-a[1])>1e-6||sec>0)segs.push([a,b,sec])};
+  const road=(a,b)=>push(a,b,Math.hypot(b[0]-a[0],b[1]-a[1])/v);
+  const out=(x)=>pl.kind[x]===KIND.OUTSIDE;
+  let A0=access(p),B0=access(q);
+  if(out(p)){const g=geo.gateOfPlace(p);push(g.box,g.stub,pl.extra[p]*0.8);push(g.stub,A0,pl.extra[p]*0.2)}else road(center(p),A0);
+  if(pl.edge[p]>=0&&pl.edge[p]===pl.edge[q])road(A0,B0);
+  else{let best=null;for(const [u,du] of ends(p))for(const [w,dw] of ends(q)){const d=du+W.dist[u*W.nodes.n+w]+dw;if(!best||d<best.d)best={d,u,w}}
+    let cur=A0;for(const n of nodePath(best.u,best.w)){const P=nodeXY(n);road(cur,P);cur=P}road(cur,B0)}
+  if(out(q)){const g=geo.gateOfPlace(q);push(B0,g.stub,pl.extra[q]*0.2);push(g.stub,g.box,pl.extra[q]*0.8)}else road(B0,center(q));
+  return segs;
+}
+function travelPos(a,now){
+  const key=a+':'+L.depart[a];let r=geo.routes.get(a);
+  if(!r||r.key!==key){r={key,segs:route(L.from[a],L.to[a],A.car[a]===1)};r.total=r.segs.reduce((s,x)=>s+x[2],0);geo.routes.set(a,r)}
+  const f=Math.max(0,Math.min(1,(now-L.depart[a])/Math.max(1,L.arrive[a]-L.depart[a])));let t=f*r.total;
+  for(const [p,q,sec] of r.segs){if(t<=sec){const k=sec>0?t/sec:1;return [p[0]+(q[0]-p[0])*k,p[1]+(q[1]-p[1])*k]}t-=sec}
+  return r.segs.length?r.segs.at(-1)[1]:center(L.to[a]);
+}
+
+// ---- отрисовка карты ----
+const cv=$('map'),ctx=cv.getContext('2d');let view=null;
+function fit(){
+  const r=cv.getBoundingClientRect(),dpr=Math.min(2,window.devicePixelRatio||1);
+  cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.height*dpr);
+  const [x0,y0,x1,y1]=geo.bounds,k=Math.min(r.width/(x1-x0),r.height/(y1-y0));
+  view={k,dpr,ox:(r.width-(x1-x0)*k)/2-x0*k,oy:(r.height-(y1-y0)*k)/2-y0*k,w:r.width,h:r.height};
+}
+const S=(p)=>[p[0]*view.k+view.ox,p[1]*view.k+view.oy];
+function agentPositions(now){
+  const pos=new Array(A.n),here=new Map();
+  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL){pos[a]=travelPos(a,now);continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
+  for(const [p,list] of here){const c=center(p),out=W.places.kind[p]===KIND.OUTSIDE;
+    list.forEach((a,i)=>{if(list.length===1&&!out){pos[a]=c;return}
+      if(out){const cols=4,row=Math.floor(i/cols),col=i%cols;pos[a]=[c[0]+(col-1.5)*6.5,c[1]-4+row*6.5];return}
+      const ang=i/list.length*Math.PI*2-Math.PI/2,rad=3.6;pos[a]=[c[0]+Math.cos(ang)*rad,c[1]+Math.sin(ang)*rad]})}
+  return pos;
+}
+let lastPos=[];
+function draw(now){
+  if(!view)fit();
+  const k=view.k,c={};['--ground','--road','--road-line','--res','--res-edge','--com','--com-edge','--work','--work-edge','--city','--city-edge','--fg','--surface'].forEach((n)=>c[n]=css(n));
+  ctx.setTransform(view.dpr,0,0,view.dpr,0,0);ctx.fillStyle=c['--ground'];ctx.fillRect(0,0,view.w,view.h);
+  ctx.lineCap='round';ctx.lineJoin='round';
+  // дороги и съезд к «Городу»
+  const line=(a,b)=>{const p=S(a),q=S(b);ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.stroke()};
+  ctx.strokeStyle=c['--road'];ctx.lineWidth=8*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));
+  geo.gates.forEach((g)=>{ctx.setLineDash([3*k,2*k]);line(nodeXY(g.node),g.stub);ctx.setLineDash([])});
+  ctx.strokeStyle=c['--road-line'];ctx.lineWidth=Math.max(1,0.35*k);ctx.setLineDash([2.5*k,2.5*k]);SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));ctx.setLineDash([]);
+  // дома
+  for(const b of SNAP.buildings){const f={res:['--res','--res-edge'],com:['--com','--com-edge'],work:['--work','--work-edge']}[b.type];
+    ctx.beginPath();b.outline.forEach((p,i)=>{const q=S(p);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])});ctx.closePath();
+    ctx.fillStyle=c[f[0]];ctx.fill();ctx.strokeStyle=c[f[1]];ctx.lineWidth=1.2;ctx.stroke();
+    if(b.type!=='res'){const q=S(b.center),lbl=b.type==='com'?'Лавка':'Мастерская';ctx.font=`600 ${Math.max(10,Math.min(13,3.2*k))}px ${css('--font')}`;ctx.textAlign='center';ctx.textBaseline='bottom';
+      // подпись — со стороны, противоположной дороге
+      const ac=S(access(W.places.src.indexOf(b.id))),below=ac[1]<q[1];let top=Infinity,bot=-Infinity;b.outline.forEach((p)=>{const y=S(p)[1];top=Math.min(top,y);bot=Math.max(bot,y)});
+      ctx.textBaseline=below?'top':'bottom';ctx.fillStyle=c['--fg'];ctx.globalAlpha=.75;ctx.fillText(lbl,q[0],below?bot+3:top-3);ctx.globalAlpha=1}}
+  // «Город» за воротами
+  for(const g of geo.gates){const q=S(g.box),w=30*k,h=22*k;ctx.fillStyle=c['--city'];ctx.strokeStyle=c['--city-edge'];ctx.lineWidth=1.2;
+    ctx.beginPath();ctx.roundRect(q[0]-w/2,q[1]-h/2,w,h,4*k);ctx.fill();ctx.stroke();
+    ctx.fillStyle=c['--fg'];ctx.font=`600 ${Math.max(10,Math.min(13,3.4*k))}px ${css('--font')}`;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(g.name,q[0],q[1]-h/2-3)}
+  // жители
+  const pos=agentPositions(now);lastPos=pos;const r=Math.max(6,2.4*k);
+  ctx.font=`600 ${Math.round(r*1.05)}px ${css('--font')}`;ctx.textAlign='center';ctx.textBaseline='middle';
+  for(let a=0;a<A.n;a++){const q=S(pos[a]),act=L.act[a];
+    ctx.globalAlpha=act===ACT.SLEEP?.7:1;ctx.beginPath();ctx.arc(q[0],q[1],r,0,Math.PI*2);ctx.fillStyle=css(ACT_COL[act]);ctx.fill();
+    ctx.lineWidth=a===sel?3:1.5;ctx.strokeStyle=a===sel?c['--fg']:c['--surface'];ctx.stroke();
+    ctx.fillStyle='#fff';ctx.fillText(String(a+1),q[0],q[1]+.5);ctx.globalAlpha=1}
+}
+
+// ---- панели ----
+function buildPanels(){
+  // полоса суток: часы работы мест
+  const day=$('day'),rows=[['Мастерская',W.cfg.hours.work,'--work-edge'],['Лавка',W.cfg.hours.shop,'--com-edge'],['Город',W.cfg.hours.outside,'--city-edge']];
+  let h='';rows.forEach(([n,[o,c],col],i)=>{const top=4+i*12;h+=`<div class="row" style="top:${top}px"><div class="bar" style="left:${o/24*100}%;width:${(c-o)/24*100}%;background:var(${col})"></div></div><div class="rl" style="top:${top-2}px;right:calc(${100-o/24*100}% + 6px)">${n} ${o}–${c}</div>`});
+  for(let i=0;i<=24;i+=3)h+=`<div class="tick" style="left:${i/24*100}%"></div>`;
+  for(const i of [3,6,9,12,15,18,21])h+=`<div class="hr" style="left:${i/24*100}%">${i}</div>`;
+  h+='<div class="now" id="now"></div>';day.innerHTML=h;
+  // список жителей
+  $('ppl').innerHTML=[...Array(A.n).keys()].map((a)=>`<li role="option" data-a="${a}" aria-selected="${a===sel}"><span class="num" id="n${a}">${a+1}</span>
+    <div class="who"><span class="act" id="act${a}"></span><span class="job">${A.job[a]>=0?'работа: '+placeLabel(A.job[a]):'без работы'}</span></div>
+    <div class="needs"><div class="need"><i id="f${a}" style="background:var(--a-sleep)"></i></div><div class="need"><i id="h${a}" style="background:var(--a-eat)"></i></div><div class="need"><i id="o${a}" style="background:var(--a-work)"></i></div><span class="food" id="e${a}"></span></div></li>`).join('');
+}
+function updatePanels(){
+  const min=L.tick*W.cfg.tickSeconds/60;$('time').textContent=hhmm(min);$('dayl').textContent='День '+(Math.floor(min/1440)+1);
+  const nw=$('now');if(nw)nw.style.left=`calc(${(min%1440)/1440*100}% - 1px)`;
+  const s=snapshot(W,A,L);
+  const chip=(col,label,n)=>`<span><i class="dot" style="background:var(${col})"></i>${label} <b>${n}</b></span>`;
+  $('counts').innerHTML=chip('--a-sleep','спят',s.sleep)+chip('--a-home','дома',s.home)+chip('--a-travel','в пути',s.travel)+
+    chip('--a-work','работают в деревне',s.workLocal)+chip('--a-work','в Городе',s.workOutside)+chip('--a-shop','в лавке',s.shopLocal)+chip('--a-shop','покупки в Городе',s.shopOutside)+chip('--a-eat','едят',s.eat);
+  for(let a=0;a<A.n;a++){const act=L.act[a],p=act===ACT.TRAVEL?L.to[a]:L.at[a];
+    $('n'+a).style.background=`var(${ACT_COL[act]})`;
+    $('act'+a).textContent=act===ACT.TRAVEL?goingTo(a,p):ACT_LABEL[act]+(act===ACT.SLEEP||p===A.home[a]&&act===ACT.IDLE?'':' — '+placeFull(a,p));
+    $('f'+a).style.width=Math.min(100,L.fatigue[a]*100)+'%';$('h'+a).style.width=Math.min(100,L.hunger[a]/1.2*100)+'%';
+    $('o'+a).style.width=Math.max(0,Math.min(100,L.owed[a]/8*100))+'%';$('e'+a).textContent='еды '+L.food[a];}
+  // дневник выбранного жителя: сегодняшние события
+  const today=Math.floor(min/1440)*1440,ev=L.log.filter(([t,a])=>a===sel&&t*W.cfg.tickSeconds/60>=today-60);
+  $('dh').textContent=`Дневник жителя ${sel+1} — ${A.job[sel]>=0?'работает: '+placeLabel(A.job[sel]):'без работы'}`;
+  $('diary').innerHTML=ev.slice(-16).map(([t,a,act,p])=>`<li><time>${hhmm(t*W.cfg.tickSeconds/60)}</time><span>${act===ACT.TRAVEL?goingTo(a,p):act===ACT.SLEEP?'ложится спать':act===ACT.IDLE?(p===A.home[a]?'дома, свободен':'свободен — '+placeLabel(p)):ACT_LABEL[act]+' — '+placeFull(a,p)}</span></li>`).join('')||'<li><span>Сегодня пока ничего — спит.</span></li>';
+  document.querySelectorAll('#ppl li').forEach((li)=>li.setAttribute('aria-selected',String(+li.dataset.a===sel)));
+}
+
+// ---- управление и цикл ----
+function start(seed){
+  sim=createSim(SNAP,{seed});W=sim.world;A=sim.agents;L=sim.life;geo=buildGeo();view=null;acc=0;
+  for(let i=0;i<START_MIN;i++)step(W,A,L);
+  buildPanels();fit();updatePanels();draw(L.tick);
+}
+$('play').addEventListener('click',()=>{playing=!playing;$('play').setAttribute('aria-pressed',String(playing));$('play').textContent=playing?'Пауза':'Пуск'});
+document.querySelectorAll('[data-mps]').forEach((b)=>b.addEventListener('click',()=>{mps=+b.dataset.mps;document.querySelectorAll('[data-mps]').forEach((x)=>x.setAttribute('aria-pressed',String(x===b)))}));
+$('restart').addEventListener('click',()=>start(Math.max(1,Math.round(+$('seed').value||1))));
+$('seed').addEventListener('keydown',(e)=>{if(e.key==='Enter')$('restart').click()});
+$('ppl').addEventListener('click',(e)=>{const li=e.target.closest('li');if(li){sel=+li.dataset.a;updatePanels();draw(L.tick+acc)}});
+cv.addEventListener('click',(e)=>{const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let best=-1,bd=20;
+  lastPos.forEach((p,a)=>{const q=S(p),d=Math.hypot(q[0]-x,q[1]-y);if(d<bd){bd=d;best=a}});if(best>=0){sel=best;updatePanels();draw(L.tick+acc)}});
+window.addEventListener('resize',()=>{view=null;draw(L.tick+acc)});
+let last=performance.now(),lastUi=0;
+function frame(ts){
+  const dt=Math.min(0.25,(ts-last)/1000);last=ts;
+  if(playing){acc+=dt*mps;let n=Math.floor(acc);acc-=n;n=Math.min(n,600);for(let i=0;i<n;i++)step(W,A,L)}
+  draw(L.tick+acc);
+  if(ts-lastUi>120){lastUi=ts;updatePanels()}
+  requestAnimationFrame(frame);
+}
+$('play').setAttribute('aria-pressed',String(playing));$('play').textContent=playing?'Пауза':'Пуск';
+start(1);requestAnimationFrame(frame);
+})();
+</script>

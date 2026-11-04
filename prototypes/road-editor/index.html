@@ -1037,7 +1037,8 @@ openXdlg(addExit(best));drawExits();
  *   edges     — {a, b, length} звенья (индексы узлов);
  *   buildings — дом: тип, этажи, площадь в клетках, вместимость и точка
  *               примыкания к дороге: звено edge и доля t от его узла a
- *               (проекция середины фасада на ось звена);
+ *               (проекция середины фасада на ось звена), контур дома outline
+ *               (только для отрисовки, симуляции не нужен);
  *   gates     — выезды во внешний мир: узел и название.
  * Невалидные дома и дома без улицы не попадают.
  */
@@ -1053,7 +1054,8 @@ var E=segEnds(segs[g]),A=E[0],B=E[1],AB=sub(B,A),F;
 if(l.key!=='fixed'&&G.hs[l.key]){var S=G.hs[l.key],u0=Math.max(0,S.a0+l.k0*S.cw),u1=Math.min(S.E,S.a0+(l.k1+1)*S.cw);F=add(S.ends.a.K,mul(S.d,(u0+u1)/2))}
 else F=partsCenter(shape(l).parts);
 var tt=Math.max(0,Math.min(1,dot(sub(F,A),AB)/dot(AB,AB))),C=partsCenter(shape(l).parts);
-bl.push({id:bl.length,type:typeOf(l),floors:l.floors||1,cells:cellsOf(l),capacity:capOf(l),edge:ei[g],t:Math.round(tt*1000)/1000,center:[r2(C[0]*M),r2(C[1]*M)]});
+var uo=unionOutline(shape(l).parts),ol=(uo.loop&&uo.loop.length>=3?uo.loop:shape(l).parts[0]).map(function(q){return [r2(q[0]*M),r2(q[1]*M)]});
+bl.push({id:bl.length,type:typeOf(l),floors:l.floors||1,cells:cellsOf(l),capacity:capOf(l),edge:ei[g],t:Math.round(tt*1000)/1000,center:[r2(C[0]*M),r2(C[1]*M)],outline:ol});
 });
 var gl=exits.filter(exitValid).map(function(x,i){return {id:i,node:ni[x.node],name:x.name}});
 return {format:'city-builder/world@1',units:'m',nodes:nl,edges:el,buildings:bl,gates:gl};
