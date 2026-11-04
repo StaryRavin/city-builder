@@ -24,6 +24,19 @@
   #st { font-size:13px; color:var(--muted); margin:6px 0 0; min-height:1.5em; }
   .legend { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:12px; color:var(--muted); margin-top:6px; }
   .legend i { display:inline-block; width:12px; height:12px; vertical-align:-2px; margin-right:5px; border:1px solid rgba(0,0,0,.35); }
+  button:disabled { opacity:.45; cursor:default; }
+  #v3d { width:100%; aspect-ratio:680/460; border-radius:6px; overflow:hidden; touch-action:none; background:#dfe7ea; position:relative; }
+  #v3d canvas { display:block; width:100% !important; height:100% !important; }
+  #v3d[hidden], .grp[hidden] { display:none; }
+  .dlg { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:10; padding:16px; }
+  .dlg[hidden] { display:none; }
+  .dlg .card { background:var(--bg); color:var(--fg); border-radius:10px; padding:16px; width:100%; max-width:300px; box-shadow:0 8px 30px rgba(0,0,0,.25); }
+  .dlg h2 { font-size:15px; margin:0 0 10px; font-weight:600; }
+  .dlg label { display:flex; align-items:center; gap:10px; font-size:14px; }
+  .dlg input { font:inherit; width:90px; padding:6px 8px; border:1px solid var(--btn-b); border-radius:6px; background:var(--bg); color:var(--fg); }
+  .dlg .row { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+  .dlg .row .sp { flex:1; }
+  .dlg .sw { display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; margin-right:6px; }
 </style>
 </head>
 <body>
@@ -38,6 +51,12 @@
     <button id="z-out" type="button" aria-label="Отдалить">−</button>
     <button id="z-in" type="button" aria-label="Приблизить">+</button>
   </div>
+  <button id="b-3d" type="button" aria-pressed="false">3D</button>
+  <div class="grp" id="g3d" role="group" aria-label="Поворот и наклон" hidden>
+    <button id="r-l" type="button" aria-label="Повернуть влево">⟲</button>
+    <button id="r-r" type="button" aria-label="Повернуть вправо">⟳</button>
+    <button id="t-tilt" type="button">Наклон 60°</button>
+  </div>
   <span class="sp"></span>
   <button id="b-demo" type="button">Пример</button>
   <button id="b-clr" type="button">Очистить</button>
@@ -47,15 +66,28 @@
 <rect x="0" y="0" width="680" height="460" fill="#E6E0CC"/>
 <g id="world"><g id="cells"></g><g id="roads"></g><g id="lots"></g><g id="nodes"></g><g id="prev"></g></g>
 </svg>
+<div id="v3d" hidden></div>
 <p id="st"></p>
 <div class="legend">
   <span><i style="background:#9ED38F"></i>Клетка зоны</span>
   <span><i style="background:#F2B866"></i>Угловая клетка</span>
-  <span><i style="background:#C8553D"></i>Участок</span>
+  <span><i style="background:linear-gradient(90deg,#C8553D 33%,#5B8DB8 33% 66%,#C2A14D 66%)"></i>Дом (свой цвет у каждого)</span>
   <span><i style="background:#3E9B5B;opacity:.6"></i>Можно</span>
   <span><i style="background:#D9363E;opacity:.6"></i>Нельзя</span>
 </div>
 </main>
+<div class="dlg" id="dlg" hidden role="dialog" aria-modal="true" aria-labelledby="dlg-t">
+  <div class="card">
+    <h2 id="dlg-t"><span class="sw" id="dlg-sw"></span><span id="dlg-tt">Новый дом</span></h2>
+    <label for="dlg-f">Этажей <input id="dlg-f" type="number" inputmode="numeric" min="1" max="99" step="1" value="3"></label>
+    <div class="row">
+      <button id="dlg-del" type="button">Удалить</button>
+      <span class="sp"></span>
+      <button id="dlg-no" type="button">Отмена</button>
+      <button id="dlg-ok" type="button" aria-pressed="true">Построить</button>
+    </div>
+  </div>
+</div>
 
 <script>
 /*
@@ -535,6 +567,10 @@ return best;
 }
 
 // ---------- отрисовка ----------
+// цвета домов: спокойная палитра, соседние по порядку дома — разных цветов
+var PALETTE=['#C8553D','#5B8DB8','#C2A14D','#8C6BB1','#4C9A88','#D08C4A','#7A8FA6','#B5655B','#6E9F4F','#A0607E'],colorN=0;
+function nextColor(){return PALETTE[(colorN++)%PALETTE.length]}
+function shade(hex,f){var n=parseInt(hex.slice(1),16),c=[n>>16,(n>>8)&255,n&255].map(function(v){return Math.round(f<0?v*(1+f):v+(255-v)*f)});return '#'+c.map(function(v){return ('0'+v.toString(16)).slice(-2)}).join('')}
 function lotSvg(l,fill,stroke,op,sw){
 var S=shape(l);if(!S.parts.length)return '';
 var out='<g opacity="'+op+'">';
@@ -542,7 +578,7 @@ S.parts.forEach(function(P){out+='<polygon class="ns" points="'+pts(P)+'" fill="
 S.parts.forEach(function(P){out+='<polygon points="'+pts(P)+'" fill="'+fill+'" stroke="none"/>'});
 S.cells.forEach(function(c){out+='<polygon class="ns" points="'+pts(c)+'" fill="none" stroke="'+stroke+'" stroke-width="0.5" stroke-opacity="0.6"/>'});
 var P0=S.parts[0],cx=0,cy=0;P0.forEach(function(p){cx+=p[0];cy+=p[1]});cx/=P0.length;cy/=P0.length;
-out+='<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" font-size="'+(11/view.k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600">'+S.w+'×'+S.h+'</text>';
+out+='<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" font-size="'+(11/view.k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600">'+S.w+'×'+S.h+(l.floors?' · '+l.floors+' эт.':'')+'</text>';
 return out+'</g>';
 }
 function drawStatic(){
@@ -571,14 +607,14 @@ drawLots();
 }
 function drawLots(){
 var out='';
-lots.forEach(function(l){out+=check(l,l)?lotSvg(l,'#D9363E','#8E1B21',0.75,1):lotSvg(l,'#C8553D','#6E2414',1,1)});
+lots.forEach(function(l){var c=l.color||'#C8553D';out+=check(l,l)?lotSvg(l,'#D9363E','#8E1B21',0.75,1):lotSvg(l,c,shade(c,-0.45),1,1)});
 document.getElementById('lots').innerHTML=out;
 }
 function applyView(){document.getElementById('world').setAttribute('transform','translate('+view.tx.toFixed(1)+' '+view.ty.toFixed(1)+') scale('+view.k.toFixed(3)+')');}
 
 var stEl=document.getElementById('st'),hintEl=document.getElementById('hint');
 var HINT={road:'Тяните от точки до точки — получится звено дороги. Начинайте и заканчивайте на узлах или на дороге, чтобы соединить. Тап по дороге удаляет звено.',
-lot:'Зажмите клетку у дороги и тяните — выделится участок. В тупом углу тяните за угол, на перекрёсток. Тап по участку удаляет его.',
+lot:'Зажмите клетку у дороги и тяните — выделится участок, затем укажите число этажей. В тупом углу тяните за угол, на перекрёсток. Тап по дому — изменить этажи или удалить.',
 pan:'Тяните поле, чтобы сдвинуть вид. Колесо мыши или кнопки −/+ меняют масштаб.'};
 var LWHY={road:'нельзя — задевает дорогу',lot:'нельзя — пересекается с другим участком',range:'нельзя — выходит за свою часть улицы',gone:'улица удалена'};
 function idle(){
@@ -635,8 +671,8 @@ if(d.road){
 if(!d.moved){var g=segUnder(d.P0);if(g!==null){removeSeg(g);drawStatic()}}
 else if(!validate(d.S,d.E)){addRoad(d.S,d.E);drawStatic()}
 }else if(d.lot){
-if(!d.moved&&d.onLot>=0)lots.splice(d.onLot,1);
-else if(!d.none){drag=d;var l=selLot();drag=null;if(!check(l,null))lots.push(l);}
+if(!d.moved&&d.onLot>=0)openDlg(lots[d.onLot],false);
+else if(!d.none){drag=d;var l=selLot();drag=null;if(!check(l,null)){l.color=nextColor();openDlg(l,true);}}
 drawLots();
 }
 idle();
@@ -645,10 +681,10 @@ sv.addEventListener('pointerup',finish);
 sv.addEventListener('pointercancel',function(){drag=null;document.getElementById('prev').innerHTML='';idle()});
 function zoomAt(f,cx,cy){var k=Math.max(0.3,Math.min(4,view.k*f));f=k/view.k;view.tx=cx-(cx-view.tx)*f;view.ty=cy-(cy-view.ty)*f;view.k=k;applyView();drawLots();}
 sv.addEventListener('wheel',function(e){e.preventDefault();var p=svgPt(e);zoomAt(e.deltaY<0?1.15:1/1.15,p[0],p[1])},{passive:false});
-document.getElementById('z-in').addEventListener('click',function(){zoomAt(1.25,VW/2,VH/2)});
-document.getElementById('z-out').addEventListener('click',function(){zoomAt(0.8,VW/2,VH/2)});
+document.getElementById('z-in').addEventListener('click',function(){if(V3.on){V3.dist=Math.max(80,V3.dist/1.25);render3();return}zoomAt(1.25,VW/2,VH/2)});
+document.getElementById('z-out').addEventListener('click',function(){if(V3.on){V3.dist=Math.min(6000,V3.dist*1.25);render3();return}zoomAt(0.8,VW/2,VH/2)});
 ['road','lot','pan'].forEach(function(m){document.getElementById('m-'+m).addEventListener('click',function(){setMode(m)})});
-document.getElementById('b-clr').addEventListener('click',function(){nodes={};segs={};lots=[];drawStatic();idle()});
+document.getElementById('b-clr').addEventListener('click',function(){nodes={};segs={};lots=[];drawStatic();idle();if(V3.on){fit3();build3D()}});
 document.getElementById('b-demo').addEventListener('click',function(){
 nodes={};segs={};lots=[];nid=1;sid=1;
 function nd(x,y){var n=nid++;nodes[n]={x:x,y:y};return n}
@@ -657,8 +693,137 @@ var c=nd(336,224),th=60*Math.PI/180;
 sg(c,nd(336-14*s,224));sg(c,nd(336+18*s,224));
 sg(c,nd(336+12*s*Math.cos(th),224-12*s*Math.sin(th)));sg(c,nd(336-12*s*Math.cos(th),224+12*s*Math.sin(th)));
 var e=nd(336+18*s,224-12*s);sg(+Object.keys(nodes).find(function(n){return nodes[n].x===336+18*s&&nodes[n].y===224}),e);
-drawStatic();idle();
+drawStatic();idle();if(V3.on){fit3();build3D()}
 });
+
+// ---------- окно этажей ----------
+var dlg=document.getElementById('dlg'),dlgF=document.getElementById('dlg-f'),dlgLot=null,dlgNew=false,lastFloors=3;
+function openDlg(l,isNew){
+dlgLot=l;dlgNew=isNew;
+document.getElementById('dlg-tt').textContent=isNew?'Новый дом':'Дом';
+document.getElementById('dlg-sw').style.background=l.color||'#C8553D';
+document.getElementById('dlg-ok').textContent=isNew?'Построить':'Сохранить';
+document.getElementById('dlg-del').hidden=isNew;
+dlgF.value=isNew?lastFloors:(l.floors||1);
+dlg.hidden=false;setTimeout(function(){dlgF.focus();dlgF.select()},0);
+}
+function closeDlg(){dlg.hidden=true;dlgLot=null;drawLots();idle();if(V3.on)build3D();}
+document.getElementById('dlg-ok').addEventListener('click',function(){
+var f=Math.max(1,Math.min(99,Math.round(+dlgF.value||1)));lastFloors=f;
+dlgLot.floors=f;if(dlgNew&&lots.indexOf(dlgLot)<0&&!check(dlgLot,null))lots.push(dlgLot);closeDlg();});
+document.getElementById('dlg-no').addEventListener('click',closeDlg);
+document.getElementById('dlg-del').addEventListener('click',function(){var i=lots.indexOf(dlgLot);if(i>=0)lots.splice(i,1);closeDlg();});
+dlgF.addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('dlg-ok').click();if(e.key==='Escape')closeDlg();});
+dlg.addEventListener('pointerdown',function(e){if(e.target===dlg)closeDlg();});
+
+// ---------- 3D-вид ----------
+/*
+ * Вид под углом, как в картах: наклон фиксированный (60° или 30° над
+ * горизонтом), карту можно двигать, приближать и вращать. Дома — призмы без
+ * фасадов: основание — форма участка, высота — этажи × клетка. Строить можно
+ * только в 2D; в 3D — просмотр. three.js подгружается при первом входе в 3D.
+ */
+var V3={on:false,ready:false,R:null,scene:null,cam:null,bearing:-0.5,elev:60,tgt:[340,230],dist:700,ptrs:{},last:null};
+var v3el=document.getElementById('v3d');
+function load3(cb){
+if(window.THREE)return cb();
+var sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+sc.onload=cb;sc.onerror=function(){stEl.textContent='Не удалось загрузить 3D-библиотеку (three.js).';set3D(false)};
+document.head.appendChild(sc);
+}
+function flatGeo(polys,yy){ // плоские многоугольники в одну геометрию (веером, все выпуклые)
+var T=THREE,pos=[];
+polys.forEach(function(p){for(var i=1;i<p.length-1;i++)[p[0],p[i],p[i+1]].forEach(function(q){pos.push(q[0],yy,q[1])})});
+var g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.computeVertexNormals();return g;
+}
+function build3D(){
+if(!V3.ready)return;
+var T=THREE,sc=new T.Scene();function C(h){return new T.Color(h).convertSRGBToLinear()} // цвета в sRGB
+sc.background=C('#dfe7ea');
+// плоское (земля, клетки, дороги) — без освещения, цвета как в 2D; дома — со светом
+sc.add(new T.HemisphereLight(0xffffff,0x8d8573,0.6));
+var sun=new T.DirectionalLight(0xffffff,0.6);sun.position.set(-400,700,-250);sc.add(sun);
+var ground=new T.Mesh(new T.PlaneGeometry(20000,20000),new T.MeshBasicMaterial({color:C('#E6E0CC')}));ground.rotation.x=-Math.PI/2;sc.add(ground);
+var side=T.DoubleSide;
+var cells=G.drawn.map(function(c){return c.poly});
+if(cells.length)sc.add(new T.Mesh(flatGeo(cells,0.15),new T.MeshBasicMaterial({color:C('#B5D8A4'),side:side})));
+var rp=G.bands.map(function(b){return b.poly});
+if(rp.length)sc.add(new T.Mesh(flatGeo(rp,0.3),new T.MeshBasicMaterial({color:C('#5A5F66'),side:side})));
+var edgeM=new T.LineBasicMaterial({color:0x000000,transparent:true,opacity:0.22});
+lots.forEach(function(l){
+var S=shape(l);if(!S.parts.length)return;
+var bad=check(l,l),h=(l.floors||1)*s,col=C(bad?'#D9363E':(l.color||'#C8553D'));
+var mat=new T.MeshLambertMaterial({color:col,transparent:!!bad,opacity:bad?0.7:1});
+S.parts.forEach(function(P){
+var shp=new T.Shape(P.map(function(q){return new T.Vector2(q[0],-q[1])}));
+var g=new T.ExtrudeGeometry(shp,{depth:h,bevelEnabled:false});g.rotateX(-Math.PI/2);
+sc.add(new T.Mesh(g,mat));
+sc.add(new T.LineSegments(new T.EdgesGeometry(g,20),edgeM));
+});
+});
+V3.scene=sc;render3();
+}
+function camUpdate(){
+var c=V3.cam,e=V3.elev*Math.PI/180,b=V3.bearing;
+c.position.set(V3.tgt[0]+V3.dist*Math.cos(e)*Math.sin(b),V3.dist*Math.sin(e),V3.tgt[1]+V3.dist*Math.cos(e)*Math.cos(b));
+c.lookAt(V3.tgt[0],0,V3.tgt[1]);
+}
+function size3(){
+var w=v3el.clientWidth||680,h=Math.round(w*460/680);
+V3.R.setSize(w,h,false);V3.cam.aspect=w/h;V3.cam.updateProjectionMatrix();
+}
+function render3(){if(!V3.ready||!V3.on||!V3.scene)return;size3();camUpdate();V3.R.render(V3.scene,V3.cam)}
+function fit3(){
+var xs=[],ys=[];Object.keys(nodes).forEach(function(n){xs.push(nodes[n].x);ys.push(nodes[n].y)});
+if(!xs.length){V3.tgt=[340,230];V3.dist=700;return}
+var x0=Math.min.apply(null,xs),x1=Math.max.apply(null,xs),y0=Math.min.apply(null,ys),y1=Math.max.apply(null,ys);
+V3.tgt=[(x0+x1)/2,(y0+y1)/2];V3.dist=Math.max(300,Math.max(x1-x0,y1-y0)*1.25+120);
+}
+function init3(){
+var T=THREE;
+V3.R=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});V3.R.outputEncoding=T.sRGBEncoding;V3.R.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+v3el.appendChild(V3.R.domElement);
+V3.cam=new T.PerspectiveCamera(40,680/460,1,30000);
+var cv=V3.R.domElement;
+cv.addEventListener('contextmenu',function(e){e.preventDefault()});
+cv.addEventListener('pointerdown',function(e){try{cv.setPointerCapture(e.pointerId)}catch(_){}
+V3.ptrs[e.pointerId]={x:e.clientX,y:e.clientY};V3.rot=e.button===2||e.shiftKey;V3.last=null;});
+cv.addEventListener('pointermove',function(e){
+if(!V3.ptrs[e.pointerId])return;
+var prev=V3.ptrs[e.pointerId];V3.ptrs[e.pointerId]={x:e.clientX,y:e.clientY};
+var ids=Object.keys(V3.ptrs),kpx=2*V3.dist*Math.tan(20*Math.PI/180)/(cv.clientHeight||460);
+if(ids.length===1){
+var dx=e.clientX-prev.x,dy=e.clientY-prev.y;
+if(V3.rot){V3.bearing-=dx*0.006}
+else{var b=V3.bearing,rx=Math.cos(b),rz=-Math.sin(b),fx=-Math.sin(b),fz=-Math.cos(b),sy=1/Math.sin(V3.elev*Math.PI/180);
+V3.tgt[0]-=(rx*dx-fx*dy*sy)*kpx;V3.tgt[1]-=(rz*dx-fz*dy*sy)*kpx;}
+}else if(ids.length>=2){
+// два пальца: поворот, масштаб и сдвиг
+var a=V3.ptrs[ids[0]],c=V3.ptrs[ids[1]],ang=Math.atan2(c.y-a.y,c.x-a.x),d=Math.hypot(c.x-a.x,c.y-a.y);
+if(V3.last){V3.bearing+=ang-V3.last.ang;V3.dist=Math.max(80,Math.min(6000,V3.dist*V3.last.d/d));}
+V3.last={ang:ang,d:d};
+}
+render3();});
+function up(e){delete V3.ptrs[e.pointerId];V3.last=null;}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+cv.addEventListener('wheel',function(e){e.preventDefault();V3.dist=Math.max(80,Math.min(6000,V3.dist*(e.deltaY>0?1.12:1/1.12)));render3()},{passive:false});
+window.addEventListener('resize',render3);
+V3.ready=true;
+}
+function set3D(on){
+V3.on=on;
+document.getElementById('b-3d').setAttribute('aria-pressed',on?'true':'false');
+document.getElementById('g3d').hidden=!on;
+sv.style.display=on?'none':'';v3el.hidden=!on;
+['m-road','m-lot','m-pan'].forEach(function(id){document.getElementById(id).disabled=on});
+if(!on){setMode(mode);return}
+hintEl.textContent='3D-вид: тяните, чтобы двигать карту; двумя пальцами, правой кнопкой или с Shift — вращать; колесо и −/+ — масштаб. Строить — в 2D.';
+load3(function(){if(!V3.ready)init3();fit3();build3D();});
+}
+document.getElementById('b-3d').addEventListener('click',function(){set3D(!V3.on)});
+document.getElementById('r-l').addEventListener('click',function(){V3.bearing+=Math.PI/12;render3()});
+document.getElementById('r-r').addEventListener('click',function(){V3.bearing-=Math.PI/12;render3()});
+document.getElementById('t-tilt').addEventListener('click',function(){V3.elev=V3.elev===60?30:60;this.textContent='Наклон '+V3.elev+'°';render3()});
 
 // отладка для тестов
 window.__dbg={
@@ -668,7 +833,7 @@ lotsRaw:function(){return lots},
 // внутренние функции для стресс-тестов
 api:{G:function(){return G},overlaps:overlaps,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
 snap:snap,endFor:endFor,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
-reset:function(){nodes={};segs={};lots=[];nid=1;sid=1;drawStatic()},addLot:function(l){lots.push(l)}},
+reset:function(){nodes={};segs={};lots=[];nid=1;sid=1;drawStatic()},addLot:function(l){l.floors=l.floors||1+Math.floor(Math.random()*8);l.color=l.color||nextColor();lots.push(l)}},
 // инвариант: каждый узел стоит на линии сетки каждой своей дороги
 gridCheck:function(){var bad=[];Object.keys(segs).forEach(function(id){var g=segs[id],E=segEnds(g),L=len(sub(E[1],E[0])),cw=segCw(g),ph=segPh(g);
 function on(u){var r=((u-ph)%cw+cw)%cw;return Math.min(r,cw-r)<0.05}
