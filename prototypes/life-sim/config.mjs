@@ -5,6 +5,24 @@ export const DEFAULTS={
   cars:null,                // у скольких жителей есть машина; null — у всех
   speed:{walk:1.3,car:8.3}, // м/с: пешком ~4.7 км/ч, на машине ~30 км/ч по деревне
   shopVisitorsPerCell:1,    // покупателей одновременно на клетку·этаж магазина
+  tickSeconds:60,           // один тик — одна игровая минута
+  // часы работы мест по виду: [открытие, закрытие), часы суток
+  hours:{shop:[9,20],work:[8,17],outside:[8,20]},
+  needs:{
+    fatigueAwake:1/16,      // усталость за час бодрствования: 16 часов на ногах до 1
+    fatigueSleep:-1/8,      // за час сна: 8 часов сна до 0
+    sleepAt:1,              // валится с ног — спит, даже голодным...
+    sleepAtNight:0.6,       // ...а ночью — уже с этого уровня
+    hungerAwake:1/5,        // голод за час бодрствования
+    hungerSleep:1/16,       // и за час сна
+    eatAt:0.6,              // ест, когда голод выше
+    eatMinutes:30,
+    workHoursPerDay:8,      // «долг» работы растёт на 8/24 часа в час и гасится работой
+    workMinOwed:2,          // едет на работу, если должен хотя бы 2 часа (на месте — пока должен)
+    shopAt:2,               // идёт в магазин, когда дома порций еды не больше
+    buyPortions:6,          // покупает за раз
+    shopMinutes:20,
+  },
   outside:{                 // внешний мир за каждыми воротами — запись с числами, не агенты
     jobs:40,                // рабочих мест снаружи, доступных жителям
     minutesBeyondGate:20,   // от ворот до места снаружи (на машине)
@@ -12,5 +30,6 @@ export const DEFAULTS={
   },
 };
 export function withDefaults(cfg={}){
-  return {...DEFAULTS,...cfg,speed:{...DEFAULTS.speed,...cfg.speed},outside:{...DEFAULTS.outside,...cfg.outside}};
+  return {...DEFAULTS,...cfg,speed:{...DEFAULTS.speed,...cfg.speed},outside:{...DEFAULTS.outside,...cfg.outside},
+    hours:{...DEFAULTS.hours,...cfg.hours},needs:{...DEFAULTS.needs,...cfg.needs}};
 }
