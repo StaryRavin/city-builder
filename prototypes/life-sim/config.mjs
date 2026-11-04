@@ -23,6 +23,20 @@ export const DEFAULTS={
     buyPortions:6,          // покупает за раз
     shopMinutes:20,
   },
+  traffic:{                 // движение машин (traffic.mjs), метры и секунды
+    on:true,                // false — время в пути по формуле, без машин на дорогах
+    dt:0.5,                 // шаг движения
+    box:5,                  // радиус перекрёстка: полосы кончаются на этом расстоянии от узла
+    carLength:4.5,minGap:2, // длина машины и зазор до передней
+    laneOffset:1.3,         // центр полосы от оси дороги
+    parkOffset:3.1,         // центр парковочного места от оси дороги
+    slotLength:5.5,         // длина места парковки
+    stopGap:0.5,            // от бампера до границы перекрёстка, когда ждёт
+    accel:2,decel:3,        // м/с²
+    approach:20,            // с какого расстояния машина считается подъезжающей к перекрёстку
+    mergeBack:15,mergeAhead:7, // нужный просвет на полосе, чтобы выехать с парковки
+    enterSpeed:3,           // скорость въезда от ворот
+  },
   outside:{                 // внешний мир за каждыми воротами — запись с числами, не агенты
     jobs:40,                // рабочих мест снаружи, доступных жителям
     minutesBeyondGate:20,   // от ворот до места снаружи (на машине)
@@ -31,5 +45,5 @@ export const DEFAULTS={
 };
 export function withDefaults(cfg={}){
   return {...DEFAULTS,...cfg,speed:{...DEFAULTS.speed,...cfg.speed},outside:{...DEFAULTS.outside,...cfg.outside},
-    hours:{...DEFAULTS.hours,...cfg.hours},needs:{...DEFAULTS.needs,...cfg.needs}};
+    hours:{...DEFAULTS.hours,...cfg.hours},needs:{...DEFAULTS.needs,...cfg.needs},traffic:{...DEFAULTS.traffic,...cfg.traffic}};
 }

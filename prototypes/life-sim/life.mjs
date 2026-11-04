@@ -12,8 +12,8 @@
  *
  * Каждый тик (1 игровая минута) житель:
  *   1. копит потребности;
- *   2. в пути — едет до тика прибытия (время пути — по дорогам с ровной
- *      скоростью; загрузка и пробки — этап 4);
+ *   2. в пути — едет до тика прибытия: на машине его ставит движение по
+ *      дорогам (traffic.mjs), пешком — время по формуле;
  *   3. на месте — продолжает занятие, пока оно не кончилось:
  *        сон — до утра (своё время подъёма 5:30–7:00); еда — 30 мин; покупки — 20 мин;
  *        работа — пока есть долг и место открыто (проголодался — ест на месте);
@@ -47,6 +47,7 @@ export function createLife(w,A,rng){
     shoppers:new Int32Array(pl.n),workers:new Int32Array(pl.n),
     open:new Float64Array(pl.n),close:new Float64Array(pl.n),
     log:[],                       // события: [тик, житель, занятие, место]
+    trips:cfg.traffic.on?[]:null, // новые поездки на машине — их забирает движение
   };
   for(let p=0;p<pl.n;p++){const h=cfg.hours[['','shop','work','outside'][pl.kind[p]]];if(h){L.open[p]=h[0];L.close[p]=h[1]}}
   // начало: полночь, все дома и спят; потребности немного разные
@@ -82,9 +83,13 @@ function endAct(w,A,L,a){
   else if(act===ACT.EAT)L.hunger[a]=0;
   L.act[a]=ACT.IDLE;
 }
+// поездка: на машине — через движение по дорогам (traffic.mjs ставит тик
+// прибытия, когда машина встала на место); без машины или без движения —
+// время по формуле
 function travel(w,A,L,a,dest,intent){
-  const sec=travelTime(w,L.at[a],dest,A.car[a]===1),ticks=Math.max(1,Math.ceil(sec/w.cfg.tickSeconds));
-  L.from[a]=L.at[a];L.to[a]=dest;L.at[a]=-1;L.intent[a]=intent;L.depart[a]=L.tick;L.arrive[a]=L.tick+ticks;
+  L.from[a]=L.at[a];L.to[a]=dest;L.at[a]=-1;L.intent[a]=intent;L.depart[a]=L.tick;
+  if(L.trips&&A.car[a]){L.arrive[a]=2147483647;L.trips.push(a)}
+  else{const sec=travelTime(w,L.from[a],dest,A.car[a]===1);L.arrive[a]=L.tick+Math.max(1,Math.ceil(sec/w.cfg.tickSeconds))}
   setAct(L,a,ACT.TRAVEL,dest,L.arrive[a]);
 }
 // свободный житель выбирает занятие: возвращает [занятие, место]

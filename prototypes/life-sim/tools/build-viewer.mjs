@@ -10,7 +10,7 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const MODULES=['rng','config','world','population','census','life','sim'];
+const MODULES=['rng','config','world','population','census','life','traffic','sim'];
 const code=MODULES.map((m)=>{
   const src=readFileSync(path.join(root,m+'.mjs'),'utf8')
     .split('\n').filter((l)=>!/^\s*import\s/.test(l)&&!/^\s*export\s*\{/.test(l)).join('\n')
