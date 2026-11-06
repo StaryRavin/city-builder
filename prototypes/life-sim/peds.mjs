@@ -24,8 +24,17 @@
  * cfg.speed.walk. Всё в массивах, порядок обхода фиксирован.
  */
 import {NEVER} from './traffic.mjs';
+import {KIND} from './world.mjs';
 
-export const PED={NONE:0,WALK:1,WAIT:2,CROSS:3,CAR_WAIT:4};
+// BEYOND — за выездом, в Городе (идёт или едет на транспорте; на карте не виден)
+export const PED={NONE:0,WALK:1,WAIT:2,CROSS:3,CAR_WAIT:4,BEYOND:5};
+
+// двоичная куча для Дейкстры: [стоимость, номер]
+export function minHeap(){const c=[],v=[];
+  return {get size(){return c.length},
+    push(cost,id){let i=c.length;c.push(cost);v.push(id);while(i>0){const p=(i-1)>>1;if(c[p]<=cost)break;c[i]=c[p];v[i]=v[p];i=p}c[i]=cost;v[i]=id},
+    pop(){const top=v[0],tc=c[0],lc=c.pop(),lv=v.pop();if(c.length){let i=0;for(;;){let l=2*i+1,r=l+1,m=i,mc=lc;
+      if(l<c.length&&c[l]<mc){m=l;mc=c[l]}if(r<c.length&&c[r]<mc){m=r;mc=c[r]}if(m===i)break;c[i]=c[m];v[i]=v[m];i=m}c[i]=lc;v[i]=lv}return [tc,top]}}}
 
 export function createPeds(w,A,L,T){
   const cfg=w.cfg.peds,N=w.nodes.n,E=w.edges.n,nx=w.nodes.x,ny=w.nodes.y;
@@ -58,7 +67,11 @@ export function createPeds(w,A,L,T){
 
   // двери: место p — на тротуаре своей улицы напротив фасада (звено, сторона, расстояние от a)
   const door=new Array(w.places.n).fill(null);
-  for(let p=0;p<w.places.n;p++){if(w.places.edge[p]<0)continue;const e=w.places.edge[p],d=dirAB(e),n=[-d[1],d[0]];
+  for(let p=0;p<w.places.n;p++){
+    // Город за выездом: дверь — конец тротуара у выезда
+    if(w.places.kind[p]===KIND.OUTSIDE){const v=w.places.node[p];let e=-1;for(let k=0;k<E;k++)if(ea[k]===v||eb[k]===v){e=k;break}if(e<0)continue;
+      const d=dirAB(e),n=[-d[1],d[0]],u=ea[e]===v?Math.min(D,el[e]/2):Math.max(el[e]-D,el[e]/2);door[p]={e,side:1,u,x:nx[ea[e]]+d[0]*u+n[0]*O,y:ny[ea[e]]+d[1]*u+n[1]*O};continue}
+    if(w.places.edge[p]<0)continue;const e=w.places.edge[p],d=dirAB(e),n=[-d[1],d[0]];
     const ax=nx[ea[e]]+d[0]*w.places.t[p]*el[e],ay=ny[ea[e]]+d[1]*w.places.t[p]*el[e],side=((w.places.x[p]-ax)*n[0]+(w.places.y[p]-ay)*n[1])>=0?1:-1;
     const u=Math.max(D,Math.min(el[e]-D,w.places.t[p]*el[e]));door[p]={e,side,u,x:nx[ea[e]]+d[0]*u+n[0]*side*O,y:ny[ea[e]]+d[1]*u+n[1]*side*O}}
 
@@ -66,12 +79,12 @@ export function createPeds(w,A,L,T){
   function route(p,q){
     const s=door[p],t=door[q];if(!s||!t)return null;
     if(s.e===t.e&&s.side===t.side)return {len:Math.abs(s.u-t.u),pts:[{x:s.x,y:s.y,cross:-1},{x:t.x,y:t.y,cross:-1}]};
-    const M=4*E,dd=new Float64Array(M).fill(Infinity),prev=new Int32Array(M).fill(-1),pl=new Array(M).fill(null),done=new Uint8Array(M);
-    dd[pid(s.e,0,s.side)]=s.u-D;dd[pid(s.e,1,s.side)]=el[s.e]-D-s.u;
-    const goal=new Map([[pid(t.e,0,t.side),t.u-D],[pid(t.e,1,t.side),el[t.e]-D-t.u]]);let best=Infinity,bestEnd=-1;
-    for(;;){let u=-1,du=Infinity;for(let i=0;i<M;i++)if(!done[i]&&dd[i]<du){du=dd[i];u=i}
-      if(u<0||du>=best)break;done[u]=1;if(goal.has(u)&&du+goal.get(u)<best){best=du+goal.get(u);bestEnd=u}
-      for(const k of adj[u]){const c=du+k.len;if(!done[k.to]&&c<dd[k.to]){dd[k.to]=c;prev[k.to]=u;pl[k.to]=k}}}
+    const M=4*E,dd=new Float64Array(M).fill(Infinity),prev=new Int32Array(M).fill(-1),pl=new Array(M).fill(null),done=new Uint8Array(M),H=minHeap();
+    const s0=pid(s.e,0,s.side),s1=pid(s.e,1,s.side);dd[s0]=Math.max(0,s.u-D);dd[s1]=Math.max(0,el[s.e]-D-s.u);H.push(dd[s0],s0);H.push(dd[s1],s1);
+    const goal=new Map([[pid(t.e,0,t.side),Math.max(0,t.u-D)],[pid(t.e,1,t.side),Math.max(0,el[t.e]-D-t.u)]]);let best=Infinity,bestEnd=-1;
+    while(H.size){const [du,u]=H.pop();if(done[u]||du>dd[u])continue;
+      if(du>=best)break;done[u]=1;if(goal.has(u)&&du+goal.get(u)<best){best=du+goal.get(u);bestEnd=u}
+      for(const k of adj[u]){const c=du+k.len;if(!done[k.to]&&c<dd[k.to]){dd[k.to]=c;prev[k.to]=u;pl[k.to]=k;H.push(c,k.to)}}}
     if(bestEnd<0)return null;
     const chain=[];let x=bestEnd;while(prev[x]>=0){chain.push(pl[x]);x=prev[x]}chain.reverse();
     const pts=[{x:s.x,y:s.y,cross:-1},{x:P[x][0],y:P[x][1],cross:-1}];
@@ -79,26 +92,48 @@ export function createPeds(w,A,L,T){
     pts.push({x:t.x,y:t.y,cross:-1});
     return {len:best,pts};
   }
-  const cache=new Map();
-  function walkDist(p,q){if(p===q)return 0;const k=p*w.places.n+q;if(!cache.has(k)){const r=route(p,q);cache.set(k,r?r.len:Infinity)}return cache.get(k)}
+  // длина пешего пути: расстояния от каждой точки сети считаются один раз (Дейкстра от точки), дальше — сложение
+  const rows=new Map();
+  function row(src){let r=rows.get(src);if(r)return r;const M=4*E;r=new Float64Array(M).fill(Infinity);const H=minHeap();r[src]=0;H.push(0,src);
+    while(H.size){const [du,u]=H.pop();if(du>r[u])continue;for(const k of adj[u]){const c=du+k.len;if(c<r[k.to]){r[k.to]=c;H.push(c,k.to)}}}rows.set(src,r);return r}
+  function walkDist(p,q){if(p===q)return 0;const s=door[p],t=door[q];if(!s||!t)return Infinity;
+    if(s.e===t.e&&s.side===t.side)return Math.abs(s.u-t.u);
+    let best=Infinity;for(const [se,sc] of [[0,Math.max(0,s.u-D)],[1,Math.max(0,el[s.e]-D-s.u)]]){const r=row(pid(s.e,se,s.side));
+      for(const [te,tc] of [[0,Math.max(0,t.u-D)],[1,Math.max(0,el[t.e]-D-t.u)]]){const v=sc+r[pid(t.e,te,t.side)]+tc;if(v<best)best=v}}
+    return best}
 
   const n=A.n,S={door,P,adj,route,walkDist,O,D,
     state:new Uint8Array(n),path:new Array(n).fill(null),wi:new Int32Array(n),x:new Float64Array(n),y:new Float64Array(n),hx:new Float64Array(n),hy:new Float64Array(n).fill(1),
     crossN:new Int32Array(2*E),crossId:new Int32Array(n).fill(-1),start:new Float64Array(n),
+    active:[],outT:new Float64Array(n),toOut:new Uint8Array(n),   // идущие сейчас; время за выездом; идёт в Город
     stats:{walks:0,arrivals:0,crossings:0,crossWaits:0,drivewayWaits:0,maxWalkSec:0},
     rlen:new Float64Array(n),log:[]};   // log: [житель, длина пути м, секунд в пути] — для проверок скорости
 
+  // из Города — сначала время за выездом, потом от выезда пешком; в Город — пешком до выезда, потом время за ним
   S.startWalk=function(a,from,to){
-    const r=route(from,to);if(!r)throw new Error(`пешком не дойти: житель ${a}, места ${from} → ${to}`);
-    S.path[a]=r.pts;S.wi[a]=1;S.rlen[a]=r.len;S.x[a]=r.pts[0].x;S.y[a]=r.pts[0].y;S.state[a]=PED.WALK;S.start[a]=T.time;S.stats.walks++;
+    const pl=w.places,r=route(from,to);if(!r)throw new Error(`пешком не дойти: житель ${a}, места ${from} → ${to}`);
+    S.path[a]=r.pts;S.wi[a]=1;S.rlen[a]=r.len;S.x[a]=r.pts[0].x;S.y[a]=r.pts[0].y;S.start[a]=T.time;S.stats.walks++;S.active.push(a);
+    S.toOut[a]=pl.kind[to]===KIND.OUTSIDE?1:0;
+    if(pl.kind[from]===KIND.OUTSIDE){S.state[a]=PED.BEYOND;S.outT[a]=pl.extra[from]}else S.state[a]=PED.WALK;
   };
   // машины ждут пешеходов: на зебре (traffic.mjs спрашивает crossBusy) и у въездов (pedsNear)
   T.crossBusy=(v,e)=>S.crossN[e*2+(ea[e]===v?0:1)]>0;
-  T.pedsNear=(x,y,r)=>{for(let a=0;a<n;a++)if(S.state[a]!==PED.NONE&&Math.hypot(S.x[a]-x,S.y[a]-y)<r)return true;return false};
+  // пешеходы рядом с точкой: сетка 10 м, собирается заново, когда время сдвинулось
+  let gridAt=-1,grid=new Map();const GC=10;
+  T.pedsNear=(x,y,r)=>{
+    if(gridAt!==T.time){gridAt=T.time;grid=new Map();for(const a of S.active){if(S.state[a]===PED.BEYOND)continue;const k=Math.floor(S.x[a]/GC)+','+Math.floor(S.y[a]/GC);let c=grid.get(k);if(!c)grid.set(k,c=[]);c.push(a)}}
+    for(let gx=Math.floor((x-r)/GC);gx<=Math.floor((x+r)/GC);gx++)for(let gy=Math.floor((y-r)/GC);gy<=Math.floor((y+r)/GC);gy++)
+      for(const a of grid.get(gx+','+gy)||[])if(Math.hypot(S.x[a]-x,S.y[a]-y)<r)return true;
+    return false};
+  function arrive(a){S.state[a]=PED.NONE;S.path[a]=null;L.arrive[a]=L.tick;S.stats.arrivals++;S.stats.maxWalkSec=Math.max(S.stats.maxWalkSec,T.time-S.start[a]);S.log.push([a,S.rlen[a],T.time-S.start[a]])}
 
   S.step=function(dt){
     const v0=w.cfg.speed.walk;
-    for(let a=0;a<n;a++){const st=S.state[a];if(st===PED.NONE)continue;
+    let done=false;
+    for(const a of S.active){const st=S.state[a];if(st===PED.NONE)continue;
+      if(st===PED.BEYOND){S.outT[a]-=dt;if(S.outT[a]>0)continue;
+        if(S.wi[a]>=S.path[a].length){arrive(a);done=true;continue}   // доехал до места в Городе
+        S.state[a]=PED.WALK}                                          // вернулся к выезду — дальше пешком
       let left=v0*dt;
       while(left>1e-9){
         const pts=S.path[a],nxt=pts[S.wi[a]];
@@ -117,14 +152,15 @@ export function createPeds(w,A,L,T){
         if(step>=d-1e-9){
           if(S.state[a]===PED.CROSS&&nxt.cross>=0){S.crossN[nxt.cross]--;S.crossId[a]=-1;S.state[a]=PED.WALK}
           S.wi[a]++;
-          if(S.wi[a]>=pts.length){S.state[a]=PED.NONE;S.path[a]=null;L.arrive[a]=L.tick;S.stats.arrivals++;S.stats.maxWalkSec=Math.max(S.stats.maxWalkSec,T.time-S.start[a]);S.log.push([a,S.rlen[a],T.time-S.start[a]]);break}
+          if(S.wi[a]>=pts.length){if(S.toOut[a]){S.state[a]=PED.BEYOND;S.outT[a]=w.places.extra[L.to[a]];break}arrive(a);done=true;break}
         }
       }
     }
+    if(done)S.active=S.active.filter((a)=>S.state[a]!==PED.NONE);
   };
-  S.busy=function(){for(let a=0;a<n;a++)if(S.state[a]!==PED.NONE)return true;return false};
-  // положение для отрисовки: правее середины тротуара по ходу (на зебре — посередине)
-  S.pose=function(a){if(S.state[a]===PED.NONE)return null;const k=S.state[a]===PED.CROSS?0:cfg.keepRight;
+  S.busy=function(){return S.active.length>0};
+  // положение для отрисовки: правее середины тротуара по ходу (на зебре — посередине); в Городе — нет
+  S.pose=function(a){if(S.state[a]===PED.NONE||S.state[a]===PED.BEYOND)return null;const k=S.state[a]===PED.CROSS?0:cfg.keepRight;
     return {x:S.x[a]-S.hy[a]*k,y:S.y[a]+S.hx[a]*k,h:Math.atan2(S.hy[a],S.hx[a])}};
   // инварианты: счётчики зебр сходятся; пешеход на зебре — в её полосах нет машин; идёт ⇔ хозяин в пути пешком
   S.check=function(){

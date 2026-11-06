@@ -7,13 +7,13 @@ export function census(w,A){
   const c={residents:A.n,beds:0,cars:0,
     jobs:{local:0,outside:0},employed:{local:0,outside:0},vacancies:{local:0,outside:0},
     unemployed:0,unemployedWithCar:0,unemployedNoCar:0,commuteMin:{avg:0,max:0},
-    places:{homes:0,shops:0,works:0,gates:0},shopVisitors:0,roadKm:0,overfull:0};
+    places:{homes:0,shops:0,works:0,gates:0,cafes:0},shopVisitors:0,roadKm:0,overfull:0};
   for(let p=0;p<pl.n;p++){
     const k=pl.kind[p],out=k===KIND.OUTSIDE?'outside':'local';
     c.beds+=pl.beds[p];
     if(pl.jobs[p]>0){c.jobs[out]+=pl.jobs[p];c.employed[out]+=filled[p];c.vacancies[out]+=pl.jobs[p]-filled[p]}
     if(filled[p]>pl.jobs[p]||living[p]>pl.beds[p])c.overfull++;
-    c.places[['homes','shops','works','gates'][k]]++;
+    c.places[['homes','shops','works','gates','cafes'][k]]++;
     if(k===KIND.SHOP)c.shopVisitors+=pl.visitors[p];
   }
   let sum=0,n=0;
@@ -31,7 +31,7 @@ export function formatCensus(w,c){
   const f=(x)=>Math.round(x*10)/10;
   return [
     `${w.name}: дорог ${f(c.roadKm*1000)} м, ворот ${c.places.gates}`,
-    `Места: жилых домов ${c.places.homes} (мест ${c.beds}), магазинов ${c.places.shops} (покупателей одновременно ${c.shopVisitors}), рабочих домов ${c.places.works}`,
+    `Места: жилых домов ${c.places.homes} (мест ${c.beds}), магазинов ${c.places.shops} (покупателей одновременно ${c.shopVisitors}), кафе ${c.places.cafes}, рабочих мест-заведений ${c.places.works}`,
     `Жителей ${c.residents}, с машиной ${c.cars}`,
     `Рабочих мест: в деревне ${c.jobs.local}, снаружи ${c.jobs.outside}`,
     `Работают: в деревне ${c.employed.local}, снаружи ${c.employed.outside}`,

@@ -5,17 +5,20 @@
  * Нужен Playwright с Chromium. Самой симуляции он не нужен.
  *   node prototypes/life-sim/tools/export-village.cjs        — «Деревня 10» → village.snapshot.json
  *   node prototypes/life-sim/tools/export-village.cjs 100    — «Деревня 100» → village100.snapshot.json
+ *   node prototypes/life-sim/tools/export-village.cjs dorcol — Белград, Дорчол (дома и заведения из OSM) → dorcol.snapshot.json
  */
 const path=require('path'),fs=require('fs');
 const {chromium}=require('playwright');
 (async()=>{
 const b=await chromium.launch(),p=await b.newPage();
 await p.goto('file://'+path.resolve(__dirname,'../../road-editor/index.html'));
-const big=process.argv[2]==='100';
-const snap=await p.evaluate((big)=>{const A=window.__dbg.api;if(big)A.buildVillage();else A.buildHamlet();return A.exportSim()},big);
+const which=process.argv[2]||'10',big=which==='100',dorcol=which==='dorcol';
+const snap=await p.evaluate(([big,dorcol])=>{const A=window.__dbg.api;if(dorcol)A.loadDorcol();else if(big)A.buildVillage();else A.buildHamlet();return A.exportSim()},[big,dorcol]);
+if(dorcol)delete snap.render.zoneCells;   // клетки зон Дорчола — тысячи, для симуляции и карты не нужны
 await b.close();
-snap.name=big?'Деревня 100':'Деревня 10';
-const out=path.resolve(__dirname,'../scenes/'+(big?'village100':'village')+'.snapshot.json');
+snap.name=dorcol?'Белград, Дорчол':big?'Деревня 100':'Деревня 10';
+if(dorcol)snap.attribution='Данные © участники OpenStreetMap, ODbL';
+const out=path.resolve(__dirname,'../scenes/'+(dorcol?'dorcol':big?'village100':'village')+'.snapshot.json');
 fs.writeFileSync(out,JSON.stringify(snap,null,1)+'\n');
 console.log('записано',out,'— узлов',snap.nodes.length,'звеньев',snap.edges.length,'домов',snap.buildings.length,'ворот',snap.gates.length);
 })();

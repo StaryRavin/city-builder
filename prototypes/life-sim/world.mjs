@@ -17,9 +17,20 @@
  * Дейкстру от нужных узлов). Время проезда = расстояние / скорость способа.
  * Пробки и загрузка — этап 4.
  */
-export const KIND={HOME:0,SHOP:1,WORK:2,OUTSIDE:3};
-export const KIND_NAME=['дом','магазин','работа','внешний мир'];
+export const KIND={HOME:0,SHOP:1,WORK:2,OUTSIDE:3,CAFE:4};
+export const KIND_NAME=['дом','магазин','работа','внешний мир','кафе'];
+export const KIND_KEY=['home','shop','work','outside','cafe'];   // ключ часов работы в cfg.hours
 const TYPE_KIND={res:KIND.HOME,com:KIND.SHOP,work:KIND.WORK};
+const USE_KIND={food:KIND.SHOP,cafe:KIND.CAFE,work:KIND.WORK};
+// места здания: без uses — одно по типу; с uses (смешанное назначение) — жильё, если есть
+// жильцы, и по месту на каждое заведение (кафе, продукты, работа) с его числами и часами
+function placesOf(b){
+  if(!b.uses){const k=TYPE_KIND[b.type];if(k===undefined)throw new Error('неизвестный тип дома: '+b.type);return [{kind:k}]}
+  const out=[];if(b.uses.beds>0)out.push({kind:KIND.HOME,beds:b.uses.beds});
+  for(const u of b.uses.places){const k=USE_KIND[u.kind];if(k===undefined)throw new Error('неизвестный вид заведения: '+u.kind);
+    out.push({kind:k,jobs:u.jobs,visitors:u.visitors,hours:u.hours,cat:u.cat,name:u.name})}
+  return out;
+}
 
 export function buildWorld(snap,cfg){
   if(snap.format!=='city-builder/world@1')throw new Error('неизвестный формат снимка: '+snap.format);
@@ -37,23 +48,26 @@ export function buildWorld(snap,cfg){
   for(let k=0;k<N;k++)for(let i=0;i<N;i++){const ik=dist[i*N+k];if(ik===Infinity)continue;
     for(let j=0;j<N;j++){const v=ik+dist[k*N+j];if(v<dist[i*N+j])dist[i*N+j]=v}}
 
-  const P=snap.buildings.length+snap.gates.length;
+  const per=snap.buildings.map(placesOf),P=per.reduce((s,x)=>s+x.length,0)+snap.gates.length;
+  // src — номер здания (у ворот — номер ворот); open/close — свои часы работы (−1 — по виду, cfg.hours)
   const places={n:P,kind:new Uint8Array(P),beds:new Int32Array(P),jobs:new Int32Array(P),visitors:new Int32Array(P),
     edge:new Int32Array(P),t:new Float64Array(P),node:new Int32Array(P).fill(-1),extra:new Float64Array(P),
-    x:new Float64Array(P),y:new Float64Array(P),src:new Int32Array(P),name:new Array(P)};
+    x:new Float64Array(P),y:new Float64Array(P),src:new Int32Array(P),name:new Array(P),cat:new Array(P),
+    open:new Float64Array(P).fill(-1),close:new Float64Array(P).fill(-1)};
   let i=0;
-  for(const b of snap.buildings){
-    const k=TYPE_KIND[b.type];if(k===undefined)throw new Error('неизвестный тип дома: '+b.type);
-    places.kind[i]=k;places.edge[i]=b.edge;places.t[i]=b.t;places.x[i]=b.center[0];places.y[i]=b.center[1];places.src[i]=b.id;
-    if(k===KIND.HOME)places.beds[i]=b.capacity;
-    else places.jobs[i]=b.capacity;
-    if(k===KIND.SHOP)places.visitors[i]=Math.max(1,Math.round(b.cells*b.floors*cfg.shopVisitorsPerCell));
-    places.name[i]=KIND_NAME[k]+' #'+b.id;i++;
-  }
+  snap.buildings.forEach((b,bi)=>{for(const u of per[bi]){
+    const k=u.kind;places.kind[i]=k;places.edge[i]=b.edge;places.t[i]=b.t;places.x[i]=b.center[0];places.y[i]=b.center[1];places.src[i]=b.id;
+    if(b.uses){places.beds[i]=u.beds||0;places.jobs[i]=u.jobs||0;places.visitors[i]=u.visitors||0;if(u.hours){places.open[i]=u.hours[0];places.close[i]=u.hours[1]}
+      places.cat[i]=u.cat||KIND_NAME[k];places.name[i]=u.name?u.cat+' «'+u.name+'»':(u.cat||KIND_NAME[k])+' #'+b.id}
+    else{
+      if(k===KIND.HOME)places.beds[i]=b.capacity;else places.jobs[i]=b.capacity;
+      if(k===KIND.SHOP)places.visitors[i]=Math.max(1,Math.round(b.cells*b.floors*cfg.shopVisitorsPerCell));
+      places.cat[i]=KIND_NAME[k];places.name[i]=KIND_NAME[k]+' #'+b.id}
+    i++}});
   for(const g of snap.gates){
     places.kind[i]=KIND.OUTSIDE;places.edge[i]=-1;places.node[i]=g.node;places.x[i]=nodes.x[g.node];places.y[i]=nodes.y[g.node];
     places.jobs[i]=cfg.outside.jobs;places.visitors[i]=1e9;places.extra[i]=cfg.outside.minutesBeyondGate*60;places.src[i]=g.id;
-    places.name[i]='внешний мир: '+g.name;i++;
+    places.name[i]='внешний мир: '+g.name;places.cat[i]='внешний мир';i++;
   }
   // для парковки на свободной земле движению нужны контуры зданий и ширина дороги
   const outlines=snap.buildings.map((b)=>b.outline||[]);
@@ -72,7 +86,7 @@ export function distance(w,p,q){
   for(const [u,du] of ends(p))for(const [v,dv] of ends(q)){const d=du+dist[u*N+v]+dv;if(d<best)best=d}
   return best;
 }
-// может ли агент добраться до места: наружу без машины — нет (автобусов нет)
+// может ли агент добраться до места: наружу без машины — нет, если cfg.outside.carOnly (автобусов нет)
 export function reachable(w,q,hasCar){return !(w.places.kind[q]===KIND.OUTSIDE&&w.cfg.outside.carOnly&&!hasCar)}
 // время в пути, с: по дорогам с ровной скоростью способа + путь за воротами
 export function travelTime(w,p,q,hasCar){

@@ -33,7 +33,9 @@ function subStep(sim,{check,onTick}){
     if(check)checkInvariants(sim.world,sim.agents,sim.life);
     if(onTick)onTick(sim);
   }
-  if(T){T.step(sim.cfg.traffic.dt);sim.peds.step(sim.cfg.traffic.dt);if(check){T.check();sim.peds.check()}}
+  if(T){const k=Math.max(1,Math.round(sim.cfg.peds.dt/sim.cfg.traffic.dt));
+    T.step(sim.cfg.traffic.dt);if(sim.sub%k===k-1)sim.peds.step(k*sim.cfg.traffic.dt);   // пешеходы — шагом peds.dt
+    if(check){T.check();sim.peds.check()}}
   sim.sub++;
 }
 // прожить sec игровых секунд (можно дробно — остаток копится)

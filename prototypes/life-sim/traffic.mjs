@@ -42,6 +42,7 @@
  * Всё в массивах, порядок обхода фиксирован: детерминированно.
  */
 import {KIND} from './world.mjs';
+import {minHeap} from './peds.mjs';
 
 export const CAR={PARKED:0,MERGE:1,LANE:2,BOX:3,OUT:4,CITY:5,NONE:6,PARK_IN:7,PARK_OUT:8};
 export const CAR_NAME=['стоит','ждёт просвета, чтобы выехать','едет','на перекрёстке','за воротами','в Городе','нет машины','паркуется','выезжает с места'];
@@ -95,9 +96,12 @@ export function createTraffic(w,A,L){
   function polysHit(A,B){if(A.some((p)=>inPoly(p,B))||B.some((p)=>inPoly(p,A)))return true;
     for(let i=0;i<A.length;i++)for(let j=0;j<B.length;j++)if(segX(A[i],A[(i+1)%A.length],B[j],B[(j+1)%B.length]))return true;return false}
   function segDist(P,a,b){const ab=[b[0]-a[0],b[1]-a[1]],l2=ab[0]*ab[0]+ab[1]*ab[1],t=l2?Math.max(0,Math.min(1,((P[0]-a[0])*ab[0]+(P[1]-a[1])*ab[1])/l2)):0;return Math.hypot(P[0]-a[0]-ab[0]*t,P[1]-a[1]-ab[1]*t)}
+  // габариты контуров зданий — чтобы проверять только те, что рядом
+  const obb=w.outlines.map((o)=>o.length>=3?bboxOf(o):null);
+  function hitsBuildings(rect){const b=bboxOf(rect);for(let i=0;i<obb.length;i++){const o=obb[i];if(!o||o[0]>b[2]||o[2]<b[0]||o[1]>b[3]||o[3]<b[1])continue;if(polysHit(rect,w.outlines[i]))return true}return false}
   // прямоугольник не задевает здания и чужие дороги (своё звено — можно)
   function landFree(rect,ownEdge){
-    if(w.outlines.some((o)=>o.length>=3&&polysHit(rect,o)))return false;
+    if(hitsBuildings(rect))return false;
     for(let e=0;e<E;e++){if(e===ownEdge)continue;const a=[nx[w.edges.a[e]],ny[w.edges.a[e]]],b=[nx[w.edges.b[e]],ny[w.edges.b[e]]];
       if(rect.some((p)=>segDist(p,a,b)<RW))return false}
     for(let v=0;v<N;v++)if(rect.some((p)=>Math.hypot(p[0]-nx[v],p[1]-ny[v])<RW+0.5))return false;   // и не на перекрёстке
@@ -131,7 +135,7 @@ export function createTraffic(w,A,L){
       if(lot){const rect=carRect(Q,hq,clr);lot=landFree(rect,e)&&!lotRects.some((r)=>polysHit(r,rect));
         if(lot){const m={c:axlePath(lanePt(l,sStop),D,Q,Rn,2.5,3),back:0};for(let k=1;k<=40;k++){const ps=manPose(m,k/40);
           // весь путь заезда (и выезда задним ходом — тот же путь): только своя дорога и свободная земля
-          const r2=carRect([ps.x,ps.y],ps.h,0.1);if(w.outlines.some((o)=>o.length>=3&&polysHit(r2,o))){lot=false;break}}}
+          const r2=carRect([ps.x,ps.y],ps.h,0.1);if(hitsBuildings(r2)){lot=false;break}}}
         if(lot)lotRects.push(rect)}
       if(lot&&s+len/2>lanes.len[l]-cwE[l]-0.2)lot=false;
       if(!lot&&(!curbOK||hi0>lanes.len[l]-cwE[l]-0.2))continue;   // узкая улица (или зебра): у бордюра не стоят
@@ -158,10 +162,14 @@ export function createTraffic(w,A,L){
       sw.push(r);pk.push(carRect([slots.x[i],slots.y[i]],slots.h[i],0.05));bb.push(bboxOf([].concat(...r)))}
     const near=(i,j)=>!(bb[i][2]<bb[j][0]||bb[j][2]<bb[i][0]||bb[i][3]<bb[j][1]||bb[j][3]<bb[i][1]);
     const sweepHits=(i,rect)=>sw[i].some((r)=>polysHit(r,rect));
+    // сетка 20 м: соседи места — только из своих и соседних ячеек
+    const G=20,grid=new Map(),cellsOf=(i)=>{const out=[];for(let gx=Math.floor(bb[i][0]/G);gx<=Math.floor(bb[i][2]/G);gx++)for(let gy=Math.floor(bb[i][1]/G);gy<=Math.floor(bb[i][3]/G);gy++)out.push(gx+','+gy);return out};
+    const neighbours=(i)=>{const s=new Set();for(const c of cellsOf(i))for(const j of grid.get(c)||[])if(j!==i&&near(i,j))s.add(j);return [...s].sort((x,y)=>x-y)};
     const order=[...Array(slots.n).keys()].sort((i,j)=>slots.kind[j]-slots.kind[i]||i-j),keep=[];
-    for(const i of order){if(keep.every((j)=>!near(i,j)||(!sweepHits(i,pk[j])&&!sweepHits(j,pk[i])&&!polysHit(pk[i],pk[j]))))keep.push(i)}
+    for(const i of order){if(neighbours(i).every((j)=>!sweepHits(i,pk[j])&&!sweepHits(j,pk[i])&&!polysHit(pk[i],pk[j]))){keep.push(i);for(const c of cellsOf(i)){if(!grid.has(c))grid.set(c,[]);grid.get(c).push(i)}}}
     keep.sort((i,j)=>i-j);
-    const conf=keep.map((i)=>keep.map((j,jj)=>jj).filter((jj)=>keep[jj]!==i&&near(i,keep[jj])&&sw[i].some((r)=>sw[keep[jj]].some((q)=>polysHit(r,q)))));
+    const idx=new Map(keep.map((i,jj)=>[i,jj]));
+    const conf=keep.map((i)=>neighbours(i).filter((j)=>sw[i].some((r)=>sw[j].some((q)=>polysHit(r,q)))).map((j)=>idx.get(j)));
     for(const k of ['kind','lane','s','sStop','sOut','x','y','h','occ','pin','pout','wx','wy'])slots[k]=keep.map((i)=>slots[k][i]);
     slots.n=keep.length;slots.conf=conf;slots.man=new Int32Array(slots.n).fill(-1);
   }
@@ -180,6 +188,8 @@ export function createTraffic(w,A,L){
     route:new Array(n).fill(null),ri:new Int32Array(n),exitGate:new Uint8Array(n),outT:new Float64Array(n),outTotal:new Float64Array(n),
     outbound:new Uint8Array(n),mp:new Float64Array(n),granted:new Uint8Array(n),waitSince:new Float64Array(n).fill(-1),
     dest:new Int32Array(n).fill(-1),origin:new Int32Array(n).fill(-1),nodeOcc:new Int32Array(N).fill(-1),
+    stepNo:0,moved:new Int32Array(n),
+    active:[],   // машины не на стоянке (едут, паркуются, за выездом) — шаг считает только их
     stats:{trips:0,arrivals:0,noSpotWaits:0,pedYield:0,intersectionWaits:0,yieldRight:0,deadlockBreaks:0,mergeWaits:0,maxTripSec:0},tripStart:new Float64Array(n)};
 
   // ближайшее свободное место к зданию (по прямой до его центра)
@@ -197,14 +207,14 @@ export function createTraffic(w,A,L){
   function plan(l0,s0,target){
     if(target.lane===l0&&target.s>=s0-1e-6)return [l0];
     if(target.gate!=null&&lanes.to[l0]===target.gate)return [l0];
-    const dist=new Float64Array(LN).fill(Infinity),prev=new Int32Array(LN).fill(-1),done=new Uint8Array(LN);
-    dist[l0]=lanes.len[l0]-s0;let best=Infinity,last=-1,lastPrev=-1;   // последняя полоса маршрута и откуда на неё въехали
-    for(;;){let u=-1,du=Infinity;for(let l=0;l<LN;l++)if(!done[l]&&dist[l]<du){du=dist[l];u=l}
-      if(u<0||du>=best)break;done[u]=1;
+    const dist=new Float64Array(LN).fill(Infinity),prev=new Int32Array(LN).fill(-1),done=new Uint8Array(LN),H=minHeap();
+    dist[l0]=lanes.len[l0]-s0;H.push(dist[l0],l0);let best=Infinity,last=-1,lastPrev=-1;   // последняя полоса маршрута и откуда на неё въехали
+    while(H.size){const [du,u]=H.pop();if(done[u]||du>dist[u])continue;
+      if(du>=best)break;done[u]=1;
       for(const lo of out[lanes.to[u]]){if(!allowed(u,lo))continue;const bl=box(u,lo).len;
         if(target.lane===lo&&du+bl+target.s<best){best=du+bl+target.s;last=lo;lastPrev=u}
         if(target.gate!=null&&lanes.to[lo]===target.gate&&du+bl+lanes.len[lo]<best){best=du+bl+lanes.len[lo];last=lo;lastPrev=u}
-        const c=du+bl+lanes.len[lo];if(!done[lo]&&c<dist[lo]){dist[lo]=c;prev[lo]=u}}}
+        const c=du+bl+lanes.len[lo];if(!done[lo]&&c<dist[lo]){dist[lo]=c;prev[lo]=u;H.push(c,lo)}}}
     if(last<0)return null;
     const r=[last];let x=lastPrev;while(x!==-1){r.push(x);if(x===l0)break;x=prev[x]}
     if(r[r.length-1]!==l0)return null;return r.reverse();
@@ -213,7 +223,7 @@ export function createTraffic(w,A,L){
   // ---- поездки ----
   T.startTrip=function(a,from,to){
     const pl=w.places;T.origin[a]=from;T.dest[a]=to;T.granted[a]=0;T.waitSince[a]=-1;T.tripStart[a]=T.time;T.stats.trips++;
-    T.exitGate[a]=pl.kind[to]===KIND.OUTSIDE?1:0;
+    T.exitGate[a]=pl.kind[to]===KIND.OUTSIDE?1:0;T.active.push(a);
     T.tslot[a]=-1;if(!T.exitGate[a])reserve(a);   // бронь места у цели (своё место — тоже подходит); нет свободных — подождёт
     if(pl.kind[from]===KIND.OUTSIDE){T.state[a]=CAR.OUT;T.outbound[a]=0;T.outTotal[a]=pl.extra[from];T.outT[a]=pl.extra[from];T.route[a]=null;return}
     T.state[a]=CAR.MERGE;
@@ -230,7 +240,8 @@ export function createTraffic(w,A,L){
   function laneRoom(l,s,back,ahead){for(const b of lanes.cars[l]){if(T.s[b]>=s-back-1e-9&&T.s[b]<=s+ahead+1e-9)return false}
     const v=lanes.from[l],o=T.nodeOcc[v];if(o>=0&&s<back&&T.route[o]&&T.route[o][T.ri[o]+1]===l)return false;return true}
   // свободно ли начало полосы для въезда с перекрёстка
-  function entryRoom(l){const c=lanes.cars[l];if(!c.length)return true;const last=c[c.length-1];return T.s[last]-len-cfg.minGap>=len/2+0.5}
+  // въезжающая машина должна целиком уехать с зебры в начале полосы — иначе встанет на ней кормой
+  function entryRoom(l){const c=lanes.cars[l];if(!c.length)return true;const last=c[c.length-1];return T.s[last]-len-cfg.minGap>=cwS[l]+len/2+0.3}
   // подъезжает ли машина к перекрёстку (ей нужно пересечь узел в конце полосы)
   function crossing(a){return T.state[a]===CAR.LANE&&T.route[a]&&T.ri[a]<T.route[a].length-1}
 
@@ -240,8 +251,9 @@ export function createTraffic(w,A,L){
     return T.state[b]===CAR.LANE&&T.route[b]&&T.ri[b]===T.route[b].length-1&&slots.sStop[sl]-T.s[b]<25?cfg.slotLength:0}
   T.step=function(dt){
     const pl=w.places;T.time+=dt;
+    const act=T.active;
     // 1. выезд с парковки и въезд из Города
-    for(let a=0;a<n;a++){
+    for(const a of act){
       if(T.state[a]===CAR.MERGE){
         if(!T.exitGate[a]&&T.tslot[a]<0&&!reserve(a)){T.stats.noSpotWaits++;continue}   // все места заняты — ждёт, пока освободится
         const sl=T.slot[a],l=slots.lane[sl],s=slots.sOut[sl];
@@ -261,7 +273,7 @@ export function createTraffic(w,A,L){
       }
     }
     // манёвры на парковке
-    for(let a=0;a<n;a++){const st=T.state[a];if(st!==CAR.PARK_IN&&st!==CAR.PARK_OUT)continue;
+    for(const a of act){const st=T.state[a];if(st!==CAR.PARK_IN&&st!==CAR.PARK_OUT)continue;
       const sl=st===CAR.PARK_IN?T.tslot[a]:T.slot[a],path=st===CAR.PARK_IN?slots.pin[sl]:slots.pout[sl];
       T.mp[a]+=cfg.manSpeed*dt;if(T.mp[a]<path.len)continue;
       slots.man[sl]=-1;
@@ -274,8 +286,10 @@ export function createTraffic(w,A,L){
       if(!appr.length)continue;
       const atLine=(a)=>stopS(T.lane[a])-T.s[a]<=1.0;
       // на перекрёсток — только если есть место на выезде и обе зебры (въезда и выезда) свободны
+      // короткое звено (машина не помещается между зебрами) — свободна должна быть и зебра на его дальнем конце
       const can=(a)=>{const lo=T.route[a][T.ri[a]+1];if(!entryRoom(lo))return false;
-        if(!crossFree(v,T.lane[a]>>1)||!crossFree(v,lo>>1)){T.stats.pedYield++;return false}return true};
+        const far=lanes.len[lo]-cwE[lo]<len+1&&cwE[lo]>0&&!crossFree(lanes.to[lo],lo>>1);
+        if(far||!crossFree(v,T.lane[a]>>1)||!crossFree(v,lo>>1)){T.stats.pedYield++;return false}return true};
       for(const a of appr)if(atLine(a)&&T.waitSince[a]<0)T.waitSince[a]=T.time;
       const cand=appr.filter((a)=>atLine(a)&&can(a)&&appr.indexOf(a)===appr.findIndex((b)=>T.lane[b]===T.lane[a]));  // только первая машина полосы
       if(!cand.length)continue;
@@ -291,9 +305,9 @@ export function createTraffic(w,A,L){
     // 3. движение: скорость, чтобы успеть остановиться перед препятствием
     const vmax=w.cfg.speed.car,acc=cfg.accel,dec=cfg.decel;
     const speed=(a,gap)=>{let v=Math.min(T.v[a]+acc*dt,vmax,Math.sqrt(2*dec*Math.max(0,gap)));v=Math.min(v,Math.max(0,gap)/dt);return Math.max(0,v)};
-    const moved=new Uint8Array(n);
+    const stamp=++T.stepNo,moved={get:(a)=>T.moved[a]===stamp};   // кто уже сдвинулся в этом шаге
     // машины на перекрёстках
-    for(let a=0;a<n;a++){if(T.state[a]!==CAR.BOX)continue;moved[a]=1;
+    for(const a of act){if(T.state[a]!==CAR.BOX)continue;T.moved[a]=stamp;
       const b=T.bk[a],lo=T.route[a][T.ri[a]+1],c=lanes.cars[lo];
       let gap=b.len-T.bs[a]+(c.length?T.s[c[c.length-1]]-len-cfg.minGap:1e9);
       if(T.ri[a]+1===T.route[a].length-1&&!T.exitGate[a])gap=Math.min(gap,b.len-T.bs[a]+slots.sStop[T.tslot[a]]);
@@ -301,7 +315,7 @@ export function createTraffic(w,A,L){
       if(T.bs[a]>=b.len){T.nodeOcc[b.node]=-1;T.state[a]=CAR.LANE;T.ri[a]++;T.granted[a]=0;T.waitSince[a]=-1;T.bk[a]=null;addToLane(a,lo,T.bs[a]-b.len)}}
     // машины на полосах: от передней к задней
     for(let l=0;l<LN;l++){const c=lanes.cars[l];
-      for(let i=0;i<c.length;i++){const a=c[i];if(T.state[a]!==CAR.LANE||moved[a])continue;
+      for(let i=0;i<c.length;i++){const a=c[i];if(T.state[a]!==CAR.LANE||T.moved[a]===stamp)continue;
         let gap=Infinity;
         if(i>0)gap=T.s[c[i-1]]-len-cfg.minGap-T.s[a]-reversing(c[i-1]);
         const last=T.ri[a]===T.route[a].length-1;
@@ -313,25 +327,38 @@ export function createTraffic(w,A,L){
           const ts=T.tslot[a];if(slots.sStop[ts]-T.s[a]<0.3&&T.v[a]<0.5&&!manBlocked(ts)&&drivewayFree(ts)){T.state[a]=CAR.PARK_IN;T.mp[a]=0;T.v[a]=0;slots.man[ts]=a} // начинает парковаться
         }else if(last&&T.exitGate[a]&&T.s[a]>=lanes.len[l]){                 // уехала за ворота
           removeFromLane(a);i--;T.state[a]=CAR.OUT;T.outbound[a]=1;T.outTotal[a]=pl.extra[T.dest[a]];T.outT[a]=pl.extra[T.dest[a]];T.lane[a]=-1;T.route[a]=null}
+        else if(!last&&T.s[a]>=lanes.len[l]&&!T.granted[a])T.s[a]=lanes.len[l];  // короткое звено: ждёт разрешения у края перекрёстка
         else if(!last&&T.s[a]>=lanes.len[l]){                                 // въехала на перекрёсток
           const lo=T.route[a][T.ri[a]+1];removeFromLane(a);i--;T.state[a]=CAR.BOX;T.bk[a]=box(l,lo);T.bs[a]=T.s[a]-lanes.len[l];T.lane[a]=-1}
       }}
-    for(let l=0;l<LN;l++)lanes.cars[l].sort((x,y)=>T.s[y]-T.s[x]||x-y);
+    for(let l=0;l<LN;l++)if(lanes.cars[l].length>1)lanes.cars[l].sort((x,y)=>T.s[y]-T.s[x]||x-y);
+    // встали на стоянку или доехали до Города — больше не считаем
+    if(act.some((a)=>T.state[a]===CAR.PARKED||T.state[a]===CAR.CITY))T.active=act.filter((a)=>T.state[a]!==CAR.PARKED&&T.state[a]!==CAR.CITY);
   };
   // может ли пешеход ступить на зебру звена e у узла v: в её полосе машин нет, на неё не едет
   // машина с разрешением на перекрёсток, с перекрёстка на эту полосу никто не съезжает
   T.crossClear=function(v,e){
     const li=lanes.to[2*e]===v?2*e:2*e+1,lo=reverse(li);
+    // вежливость: машина, которая может ехать, ждёт этой зебры дольше carPatience — сначала пропустить её
+    for(const l of inn[v]){const c=lanes.cars[l];if(!c.length)continue;const a=c[0];
+      if(!crossing(a)||T.waitSince[a]<0||T.time-T.waitSince[a]<cfg.carPatience)continue;
+      const nx=T.route[a][T.ri[a]+1];if(((l>>1)===e||(nx>>1)===e)&&entryRoom(nx))return false}
     for(const a of lanes.cars[li]){if(T.s[a]+len/2>lanes.len[li]-cwE[li]-0.3)return false;if(T.granted[a])return false}
     for(const a of lanes.cars[lo])if(T.s[a]-len/2<cwS[lo]+0.3)return false;
     const o=T.nodeOcc[v];if(o>=0&&T.route[o]&&(T.route[o][T.ri[o]+1]===lo||T.route[o][T.ri[o]]===li))return false;
+    // короткое звено: машина, которой разрешили въехать на него с дальнего перекрёстка, сразу окажется на этой зебре
+    if(lanes.len[li]-cwE[li]<len+1){const o2=T.nodeOcc[lanes.from[li]];if(o2>=0&&T.route[o2]&&T.route[o2][T.ri[o2]+1]===li)return false}
     return true;
   };
   // машины, задевающие сейчас точку (x, y) с запасом m: для пешеходов у въездов
-  T.carsNear=function(x,y,m){for(let a=0;a<n;a++){const st=T.state[a];if(st!==CAR.PARK_IN&&st!==CAR.PARK_OUT)continue;
-    const P=T.pose(a);if(Math.hypot(P.x-x,P.y-y)>len)continue;const r=carRect([P.x,P.y],P.h,m);if(inPoly([x,y],r))return true}return false};
+  // паркующиеся машины этого шага (положение считается один раз на шаг)
+  let manStamp=-1,man=[];
+  T.carsNear=function(x,y,m){
+    if(manStamp!==T.stepNo){manStamp=T.stepNo;man=[];for(const a of T.active){const st=T.state[a];if(st===CAR.PARK_IN||st===CAR.PARK_OUT){const P=T.pose(a);man.push({x:P.x,y:P.y,h:P.h,r:{}})}}}
+    if(!man.length)return false;
+    for(const c of man){if(Math.abs(c.x-x)>len||Math.abs(c.y-y)>len)continue;const r=c.r[m]||(c.r[m]=carRect([c.x,c.y],c.h,m));if(inPoly([x,y],r))return true}return false};
   // нужно ли считать шаги: есть ли машины в движении или ждущие
-  T.busy=function(){for(let a=0;a<n;a++){const s=T.state[a];if(s!==CAR.PARKED&&s!==CAR.CITY&&s!==CAR.NONE)return true}return false};
+  T.busy=function(){return T.active.length>0};
 
   // положение машины для отрисовки: x, y (м), курс h (рад)
   T.pose=function(a){

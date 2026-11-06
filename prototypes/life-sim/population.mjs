@@ -22,7 +22,7 @@ export function createPopulation(w,rng){
   for(let p=0;p<pl.n&&a<n;p++)for(let k=0;k<pl.beds[p]&&a<n;k++)A.home[a++]=p;
   // машины
   const order=rng.shuffle([...Array(n).keys()]);
-  const cars=cfg.cars==null?n:Math.min(cfg.cars,n);
+  const cars=cfg.cars==null?Math.round(n*cfg.carShare):Math.min(cfg.cars,n);
   for(let i=0;i<cars;i++)A.car[order[i]]=1;
   assignJobs(w,A,rng);
   return A;
