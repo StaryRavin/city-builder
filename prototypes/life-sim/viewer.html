@@ -385,8 +385,9 @@ function partsOf(){var T=THREE;
 function makePool(parts,cap,C,group){
   var T=THREE,meshes=parts.map(function(p){var reps=Array.isArray(p.at[0])?p.at:[p.at];
     var m=new T.InstancedMesh(p.g,new T.MeshLambertMaterial({color:p.tint?0xffffff:C(p.color)}),cap*reps.length);m.instanceMatrix.setUsage(T.DynamicDrawUsage);
-    m.count=0;m.frustumCulled=false;var local=reps.map(function(a){var M=new T.Matrix4().makeTranslation(a[0],a[1],a[2]);if(p.rx)M.multiply(new T.Matrix4().makeRotationX(p.rx));return M});
+    // цвета — до count=0: three.js r128 заводит буфер цветов по текущему count
     if(p.tint){var w=new T.Color(1,1,1);for(var i=0;i<cap;i++)m.setColorAt(i,w)}
+    m.count=0;m.frustumCulled=false;var local=reps.map(function(a){var M=new T.Matrix4().makeTranslation(a[0],a[1],a[2]);if(p.rx)M.multiply(new T.Matrix4().makeRotationX(p.rx));return M});
     group.add(m);return {m:m,local:local,tint:!!p.tint}});
   return {cap:cap,meshes:meshes};
 }
@@ -461,7 +462,7 @@ rotate:function(d){V.bearing+=d;render()},
 zoom:function(f){V.dist=Math.max(80,Math.min(6000,V.dist/f));render()},
 toggleTilt:function(){V.elev=V.elev===60?30:60;render();return V.elev},
 get elev(){return V.elev},
-dom:cv
+dom:cv,_v:V
 };
 cv.addEventListener('contextmenu',function(e){e.preventDefault()});
 cv.addEventListener('pointerdown',function(e){try{cv.setPointerCapture(e.pointerId)}catch(_){}
@@ -529,6 +530,7 @@ const DEFAULTS={
     eatMinutes:30,
     workHoursPerDay:8,      // «долг» работы растёт на 8/24 часа в час и гасится работой
     workMinOwed:2,          // едет на работу, если должен хотя бы 2 часа (на месте — пока должен)
+    earlyMax:40,            // выезжает на работу раньше нужного на 0…40 мин (у каждого своё) — час пик размазан
     shopAt:2,               // идёт в магазин, когда дома порций еды не больше
     buyPortions:6,          // покупает за раз
     shopMinutes:20,
@@ -556,6 +558,7 @@ const DEFAULTS={
     mergeBack:15,mergeAhead:7, // нужный просвет на полосе, чтобы выехать с парковки
     enterSpeed:3,           // скорость въезда от ворот
     carPatience:12,         // машина, которая может ехать, ждёт зебры дольше — новые пешеходы её пропускают
+    rerouteAfter:45,        // ждёт дольше, потому что следующая улица забита, — объезжает
   },
   peds:{                    // пешеходы (peds.mjs), метры
     dt:1,                   // шаг пешеходов, с (кратен шагу машин; 1 с — 1.3 м)
@@ -798,6 +801,8 @@ const MODE={CAR:0,WALK:1};
  *     каждого свой, 120–450 м), иначе на машине, но только если она здесь;
  *     машина осталась в другом месте — пешком.
  * В Город, а машина не здесь: сначала дойти до неё пешком (travel).
+ * Домой, а машина не дома и не здесь (уехал на ней, потом ходил пешком):
+ * сначала дойти до машины и вернуться на ней — машины не теряются.
  */
 function walkDist(w,L,from,to){return L.walkDist?L.walkDist(from,to):distance(w,from,to)}
 function modeFor(w,A,L,a,from,to){
@@ -805,6 +810,7 @@ function modeFor(w,A,L,a,from,to){
   if(pl.kind[to]===KIND.OUTSIDE||pl.kind[from]===KIND.OUTSIDE)
     return w.cfg.outside.carOnly||(A.car[a]&&L.carAt[a]===from)?MODE.CAR:MODE.WALK;
   if(!A.car[a]||L.carAt[a]!==from)return MODE.WALK;
+  if(to===A.home[a])return MODE.CAR;   // машина здесь, а сам — домой: машину домой (иначе так и останется стоять)
   return walkDist(w,L,from,to)>L.walkMax[a]?MODE.CAR:MODE.WALK;
 }
 // время в пути для решений (когда выезжать, какой магазин ближе), с
@@ -842,6 +848,7 @@ function createLife(w,A,rng){
     walkDist:null,                // длина пешего пути по тротуарам (задаёт peds.mjs)
     eatOut:new Uint8Array(n),     // ест в кафе и занимает там место
     cafeLove:new Float64Array(n), // насколько любит обедать в кафе (0…1)
+    early:new Float64Array(n),    // на сколько часов раньше нужного выезжает на работу
     shopList:[],cafeList:[],      // где покупают еду домой; где едят
   };
   // часы работы: свои у места (заведения Дорчола) или по виду места
@@ -856,7 +863,7 @@ function createLife(w,A,rng){
     L.owed[a]=A.job[a]>=0?2+rng.next():0;
     L.food[a]=2+rng.int(5);
     L.carAt[a]=A.home[a];L.walkMax[a]=cfg.peds.walkMin+(cfg.peds.walkMax-cfg.peds.walkMin)*rng.next();
-    L.cafeLove[a]=rng.next();
+    L.cafeLove[a]=rng.next();L.early[a]=cfg.needs.earlyMax/60*rng.next();
   }
   return L;
 }
@@ -893,6 +900,8 @@ function travel(w,A,L,a,dest,intent){
   const from=L.at[a];
   // в Город, а машина в другом месте — сначала к машине пешком (на месте решит снова)
   if(w.places.kind[dest]===KIND.OUTSIDE&&w.cfg.outside.carOnly&&L.carAt[a]!==from&&L.carAt[a]>=0){dest=L.carAt[a];intent=ACT.IDLE}
+  // домой — с машиной: она осталась в другом месте — сначала за ней (на месте решит снова)
+  else if(dest===A.home[a]&&A.car[a]&&L.carAt[a]>=0&&L.carAt[a]!==from&&L.carAt[a]!==dest){dest=L.carAt[a];intent=ACT.IDLE}
   const mode=modeFor(w,A,L,a,from,dest);
   L.from[a]=from;L.to[a]=dest;L.at[a]=-1;L.intent[a]=intent;L.depart[a]=L.tick;L.mode[a]=mode;
   if(L.trips){L.arrive[a]=2147483647;L.trips.push(a)}
@@ -924,7 +933,8 @@ function choose(w,A,L,a,h){
   // на месте работы — вернуться к работе, если должен хотя бы 15 мин; ехать из другого места — если должен workMinOwed часов
   if(j>=0&&L.owed[a]>(here===j?0.25:nd.workMinOwed)){
     const tt=tripSeconds(w,A,L,a,here,j)/3600;
-    if(h+tt>=L.open[j]&&h+tt<L.close[j]-0.5)return [ACT.WORK,j];
+    if(here===j&&!isOpen(L,j,h)){if(h<L.open[j]&&L.open[j]-h<1)return [ACT.IDLE,here]}   // приехал заранее — ждёт открытия
+    else if(h+tt+L.early[a]>=L.open[j]&&h+tt<L.close[j]-0.5)return [ACT.WORK,j];
   }
   // магазин — когда дома мало еды
   if(L.food[a]<=nd.shopAt){const s=nearestShop(w,A,L,a,here,h);if(s>=0)return [ACT.SHOP,s]}
@@ -956,7 +966,7 @@ function step(w,A,L){
       L.at[a]=L.to[a];L.to[a]=-1;L.act[a]=ACT.IDLE;if(L.mode[a]===MODE.CAR)L.carAt[a]=L.at[a];
       const it=L.intent[a],p=L.at[a];
       if((it===ACT.SHOP||it===ACT.EAT&&w.places.kind[p]===KIND.CAFE&&A.job[a]!==p)&&(L.shoppers[p]>=w.places.visitors[p]||!isOpen(L,p,h))){}  // занято или закрыто — выберет снова
-      else if(it===ACT.WORK&&!isOpen(L,p,h)){}
+      else if(it===ACT.WORK&&!isOpen(L,p,h)){}   // закрыто (приехал заранее — подождёт на месте, см. выбор)
       else if(it!==ACT.IDLE){startAct(w,A,L,a,it);continue}
       else setAct(L,a,ACT.IDLE,p,-1);
     }
@@ -1031,6 +1041,14 @@ function checkInvariants(w,A,L){
  * своим местом парковки. Разгон 2 м/с², торможение до 3 м/с², скорость до
  * cfg.speed.car. Обгонов и смены полос нет — на полосе машины идут по очереди.
  *
+ * Короткое звено (на нём помещается не больше одной ждущей машины) — часть
+ * перекрёстка: въехать на него можно, только если сразу можно проехать и
+ * следующий перекрёсток; он бронируется заранее (цепочка), и связка
+ * проходится без остановки. Иначе треугольник из коротких улиц запирается:
+ * на каждой по машине, каждая ждёт следующую.
+ * Объезд: машина ждёт у перекрёстка дольше rerouteAfter, потому что следующая
+ * улица забита, — сворачивает туда, где есть место, и строит путь оттуда
+ * (иначе кольцо забитых улиц запирается насовсем).
  * Перекрёстки (равнозначные, как в Европе без знаков):
  *   - на перекрёстке одновременно не больше одной машины;
  *   - въезжать можно, только если на полосе выезда есть место (перекрёсток
@@ -1090,8 +1108,10 @@ function createTraffic(w,A,L){
   // переходы через перекрёсток: кривая (квадратичная Безье) от конца полосы к началу следующей
   const boxes=new Map();
   function lanePt(l,s){return [lanes.x0[l]+lanes.dx[l]*s,lanes.y0[l]+lanes.dy[l]*s]}
-  // разворот — только в тупике (и у ворот: машина, которой не в Город, разворачивается перед ними)
-  function allowed(li,lo){if(lanes.to[li]!==lanes.from[lo])return false;if(lo!==reverse(li))return true;return deg[lanes.to[li]]===1}
+  // разворот — только в тупике; у ворот — только машине, которая стоит на полосе к ним (start)
+  // и едет не в Город: использовать выезд как место для разворота посреди пути нельзя
+  function allowed(li,lo,start){if(lanes.to[li]!==lanes.from[lo])return false;if(lo!==reverse(li))return true;
+    const v=lanes.to[li];return deg[v]===1&&(!gateNode[v]||start===undefined||li===start)}
   function box(li,lo){
     const k=li*LN+lo;let b=boxes.get(k);if(b)return b;
     const v=lanes.to[li],P0=lanePt(li,lanes.len[li]),P1=lanePt(lo,0),d0=[lanes.dx[li],lanes.dy[li]],d1=[lanes.dx[lo],lanes.dy[lo]];
@@ -1205,9 +1225,9 @@ function createTraffic(w,A,L){
     route:new Array(n).fill(null),ri:new Int32Array(n),exitGate:new Uint8Array(n),outT:new Float64Array(n),outTotal:new Float64Array(n),
     outbound:new Uint8Array(n),mp:new Float64Array(n),granted:new Uint8Array(n),waitSince:new Float64Array(n).fill(-1),
     dest:new Int32Array(n).fill(-1),origin:new Int32Array(n).fill(-1),nodeOcc:new Int32Array(N).fill(-1),
-    stepNo:0,moved:new Int32Array(n),
+    stepNo:0,moved:new Int32Array(n),chain:new Array(n).fill(null),rerouteAt:new Float64Array(n).fill(-1e9),
     active:[],   // машины не на стоянке (едут, паркуются, за выездом) — шаг считает только их
-    stats:{trips:0,arrivals:0,noSpotWaits:0,pedYield:0,intersectionWaits:0,yieldRight:0,deadlockBreaks:0,mergeWaits:0,maxTripSec:0},tripStart:new Float64Array(n)};
+    stats:{trips:0,arrivals:0,noSpotWaits:0,pedYield:0,chains:0,reroutes:0,intersectionWaits:0,yieldRight:0,deadlockBreaks:0,mergeWaits:0,maxTripSec:0},tripStart:new Float64Array(n)};
 
   // ближайшее свободное место к зданию (по прямой до его центра)
   function nearestSlot(p,except){
@@ -1228,7 +1248,7 @@ function createTraffic(w,A,L){
     dist[l0]=lanes.len[l0]-s0;H.push(dist[l0],l0);let best=Infinity,last=-1,lastPrev=-1;   // последняя полоса маршрута и откуда на неё въехали
     while(H.size){const [du,u]=H.pop();if(done[u]||du>dist[u])continue;
       if(du>=best)break;done[u]=1;
-      for(const lo of out[lanes.to[u]]){if(!allowed(u,lo))continue;const bl=box(u,lo).len;
+      for(const lo of out[lanes.to[u]]){if(!allowed(u,lo,l0))continue;const bl=box(u,lo).len;
         if(target.lane===lo&&du+bl+target.s<best){best=du+bl+target.s;last=lo;lastPrev=u}
         if(target.gate!=null&&lanes.to[lo]===target.gate&&du+bl+lanes.len[lo]<best){best=du+bl+lanes.len[lo];last=lo;lastPrev=u}
         const c=du+bl+lanes.len[lo];if(!done[lo]&&c<dist[lo]){dist[lo]=c;prev[lo]=u;H.push(c,lo)}}}
@@ -1262,6 +1282,19 @@ function createTraffic(w,A,L){
   // подъезжает ли машина к перекрёстку (ей нужно пересечь узел в конце полосы)
   function crossing(a){return T.state[a]===CAR.LANE&&T.route[a]&&T.ri[a]<T.route[a].length-1}
 
+  // короткое звено: на нём помещается не больше одной ждущей машины (вторая не может въехать,
+  // пока первая стоит) — такие звенья в кольце запираются, поэтому их проезжают цепочкой
+  const shortLane=(l)=>stopS(l)<cwS[l]+1.5*len+cfg.minGap+0.3;
+  // какие следующие перекрёстки машина a должна забронировать, въезжая на полосу route[ri+1]:
+  // [] — не нужно (звено обычное или последнее), null — сейчас нельзя
+  function chainFrom(a,ri,seen){
+    const r=T.route[a],lo=r[ri+1];if(ri+1>=r.length-1||!shortLane(lo))return [];
+    seen=seen||[lanes.to[r[ri]]];
+    const v2=lanes.to[lo],lo2=r[ri+2];
+    if(seen.includes(v2))return [];   // путь возвращается на перекрёсток цепочки — дальше без брони, обычным порядком
+    if(T.nodeOcc[v2]>=0||lanes.cars[lo].length||!entryRoom(lo2)||!crossFree(v2,lo>>1)||!crossFree(v2,lo2>>1))return null;
+    const rest=chainFrom(a,ri+1,[...seen,v2]);return rest===null?null:[v2,...rest];
+  }
   // впереди машина собирается сдать назад к бордюру — держаться на место дальше
   function reversing(b){const sl=T.tslot[b];if(sl<0||slots.kind[sl]!==0)return 0;
     if(T.state[b]===CAR.PARK_IN)return cfg.slotLength;
@@ -1303,11 +1336,19 @@ function createTraffic(w,A,L){
       if(!appr.length)continue;
       const atLine=(a)=>stopS(T.lane[a])-T.s[a]<=1.0;
       // на перекрёсток — только если есть место на выезде и обе зебры (въезда и выезда) свободны
-      // короткое звено (машина не помещается между зебрами) — свободна должна быть и зебра на его дальнем конце
+      // короткое звено (машина не помещается между зебрами) — свободна должна быть и зебра на его дальнем конце,
+      // а следующий перекрёсток — проходим сразу (цепочка)
       const can=(a)=>{const lo=T.route[a][T.ri[a]+1];if(!entryRoom(lo))return false;
         const far=lanes.len[lo]-cwE[lo]<len+1&&cwE[lo]>0&&!crossFree(lanes.to[lo],lo>>1);
-        if(far||!crossFree(v,T.lane[a]>>1)||!crossFree(v,lo>>1)){T.stats.pedYield++;return false}return true};
+        if(far||!crossFree(v,T.lane[a]>>1)||!crossFree(v,lo>>1)){T.stats.pedYield++;return false}
+        return chainFrom(a,T.ri[a])!==null};
       for(const a of appr)if(atLine(a)&&T.waitSince[a]<0)T.waitSince[a]=T.time;
+      // объезд: следующая улица забита давно — свернуть туда, где есть место
+      for(const a of appr){if(!atLine(a)||T.waitSince[a]<0||T.time-T.waitSince[a]<cfg.rerouteAfter||T.time-T.rerouteAt[a]<cfg.rerouteAfter)continue;
+        const li=T.lane[a],nx=T.route[a][T.ri[a]+1];if(entryRoom(nx)&&chainFrom(a,T.ri[a])!==null)continue;T.rerouteAt[a]=T.time;
+        let best=null;for(const lo of out[v]){if(lo===nx||!allowed(li,lo)||!entryRoom(lo)||shortLane(lo)&&lanes.cars[lo].length)continue;const r=plan(lo,0,targetOf(a));if(!r)continue;
+          let c=box(li,lo).len;for(let i=0;i<r.length;i++)c+=lanes.len[r[i]];if(!best||c<best.c)best={c,r}}
+        if(best){T.route[a]=T.route[a].slice(0,T.ri[a]+1).concat(best.r);T.stats.reroutes++}}
       const cand=appr.filter((a)=>atLine(a)&&can(a)&&appr.indexOf(a)===appr.findIndex((b)=>T.lane[b]===T.lane[a]));  // только первая машина полосы
       if(!cand.length)continue;
       // помеха справа: машина с правой стороны, которая хочет и может проехать (или ещё едет к перекрёстку)
@@ -1317,7 +1358,8 @@ function createTraffic(w,A,L){
       if(ok.length<cand.length)T.stats.yieldRight++;
       if(!ok.length){ok=cand;T.stats.deadlockBreaks++}                 // уступают все — едет тот, кто дольше ждёт
       ok.sort((x,y)=>T.waitSince[x]-T.waitSince[y]||x-y);
-      const g=ok[0];T.granted[g]=1;T.nodeOcc[v]=g;if(T.waitSince[g]>=0&&T.time-T.waitSince[g]>1)T.stats.intersectionWaits++;
+      const g=ok[0],ch=chainFrom(g,T.ri[g])||[];T.granted[g]=1;T.nodeOcc[v]=g;   // цепочку — до брони этого узла
+      if(ch.length){T.chain[g]=ch;for(const v2 of ch)T.nodeOcc[v2]=g;T.stats.chains++}if(T.waitSince[g]>=0&&T.time-T.waitSince[g]>1)T.stats.intersectionWaits++;
     }
     // 3. движение: скорость, чтобы успеть остановиться перед препятствием
     const vmax=w.cfg.speed.car,acc=cfg.accel,dec=cfg.decel;
@@ -1329,7 +1371,9 @@ function createTraffic(w,A,L){
       let gap=b.len-T.bs[a]+(c.length?T.s[c[c.length-1]]-len-cfg.minGap:1e9);
       if(T.ri[a]+1===T.route[a].length-1&&!T.exitGate[a])gap=Math.min(gap,b.len-T.bs[a]+slots.sStop[T.tslot[a]]);
       T.v[a]=speed(a,gap);T.bs[a]+=T.v[a]*dt;
-      if(T.bs[a]>=b.len){T.nodeOcc[b.node]=-1;T.state[a]=CAR.LANE;T.ri[a]++;T.granted[a]=0;T.waitSince[a]=-1;T.bk[a]=null;addToLane(a,lo,T.bs[a]-b.len)}}
+      if(T.bs[a]>=b.len){T.nodeOcc[b.node]=-1;T.state[a]=CAR.LANE;T.ri[a]++;T.waitSince[a]=-1;T.bk[a]=null;addToLane(a,lo,T.bs[a]-b.len);
+        // по цепочке: следующий перекрёсток уже забронирован — едет без остановки
+        const ch=T.chain[a];if(ch&&ch.length){ch.shift();T.granted[a]=1;if(!ch.length)T.chain[a]=null}else T.granted[a]=0}}
     // машины на полосах: от передней к задней
     for(let l=0;l<LN;l++){const c=lanes.cars[l];
       for(let i=0;i<c.length;i++){const a=c[i];if(T.state[a]!==CAR.LANE||T.moved[a]===stamp)continue;
@@ -1359,10 +1403,11 @@ function createTraffic(w,A,L){
     // вежливость: машина, которая может ехать, ждёт этой зебры дольше carPatience — сначала пропустить её
     for(const l of inn[v]){const c=lanes.cars[l];if(!c.length)continue;const a=c[0];
       if(!crossing(a)||T.waitSince[a]<0||T.time-T.waitSince[a]<cfg.carPatience)continue;
-      const nx=T.route[a][T.ri[a]+1];if(((l>>1)===e||(nx>>1)===e)&&entryRoom(nx))return false}
+      const nx=T.route[a][T.ri[a]+1];if(((l>>1)===e||(nx>>1)===e)&&entryRoom(nx)&&chainFrom(a,T.ri[a])!==null)return false}
     for(const a of lanes.cars[li]){if(T.s[a]+len/2>lanes.len[li]-cwE[li]-0.3)return false;if(T.granted[a])return false}
     for(const a of lanes.cars[lo])if(T.s[a]-len/2<cwS[lo]+0.3)return false;
     const o=T.nodeOcc[v];if(o>=0&&T.route[o]&&(T.route[o][T.ri[o]+1]===lo||T.route[o][T.ri[o]]===li))return false;
+    if(o>=0&&T.chain[o]&&T.chain[o].includes(v))return false;   // перекрёсток забронирован машиной, идущей по цепочке
     // короткое звено: машина, которой разрешили въехать на него с дальнего перекрёстка, сразу окажется на этой зебре
     if(lanes.len[li]-cwE[li]<len+1){const o2=T.nodeOcc[lanes.from[li]];if(o2>=0&&T.route[o2]&&T.route[o2][T.ri[o2]+1]===li)return false}
     return true;
@@ -1374,6 +1419,10 @@ function createTraffic(w,A,L){
     if(manStamp!==T.stepNo){manStamp=T.stepNo;man=[];for(const a of T.active){const st=T.state[a];if(st===CAR.PARK_IN||st===CAR.PARK_OUT){const P=T.pose(a);man.push({x:P.x,y:P.y,h:P.h,r:{}})}}}
     if(!man.length)return false;
     for(const c of man){if(Math.abs(c.x-x)>len||Math.abs(c.y-y)>len)continue;const r=c.r[m]||(c.r[m]=carRect([c.x,c.y],c.h,m));if(inPoly([x,y],r))return true}return false};
+  // почему машине a не дают въехать на перекрёсток (для отладки и проверок)
+  T.why=function(a){const l=T.lane[a],v=lanes.to[l],r=T.route[a];if(!r)return 'нет маршрута';const lo=r[T.ri[a]+1];
+    return {node:v,occ:T.nodeOcc[v],atLine:stopS(l)-T.s[a],entry:lo!=null&&entryRoom(lo),crossIn:crossFree(v,l>>1),crossOut:lo!=null&&crossFree(v,lo>>1),
+      far:lo!=null&&lanes.len[lo]-cwE[lo]<len+1&&cwE[lo]>0&&!crossFree(lanes.to[lo],lo>>1),chain:lo!=null?chainFrom(a,T.ri[a]):null,crossing:crossing(a),approach:lanes.len[l]-T.s[a]}};
   // нужно ли считать шаги: есть ли машины в движении или ждущие
   T.busy=function(){return T.active.length>0};
 
@@ -1736,7 +1785,9 @@ function agentPositions(now){
   const pos=new Array(A.n),here=new Map();
   for(let a=0;a<A.n;a++){if(BIG&&L.act[a]!==ACT.TRAVEL&&a!==sel)continue;   // в большом районе — только те, кто на улице, и выбранный
     if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds&&sim.peds.state[a]===PED.BEYOND){const g=geo.gateOfPlace(W.places.kind[L.to[a]]===KIND.OUTSIDE?L.to[a]:L.from[a]);if(g){pos[a]=[g.box[0]+((a%5)-2)*5.5,g.box[1]+2];continue}}if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds){const P=sim.peds.pose(a);if(P){pos[a]=[P.x,P.y];dirs[a]=[Math.cos(P.h),Math.sin(P.h)];continue}}
-    if(L.act[a]===ACT.TRAVEL){const c=carPose(a);if(c){pos[a]=c.p;continue}const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
+    // пешеход только что дошёл (жизнь отметит прибытие в начале минуты) — стоит, где дошёл
+    if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds){pos[a]=[sim.peds.x[a],sim.peds.y[a]];continue}
+    if(L.act[a]===ACT.TRAVEL){const c=carPose(a);if(c){pos[a]=c.p;continue}if(sim.traffic)continue;const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
   for(const [p,list] of here){const c=center(p),out=W.places.kind[p]===KIND.OUTSIDE;
     list.forEach((a,i)=>{if(list.length===1&&!out){pos[a]=c;return}
       if(out){const cols=4,row=Math.floor(i/cols),col=i%cols;pos[a]=[c[0]+(col-1.5)*6.5,c[1]-4+row*6.5];return}
@@ -1759,7 +1810,8 @@ function carPose(a){
   const A0=path[i],B0=path[i+1],k=seg[i]?d/seg[i]:0,h=Math.atan2(B0[1]-A0[1],B0[0]-A0[0])+(T.outbound[a]?0:Math.PI);
   return {p:[A0[0]+(B0[0]-A0[0])*k,A0[1]+(B0[1]-A0[1])*k],h};
 }
-function carPoses(){const out=new Array(A.n);for(let a=0;a<A.n;a++)if(A.car[a])out[a]=carPose(a);return out}
+// в большом районе машины в Городе — за картой, их не рисуем (иначе сотни в одной точке у выезда)
+function carPoses(){const out=new Array(A.n),T=sim.traffic;for(let a=0;a<A.n;a++)if(A.car[a]&&!(BIG&&T&&(T.state[a]===CAR.CITY||T.state[a]===CAR.OUT&&!carPose(a))))out[a]=carPose(a);return out}
 let lastPos=[];
 // 2D — те же цвета, что в редакторе дорог (общая палитра City3D.COLORS);
 // карта одинаковая в обеих темах страницы, как бумажная
@@ -1840,7 +1892,7 @@ function draw3D(now){
   if(!V3.view)return;
   const pos=agentPositions(now);lastPos=pos;
   const cars=carPoses();
-  V3.view.setMarkers(pos.map((p,a)=>{if(!p&&!cars[a])return null;const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
+  V3.view.setMarkers(Array.from({length:A.n},(_,a)=>{const p=pos[a];if(!p&&!cars[a])return null;const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
     if(!p){const c=cars[a];return {car:{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}}}   // стоящая машина того, кто дома
     // кружок — над крышей своего места; в пути — над своей машиной или над головой пешехода
     const walk=tr&&L.mode[a]===MODE.WALK;
@@ -1848,7 +1900,7 @@ function draw3D(now){
     const c=cars[a],d=dirs[a]||[1,0];
     return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:BIG&&a!==sel?null:String(a+1),selected:a===sel,
       car:c?{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}:null,
-      person:walk&&!(sim.peds&&sim.peds.state[a]===PED.BEYOND)?{x:p[0]*U,y:p[1]*U,heading:Math.atan2(d[1],d[0]),color:SHIRTS[a%SHIRTS.length]}:null}}));
+      person:walk&&!(sim.peds&&sim.peds.state[a]===PED.BEYOND)?{x:p[0]*U,y:p[1]*U,heading:Math.atan2(d[1],d[0]),color:SHIRTS[a%SHIRTS.length]}:null}}));   // все жители подряд (у pos дыры — map бы их пропустил)
   V3.view.render();
 }
 function draw(now){if(V3.on&&V3.view)draw3D(now);else if(!V3.on)draw2D(now)}
@@ -1949,6 +2001,6 @@ $('play').setAttribute('aria-pressed',String(playing));$('play').textContent=pla
 start(1);requestAnimationFrame(frame);
 $('legend-note').hidden=true;
 // для проверок: перемотать на игровое время (секунды от полуночи первого дня)
-window.__viewer={seek:(sec)=>{advanceSeconds(sim,Math.max(0,sec-simSeconds(sim)));updatePanels();draw(nowT())},speed:(m)=>{mps=m},sim:()=>sim};
+window.__viewer={seek:(sec)=>{advanceSeconds(sim,Math.max(0,sec-simSeconds(sim)));updatePanels();draw(nowT())},speed:(m)=>{mps=m},sim:()=>sim,v3:()=>V3.view};
 })();
 </script>

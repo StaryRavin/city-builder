@@ -12,6 +12,14 @@
  * своим местом парковки. Разгон 2 м/с², торможение до 3 м/с², скорость до
  * cfg.speed.car. Обгонов и смены полос нет — на полосе машины идут по очереди.
  *
+ * Короткое звено (на нём помещается не больше одной ждущей машины) — часть
+ * перекрёстка: въехать на него можно, только если сразу можно проехать и
+ * следующий перекрёсток; он бронируется заранее (цепочка), и связка
+ * проходится без остановки. Иначе треугольник из коротких улиц запирается:
+ * на каждой по машине, каждая ждёт следующую.
+ * Объезд: машина ждёт у перекрёстка дольше rerouteAfter, потому что следующая
+ * улица забита, — сворачивает туда, где есть место, и строит путь оттуда
+ * (иначе кольцо забитых улиц запирается насовсем).
  * Перекрёстки (равнозначные, как в Европе без знаков):
  *   - на перекрёстке одновременно не больше одной машины;
  *   - въезжать можно, только если на полосе выезда есть место (перекрёсток
@@ -73,8 +81,10 @@ export function createTraffic(w,A,L){
   // переходы через перекрёсток: кривая (квадратичная Безье) от конца полосы к началу следующей
   const boxes=new Map();
   function lanePt(l,s){return [lanes.x0[l]+lanes.dx[l]*s,lanes.y0[l]+lanes.dy[l]*s]}
-  // разворот — только в тупике (и у ворот: машина, которой не в Город, разворачивается перед ними)
-  function allowed(li,lo){if(lanes.to[li]!==lanes.from[lo])return false;if(lo!==reverse(li))return true;return deg[lanes.to[li]]===1}
+  // разворот — только в тупике; у ворот — только машине, которая стоит на полосе к ним (start)
+  // и едет не в Город: использовать выезд как место для разворота посреди пути нельзя
+  function allowed(li,lo,start){if(lanes.to[li]!==lanes.from[lo])return false;if(lo!==reverse(li))return true;
+    const v=lanes.to[li];return deg[v]===1&&(!gateNode[v]||start===undefined||li===start)}
   function box(li,lo){
     const k=li*LN+lo;let b=boxes.get(k);if(b)return b;
     const v=lanes.to[li],P0=lanePt(li,lanes.len[li]),P1=lanePt(lo,0),d0=[lanes.dx[li],lanes.dy[li]],d1=[lanes.dx[lo],lanes.dy[lo]];
@@ -188,9 +198,9 @@ export function createTraffic(w,A,L){
     route:new Array(n).fill(null),ri:new Int32Array(n),exitGate:new Uint8Array(n),outT:new Float64Array(n),outTotal:new Float64Array(n),
     outbound:new Uint8Array(n),mp:new Float64Array(n),granted:new Uint8Array(n),waitSince:new Float64Array(n).fill(-1),
     dest:new Int32Array(n).fill(-1),origin:new Int32Array(n).fill(-1),nodeOcc:new Int32Array(N).fill(-1),
-    stepNo:0,moved:new Int32Array(n),
+    stepNo:0,moved:new Int32Array(n),chain:new Array(n).fill(null),rerouteAt:new Float64Array(n).fill(-1e9),
     active:[],   // машины не на стоянке (едут, паркуются, за выездом) — шаг считает только их
-    stats:{trips:0,arrivals:0,noSpotWaits:0,pedYield:0,intersectionWaits:0,yieldRight:0,deadlockBreaks:0,mergeWaits:0,maxTripSec:0},tripStart:new Float64Array(n)};
+    stats:{trips:0,arrivals:0,noSpotWaits:0,pedYield:0,chains:0,reroutes:0,intersectionWaits:0,yieldRight:0,deadlockBreaks:0,mergeWaits:0,maxTripSec:0},tripStart:new Float64Array(n)};
 
   // ближайшее свободное место к зданию (по прямой до его центра)
   function nearestSlot(p,except){
@@ -211,7 +221,7 @@ export function createTraffic(w,A,L){
     dist[l0]=lanes.len[l0]-s0;H.push(dist[l0],l0);let best=Infinity,last=-1,lastPrev=-1;   // последняя полоса маршрута и откуда на неё въехали
     while(H.size){const [du,u]=H.pop();if(done[u]||du>dist[u])continue;
       if(du>=best)break;done[u]=1;
-      for(const lo of out[lanes.to[u]]){if(!allowed(u,lo))continue;const bl=box(u,lo).len;
+      for(const lo of out[lanes.to[u]]){if(!allowed(u,lo,l0))continue;const bl=box(u,lo).len;
         if(target.lane===lo&&du+bl+target.s<best){best=du+bl+target.s;last=lo;lastPrev=u}
         if(target.gate!=null&&lanes.to[lo]===target.gate&&du+bl+lanes.len[lo]<best){best=du+bl+lanes.len[lo];last=lo;lastPrev=u}
         const c=du+bl+lanes.len[lo];if(!done[lo]&&c<dist[lo]){dist[lo]=c;prev[lo]=u;H.push(c,lo)}}}
@@ -245,6 +255,19 @@ export function createTraffic(w,A,L){
   // подъезжает ли машина к перекрёстку (ей нужно пересечь узел в конце полосы)
   function crossing(a){return T.state[a]===CAR.LANE&&T.route[a]&&T.ri[a]<T.route[a].length-1}
 
+  // короткое звено: на нём помещается не больше одной ждущей машины (вторая не может въехать,
+  // пока первая стоит) — такие звенья в кольце запираются, поэтому их проезжают цепочкой
+  const shortLane=(l)=>stopS(l)<cwS[l]+1.5*len+cfg.minGap+0.3;
+  // какие следующие перекрёстки машина a должна забронировать, въезжая на полосу route[ri+1]:
+  // [] — не нужно (звено обычное или последнее), null — сейчас нельзя
+  function chainFrom(a,ri,seen){
+    const r=T.route[a],lo=r[ri+1];if(ri+1>=r.length-1||!shortLane(lo))return [];
+    seen=seen||[lanes.to[r[ri]]];
+    const v2=lanes.to[lo],lo2=r[ri+2];
+    if(seen.includes(v2))return [];   // путь возвращается на перекрёсток цепочки — дальше без брони, обычным порядком
+    if(T.nodeOcc[v2]>=0||lanes.cars[lo].length||!entryRoom(lo2)||!crossFree(v2,lo>>1)||!crossFree(v2,lo2>>1))return null;
+    const rest=chainFrom(a,ri+1,[...seen,v2]);return rest===null?null:[v2,...rest];
+  }
   // впереди машина собирается сдать назад к бордюру — держаться на место дальше
   function reversing(b){const sl=T.tslot[b];if(sl<0||slots.kind[sl]!==0)return 0;
     if(T.state[b]===CAR.PARK_IN)return cfg.slotLength;
@@ -286,11 +309,19 @@ export function createTraffic(w,A,L){
       if(!appr.length)continue;
       const atLine=(a)=>stopS(T.lane[a])-T.s[a]<=1.0;
       // на перекрёсток — только если есть место на выезде и обе зебры (въезда и выезда) свободны
-      // короткое звено (машина не помещается между зебрами) — свободна должна быть и зебра на его дальнем конце
+      // короткое звено (машина не помещается между зебрами) — свободна должна быть и зебра на его дальнем конце,
+      // а следующий перекрёсток — проходим сразу (цепочка)
       const can=(a)=>{const lo=T.route[a][T.ri[a]+1];if(!entryRoom(lo))return false;
         const far=lanes.len[lo]-cwE[lo]<len+1&&cwE[lo]>0&&!crossFree(lanes.to[lo],lo>>1);
-        if(far||!crossFree(v,T.lane[a]>>1)||!crossFree(v,lo>>1)){T.stats.pedYield++;return false}return true};
+        if(far||!crossFree(v,T.lane[a]>>1)||!crossFree(v,lo>>1)){T.stats.pedYield++;return false}
+        return chainFrom(a,T.ri[a])!==null};
       for(const a of appr)if(atLine(a)&&T.waitSince[a]<0)T.waitSince[a]=T.time;
+      // объезд: следующая улица забита давно — свернуть туда, где есть место
+      for(const a of appr){if(!atLine(a)||T.waitSince[a]<0||T.time-T.waitSince[a]<cfg.rerouteAfter||T.time-T.rerouteAt[a]<cfg.rerouteAfter)continue;
+        const li=T.lane[a],nx=T.route[a][T.ri[a]+1];if(entryRoom(nx)&&chainFrom(a,T.ri[a])!==null)continue;T.rerouteAt[a]=T.time;
+        let best=null;for(const lo of out[v]){if(lo===nx||!allowed(li,lo)||!entryRoom(lo)||shortLane(lo)&&lanes.cars[lo].length)continue;const r=plan(lo,0,targetOf(a));if(!r)continue;
+          let c=box(li,lo).len;for(let i=0;i<r.length;i++)c+=lanes.len[r[i]];if(!best||c<best.c)best={c,r}}
+        if(best){T.route[a]=T.route[a].slice(0,T.ri[a]+1).concat(best.r);T.stats.reroutes++}}
       const cand=appr.filter((a)=>atLine(a)&&can(a)&&appr.indexOf(a)===appr.findIndex((b)=>T.lane[b]===T.lane[a]));  // только первая машина полосы
       if(!cand.length)continue;
       // помеха справа: машина с правой стороны, которая хочет и может проехать (или ещё едет к перекрёстку)
@@ -300,7 +331,8 @@ export function createTraffic(w,A,L){
       if(ok.length<cand.length)T.stats.yieldRight++;
       if(!ok.length){ok=cand;T.stats.deadlockBreaks++}                 // уступают все — едет тот, кто дольше ждёт
       ok.sort((x,y)=>T.waitSince[x]-T.waitSince[y]||x-y);
-      const g=ok[0];T.granted[g]=1;T.nodeOcc[v]=g;if(T.waitSince[g]>=0&&T.time-T.waitSince[g]>1)T.stats.intersectionWaits++;
+      const g=ok[0],ch=chainFrom(g,T.ri[g])||[];T.granted[g]=1;T.nodeOcc[v]=g;   // цепочку — до брони этого узла
+      if(ch.length){T.chain[g]=ch;for(const v2 of ch)T.nodeOcc[v2]=g;T.stats.chains++}if(T.waitSince[g]>=0&&T.time-T.waitSince[g]>1)T.stats.intersectionWaits++;
     }
     // 3. движение: скорость, чтобы успеть остановиться перед препятствием
     const vmax=w.cfg.speed.car,acc=cfg.accel,dec=cfg.decel;
@@ -312,7 +344,9 @@ export function createTraffic(w,A,L){
       let gap=b.len-T.bs[a]+(c.length?T.s[c[c.length-1]]-len-cfg.minGap:1e9);
       if(T.ri[a]+1===T.route[a].length-1&&!T.exitGate[a])gap=Math.min(gap,b.len-T.bs[a]+slots.sStop[T.tslot[a]]);
       T.v[a]=speed(a,gap);T.bs[a]+=T.v[a]*dt;
-      if(T.bs[a]>=b.len){T.nodeOcc[b.node]=-1;T.state[a]=CAR.LANE;T.ri[a]++;T.granted[a]=0;T.waitSince[a]=-1;T.bk[a]=null;addToLane(a,lo,T.bs[a]-b.len)}}
+      if(T.bs[a]>=b.len){T.nodeOcc[b.node]=-1;T.state[a]=CAR.LANE;T.ri[a]++;T.waitSince[a]=-1;T.bk[a]=null;addToLane(a,lo,T.bs[a]-b.len);
+        // по цепочке: следующий перекрёсток уже забронирован — едет без остановки
+        const ch=T.chain[a];if(ch&&ch.length){ch.shift();T.granted[a]=1;if(!ch.length)T.chain[a]=null}else T.granted[a]=0}}
     // машины на полосах: от передней к задней
     for(let l=0;l<LN;l++){const c=lanes.cars[l];
       for(let i=0;i<c.length;i++){const a=c[i];if(T.state[a]!==CAR.LANE||T.moved[a]===stamp)continue;
@@ -342,10 +376,11 @@ export function createTraffic(w,A,L){
     // вежливость: машина, которая может ехать, ждёт этой зебры дольше carPatience — сначала пропустить её
     for(const l of inn[v]){const c=lanes.cars[l];if(!c.length)continue;const a=c[0];
       if(!crossing(a)||T.waitSince[a]<0||T.time-T.waitSince[a]<cfg.carPatience)continue;
-      const nx=T.route[a][T.ri[a]+1];if(((l>>1)===e||(nx>>1)===e)&&entryRoom(nx))return false}
+      const nx=T.route[a][T.ri[a]+1];if(((l>>1)===e||(nx>>1)===e)&&entryRoom(nx)&&chainFrom(a,T.ri[a])!==null)return false}
     for(const a of lanes.cars[li]){if(T.s[a]+len/2>lanes.len[li]-cwE[li]-0.3)return false;if(T.granted[a])return false}
     for(const a of lanes.cars[lo])if(T.s[a]-len/2<cwS[lo]+0.3)return false;
     const o=T.nodeOcc[v];if(o>=0&&T.route[o]&&(T.route[o][T.ri[o]+1]===lo||T.route[o][T.ri[o]]===li))return false;
+    if(o>=0&&T.chain[o]&&T.chain[o].includes(v))return false;   // перекрёсток забронирован машиной, идущей по цепочке
     // короткое звено: машина, которой разрешили въехать на него с дальнего перекрёстка, сразу окажется на этой зебре
     if(lanes.len[li]-cwE[li]<len+1){const o2=T.nodeOcc[lanes.from[li]];if(o2>=0&&T.route[o2]&&T.route[o2][T.ri[o2]+1]===li)return false}
     return true;
@@ -357,6 +392,10 @@ export function createTraffic(w,A,L){
     if(manStamp!==T.stepNo){manStamp=T.stepNo;man=[];for(const a of T.active){const st=T.state[a];if(st===CAR.PARK_IN||st===CAR.PARK_OUT){const P=T.pose(a);man.push({x:P.x,y:P.y,h:P.h,r:{}})}}}
     if(!man.length)return false;
     for(const c of man){if(Math.abs(c.x-x)>len||Math.abs(c.y-y)>len)continue;const r=c.r[m]||(c.r[m]=carRect([c.x,c.y],c.h,m));if(inPoly([x,y],r))return true}return false};
+  // почему машине a не дают въехать на перекрёсток (для отладки и проверок)
+  T.why=function(a){const l=T.lane[a],v=lanes.to[l],r=T.route[a];if(!r)return 'нет маршрута';const lo=r[T.ri[a]+1];
+    return {node:v,occ:T.nodeOcc[v],atLine:stopS(l)-T.s[a],entry:lo!=null&&entryRoom(lo),crossIn:crossFree(v,l>>1),crossOut:lo!=null&&crossFree(v,lo>>1),
+      far:lo!=null&&lanes.len[lo]-cwE[lo]<len+1&&cwE[lo]>0&&!crossFree(lanes.to[lo],lo>>1),chain:lo!=null?chainFrom(a,T.ri[a]):null,crossing:crossing(a),approach:lanes.len[l]-T.s[a]}};
   // нужно ли считать шаги: есть ли машины в движении или ждущие
   T.busy=function(){return T.active.length>0};
 

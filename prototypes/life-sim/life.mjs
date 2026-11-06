@@ -38,6 +38,8 @@ export const MODE={CAR:0,WALK:1};
  *     каждого свой, 120–450 м), иначе на машине, но только если она здесь;
  *     машина осталась в другом месте — пешком.
  * В Город, а машина не здесь: сначала дойти до неё пешком (travel).
+ * Домой, а машина не дома и не здесь (уехал на ней, потом ходил пешком):
+ * сначала дойти до машины и вернуться на ней — машины не теряются.
  */
 function walkDist(w,L,from,to){return L.walkDist?L.walkDist(from,to):distance(w,from,to)}
 export function modeFor(w,A,L,a,from,to){
@@ -45,6 +47,7 @@ export function modeFor(w,A,L,a,from,to){
   if(pl.kind[to]===KIND.OUTSIDE||pl.kind[from]===KIND.OUTSIDE)
     return w.cfg.outside.carOnly||(A.car[a]&&L.carAt[a]===from)?MODE.CAR:MODE.WALK;
   if(!A.car[a]||L.carAt[a]!==from)return MODE.WALK;
+  if(to===A.home[a])return MODE.CAR;   // машина здесь, а сам — домой: машину домой (иначе так и останется стоять)
   return walkDist(w,L,from,to)>L.walkMax[a]?MODE.CAR:MODE.WALK;
 }
 // время в пути для решений (когда выезжать, какой магазин ближе), с
@@ -82,6 +85,7 @@ export function createLife(w,A,rng){
     walkDist:null,                // длина пешего пути по тротуарам (задаёт peds.mjs)
     eatOut:new Uint8Array(n),     // ест в кафе и занимает там место
     cafeLove:new Float64Array(n), // насколько любит обедать в кафе (0…1)
+    early:new Float64Array(n),    // на сколько часов раньше нужного выезжает на работу
     shopList:[],cafeList:[],      // где покупают еду домой; где едят
   };
   // часы работы: свои у места (заведения Дорчола) или по виду места
@@ -96,7 +100,7 @@ export function createLife(w,A,rng){
     L.owed[a]=A.job[a]>=0?2+rng.next():0;
     L.food[a]=2+rng.int(5);
     L.carAt[a]=A.home[a];L.walkMax[a]=cfg.peds.walkMin+(cfg.peds.walkMax-cfg.peds.walkMin)*rng.next();
-    L.cafeLove[a]=rng.next();
+    L.cafeLove[a]=rng.next();L.early[a]=cfg.needs.earlyMax/60*rng.next();
   }
   return L;
 }
@@ -133,6 +137,8 @@ function travel(w,A,L,a,dest,intent){
   const from=L.at[a];
   // в Город, а машина в другом месте — сначала к машине пешком (на месте решит снова)
   if(w.places.kind[dest]===KIND.OUTSIDE&&w.cfg.outside.carOnly&&L.carAt[a]!==from&&L.carAt[a]>=0){dest=L.carAt[a];intent=ACT.IDLE}
+  // домой — с машиной: она осталась в другом месте — сначала за ней (на месте решит снова)
+  else if(dest===A.home[a]&&A.car[a]&&L.carAt[a]>=0&&L.carAt[a]!==from&&L.carAt[a]!==dest){dest=L.carAt[a];intent=ACT.IDLE}
   const mode=modeFor(w,A,L,a,from,dest);
   L.from[a]=from;L.to[a]=dest;L.at[a]=-1;L.intent[a]=intent;L.depart[a]=L.tick;L.mode[a]=mode;
   if(L.trips){L.arrive[a]=2147483647;L.trips.push(a)}
@@ -164,7 +170,8 @@ function choose(w,A,L,a,h){
   // на месте работы — вернуться к работе, если должен хотя бы 15 мин; ехать из другого места — если должен workMinOwed часов
   if(j>=0&&L.owed[a]>(here===j?0.25:nd.workMinOwed)){
     const tt=tripSeconds(w,A,L,a,here,j)/3600;
-    if(h+tt>=L.open[j]&&h+tt<L.close[j]-0.5)return [ACT.WORK,j];
+    if(here===j&&!isOpen(L,j,h)){if(h<L.open[j]&&L.open[j]-h<1)return [ACT.IDLE,here]}   // приехал заранее — ждёт открытия
+    else if(h+tt+L.early[a]>=L.open[j]&&h+tt<L.close[j]-0.5)return [ACT.WORK,j];
   }
   // магазин — когда дома мало еды
   if(L.food[a]<=nd.shopAt){const s=nearestShop(w,A,L,a,here,h);if(s>=0)return [ACT.SHOP,s]}
@@ -196,7 +203,7 @@ export function step(w,A,L){
       L.at[a]=L.to[a];L.to[a]=-1;L.act[a]=ACT.IDLE;if(L.mode[a]===MODE.CAR)L.carAt[a]=L.at[a];
       const it=L.intent[a],p=L.at[a];
       if((it===ACT.SHOP||it===ACT.EAT&&w.places.kind[p]===KIND.CAFE&&A.job[a]!==p)&&(L.shoppers[p]>=w.places.visitors[p]||!isOpen(L,p,h))){}  // занято или закрыто — выберет снова
-      else if(it===ACT.WORK&&!isOpen(L,p,h)){}
+      else if(it===ACT.WORK&&!isOpen(L,p,h)){}   // закрыто (приехал заранее — подождёт на месте, см. выбор)
       else if(it!==ACT.IDLE){startAct(w,A,L,a,it);continue}
       else setAct(L,a,ACT.IDLE,p,-1);
     }

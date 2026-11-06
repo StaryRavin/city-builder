@@ -240,7 +240,9 @@ function agentPositions(now){
   const pos=new Array(A.n),here=new Map();
   for(let a=0;a<A.n;a++){if(BIG&&L.act[a]!==ACT.TRAVEL&&a!==sel)continue;   // в большом районе — только те, кто на улице, и выбранный
     if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds&&sim.peds.state[a]===PED.BEYOND){const g=geo.gateOfPlace(W.places.kind[L.to[a]]===KIND.OUTSIDE?L.to[a]:L.from[a]);if(g){pos[a]=[g.box[0]+((a%5)-2)*5.5,g.box[1]+2];continue}}if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds){const P=sim.peds.pose(a);if(P){pos[a]=[P.x,P.y];dirs[a]=[Math.cos(P.h),Math.sin(P.h)];continue}}
-    if(L.act[a]===ACT.TRAVEL){const c=carPose(a);if(c){pos[a]=c.p;continue}const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
+    // пешеход только что дошёл (жизнь отметит прибытие в начале минуты) — стоит, где дошёл
+    if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds){pos[a]=[sim.peds.x[a],sim.peds.y[a]];continue}
+    if(L.act[a]===ACT.TRAVEL){const c=carPose(a);if(c){pos[a]=c.p;continue}if(sim.traffic)continue;const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
   for(const [p,list] of here){const c=center(p),out=W.places.kind[p]===KIND.OUTSIDE;
     list.forEach((a,i)=>{if(list.length===1&&!out){pos[a]=c;return}
       if(out){const cols=4,row=Math.floor(i/cols),col=i%cols;pos[a]=[c[0]+(col-1.5)*6.5,c[1]-4+row*6.5];return}
@@ -263,7 +265,8 @@ function carPose(a){
   const A0=path[i],B0=path[i+1],k=seg[i]?d/seg[i]:0,h=Math.atan2(B0[1]-A0[1],B0[0]-A0[0])+(T.outbound[a]?0:Math.PI);
   return {p:[A0[0]+(B0[0]-A0[0])*k,A0[1]+(B0[1]-A0[1])*k],h};
 }
-function carPoses(){const out=new Array(A.n);for(let a=0;a<A.n;a++)if(A.car[a])out[a]=carPose(a);return out}
+// в большом районе машины в Городе — за картой, их не рисуем (иначе сотни в одной точке у выезда)
+function carPoses(){const out=new Array(A.n),T=sim.traffic;for(let a=0;a<A.n;a++)if(A.car[a]&&!(BIG&&T&&(T.state[a]===CAR.CITY||T.state[a]===CAR.OUT&&!carPose(a))))out[a]=carPose(a);return out}
 let lastPos=[];
 // 2D — те же цвета, что в редакторе дорог (общая палитра City3D.COLORS);
 // карта одинаковая в обеих темах страницы, как бумажная
@@ -344,7 +347,7 @@ function draw3D(now){
   if(!V3.view)return;
   const pos=agentPositions(now);lastPos=pos;
   const cars=carPoses();
-  V3.view.setMarkers(pos.map((p,a)=>{if(!p&&!cars[a])return null;const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
+  V3.view.setMarkers(Array.from({length:A.n},(_,a)=>{const p=pos[a];if(!p&&!cars[a])return null;const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
     if(!p){const c=cars[a];return {car:{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}}}   // стоящая машина того, кто дома
     // кружок — над крышей своего места; в пути — над своей машиной или над головой пешехода
     const walk=tr&&L.mode[a]===MODE.WALK;
@@ -352,7 +355,7 @@ function draw3D(now){
     const c=cars[a],d=dirs[a]||[1,0];
     return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:BIG&&a!==sel?null:String(a+1),selected:a===sel,
       car:c?{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}:null,
-      person:walk&&!(sim.peds&&sim.peds.state[a]===PED.BEYOND)?{x:p[0]*U,y:p[1]*U,heading:Math.atan2(d[1],d[0]),color:SHIRTS[a%SHIRTS.length]}:null}}));
+      person:walk&&!(sim.peds&&sim.peds.state[a]===PED.BEYOND)?{x:p[0]*U,y:p[1]*U,heading:Math.atan2(d[1],d[0]),color:SHIRTS[a%SHIRTS.length]}:null}}));   // все жители подряд (у pos дыры — map бы их пропустил)
   V3.view.render();
 }
 function draw(now){if(V3.on&&V3.view)draw3D(now);else if(!V3.on)draw2D(now)}
@@ -453,6 +456,6 @@ $('play').setAttribute('aria-pressed',String(playing));$('play').textContent=pla
 start(1);requestAnimationFrame(frame);
 $('legend-note').hidden=true;
 // для проверок: перемотать на игровое время (секунды от полуночи первого дня)
-window.__viewer={seek:(sec)=>{advanceSeconds(sim,Math.max(0,sec-simSeconds(sim)));updatePanels();draw(nowT())},speed:(m)=>{mps=m},sim:()=>sim};
+window.__viewer={seek:(sec)=>{advanceSeconds(sim,Math.max(0,sec-simSeconds(sim)));updatePanels();draw(nowT())},speed:(m)=>{mps=m},sim:()=>sim,v3:()=>V3.view};
 })();
 </script>

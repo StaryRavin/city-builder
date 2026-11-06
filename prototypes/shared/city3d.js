@@ -238,8 +238,9 @@ function partsOf(){var T=THREE;
 function makePool(parts,cap,C,group){
   var T=THREE,meshes=parts.map(function(p){var reps=Array.isArray(p.at[0])?p.at:[p.at];
     var m=new T.InstancedMesh(p.g,new T.MeshLambertMaterial({color:p.tint?0xffffff:C(p.color)}),cap*reps.length);m.instanceMatrix.setUsage(T.DynamicDrawUsage);
-    m.count=0;m.frustumCulled=false;var local=reps.map(function(a){var M=new T.Matrix4().makeTranslation(a[0],a[1],a[2]);if(p.rx)M.multiply(new T.Matrix4().makeRotationX(p.rx));return M});
+    // цвета — до count=0: three.js r128 заводит буфер цветов по текущему count
     if(p.tint){var w=new T.Color(1,1,1);for(var i=0;i<cap;i++)m.setColorAt(i,w)}
+    m.count=0;m.frustumCulled=false;var local=reps.map(function(a){var M=new T.Matrix4().makeTranslation(a[0],a[1],a[2]);if(p.rx)M.multiply(new T.Matrix4().makeRotationX(p.rx));return M});
     group.add(m);return {m:m,local:local,tint:!!p.tint}});
   return {cap:cap,meshes:meshes};
 }
@@ -314,7 +315,7 @@ rotate:function(d){V.bearing+=d;render()},
 zoom:function(f){V.dist=Math.max(80,Math.min(6000,V.dist/f));render()},
 toggleTilt:function(){V.elev=V.elev===60?30:60;render();return V.elev},
 get elev(){return V.elev},
-dom:cv
+dom:cv,_v:V
 };
 cv.addEventListener('contextmenu',function(e){e.preventDefault()});
 cv.addEventListener('pointerdown',function(e){try{cv.setPointerCapture(e.pointerId)}catch(_){}

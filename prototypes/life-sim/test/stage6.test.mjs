@@ -38,3 +38,15 @@ test('Дорчол: сутки с проверками на каждом шаг�
   assert.ok(toCity.some((e)=>e[4]===MODE.WALK)&&toCity.some((e)=>e[4]===MODE.CAR));
   assert.ok(T.pedYield>0&&P.crossWaits>0);
 });
+
+test('Дорчол: три ночи подряд в 2:00 все дома, все машины у домов хозяев, на дорогах никого',()=>{
+  // машина не «теряется»: кто уехал на ней, потом ходил пешком, домой возвращается за ней и на ней
+  const sim=make(2),L=sim.life,A=sim.agents,T=sim.traffic,P=sim.peds;
+  for(let d=1;d<=3;d++){
+    advance(sim,d===1?26*60:24*60);
+    let notHome=0,carAway=0;for(let a=0;a<A.n;a++){if(L.at[a]!==A.home[a])notHome++;if(A.car[a]&&L.carAt[a]!==A.home[a])carAway++}
+    assert.equal(notHome,0,`ночь ${d}: не дома ${notHome}`);
+    assert.equal(carAway,0,`ночь ${d}: машин не у дома хозяина ${carAway}`);
+    assert.equal(T.active.length+P.active.length,0,`ночь ${d}: на улицах кто-то есть`);
+  }
+});
