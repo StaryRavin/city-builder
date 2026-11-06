@@ -20,7 +20,9 @@
  *   crosswalks     — {unit, skip:[[x,y]]}: рисовать зебры у концов звеньев (кроме skip);
  *   gates          — [{at:[x,y], dir:[dx,dy], ok}] выезды во внешний мир;
  *   areas          — [{poly, color, label}] плоские площадки (например, «Город»).
- * Жители — setMarkers([{x, y, z, color, label, selected, car, person}]).
+ * Жители — setMarkers([{x, y, z, color, label, selected, car, person}]): кружок с номером
+ * (если label задан), машина {x, y, heading, color}, пешеход {x, y, heading, color};
+ * машины и пешеходы рисуются пачками (InstancedMesh) — тысячи сразу.
  */
 (function(){
 'use strict';
@@ -223,34 +225,25 @@ var tx=new THREE.CanvasTexture(cv);tx.encoding=THREE.sRGBEncoding;labelTex[text]
 var L=labelTex[text],sp=new THREE.Sprite(new THREE.SpriteMaterial({map:L.tx,depthTest:false}));sp.scale.set(20*L.aspect,20,1);sp.renderOrder=5;return sp;
 }
 
-// ---------- машина по умолчанию ----------
-// простая модель легковушки (4.5 × 1.9 м): кузов цвета машины, кабина со
-// стёклами, колёса, фары. Ось x — вдоль машины, вперёд — +x.
-var carGeo=null;
-function makeCar(C){
-var T=THREE;
-if(!carGeo)carGeo={body:new T.BoxGeometry(18,3.4,7.6),cabin:new T.BoxGeometry(9,3,6.8),glass:new T.BoxGeometry(9.2,2.2,6.9),
-  wheel:new T.CylinderGeometry(1.7,1.7,1.4,14),lamp:new T.BoxGeometry(0.4,0.9,1.6)};
-var g=new T.Group(),body=new T.MeshLambertMaterial({color:0xffffff}),glass=new T.MeshLambertMaterial({color:C('#2C3A4A')}),tyre=new T.MeshLambertMaterial({color:C('#1E1F22')}),
-  head=new T.MeshBasicMaterial({color:C('#FFF4D0')}),tail=new T.MeshBasicMaterial({color:C('#B5281E')});
-var b=new T.Mesh(carGeo.body,body);b.position.y=3.1;g.add(b);
-var c=new T.Mesh(carGeo.cabin,body);c.position.set(-1.2,6.3,0);g.add(c);
-var w=new T.Mesh(carGeo.glass,glass);w.position.set(-1.2,6.2,0);g.add(w);
-[[5.6,3.9],[5.6,-3.9],[-5.6,3.9],[-5.6,-3.9]].forEach(function(q){var t=new T.Mesh(carGeo.wheel,tyre);t.rotation.x=Math.PI/2;t.position.set(q[0],1.7,q[1]);g.add(t)});
-[2.6,-2.6].forEach(function(z){var h=new T.Mesh(carGeo.lamp,head);h.position.set(9.05,3.6,z);g.add(h);var r=new T.Mesh(carGeo.lamp,tail);r.position.set(-9.05,3.6,z);g.add(r)});
-g.userData={body:body,color:null};return g;
+// ---------- машины и пешеходы: общие модели, рисуются «пачками» (InstancedMesh) ----------
+// Машина по умолчанию (4.5 × 1.9 м): кузов и кабина цвета машины, стёкла, колёса.
+// Пешеход (~1.75 м): ноги, туловище цвета одежды, голова. Ось x — вперёд.
+// Тысячи машин и людей — несколько вызовов отрисовки, а не тысячи объектов.
+function partsOf(){var T=THREE;
+  return {car:[{g:new T.BoxGeometry(18,3.4,7.6),at:[0,3.1,0],tint:1},{g:new T.BoxGeometry(9,3,6.8),at:[-1.2,6.3,0],tint:1},
+      {g:new T.BoxGeometry(9.2,2.2,6.9),at:[-1.2,6.2,0],color:'#2C3A4A'},
+      {g:new T.CylinderGeometry(1.7,1.7,1.4,12),rx:Math.PI/2,at:[[5.6,1.7,3.9],[5.6,1.7,-3.9],[-5.6,1.7,3.9],[-5.6,1.7,-3.9]],color:'#1E1F22'}],
+    person:[{g:new T.CylinderGeometry(0.75,0.6,3.4,8),at:[0,1.7,0],color:'#3A3F4A'},{g:new T.CylinderGeometry(1.0,0.85,2.8,10),at:[0,4.8,0],tint:1},
+      {g:new T.SphereGeometry(0.75,10,8),at:[0,6.75,0],color:'#E2B999'}]}}
+function makePool(parts,cap,C,group){
+  var T=THREE,meshes=parts.map(function(p){var reps=Array.isArray(p.at[0])?p.at:[p.at];
+    var m=new T.InstancedMesh(p.g,new T.MeshLambertMaterial({color:p.tint?0xffffff:C(p.color)}),cap*reps.length);m.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    m.count=0;m.frustumCulled=false;var local=reps.map(function(a){var M=new T.Matrix4().makeTranslation(a[0],a[1],a[2]);if(p.rx)M.multiply(new T.Matrix4().makeRotationX(p.rx));return M});
+    if(p.tint){var w=new T.Color(1,1,1);for(var i=0;i<cap;i++)m.setColorAt(i,w)}
+    group.add(m);return {m:m,local:local,tint:!!p.tint}});
+  return {cap:cap,meshes:meshes};
 }
-
-// ---------- пешеход: простая фигура (ноги, туловище, голова), рост ~1.75 м ----------
-var personGeo=null;
-function makePerson(C){
-var T=THREE;if(!personGeo)personGeo={legs:new T.CylinderGeometry(0.75,0.6,3.4,8),body:new T.CylinderGeometry(1.0,0.85,2.8,10),head:new T.SphereGeometry(0.75,10,8)};
-var g=new T.Group(),cloth=new T.MeshLambertMaterial({color:0xffffff}),pants=new T.MeshLambertMaterial({color:C('#3A3F4A')}),skin=new T.MeshLambertMaterial({color:C('#E2B999')});
-var l=new T.Mesh(personGeo.legs,pants);l.position.y=1.7;g.add(l);
-var b=new T.Mesh(personGeo.body,cloth);b.position.y=4.8;g.add(b);
-var h=new T.Mesh(personGeo.head,skin);h.position.y=6.75;g.add(h);
-g.userData={cloth:cloth,color:null};return g;
-}
+var tmpM=null,tmpB=null,colCache={};
 
 // ---------- вид: сцена, камера, управление ----------
 function createView(el,opts){
@@ -286,7 +279,7 @@ var post=new T.MeshLambertMaterial({color:C('#ECEDEA')}),beam=new T.MeshLambertM
 [-1,1].forEach(function(sd){var m=new T.Mesh(new T.BoxGeometry(4,H,4),post),q=add(P,mul(n,sd*(W+3)));m.position.set(q[0],H/2,q[1]);sc.add(m)});
 var bm=new T.Mesh(new T.BoxGeometry(2*W+10,9,3),beam);bm.position.set(P[0],H-4.5,P[1]);bm.rotation.y=ang;sc.add(bm);
 if(x.label){var sp=textSprite(x.label);sp.position.set(P[0],H+12,P[1]);sc.add(sp)}});
-V.marks=new T.Group();sc.add(V.marks);V.markers=[];V.cars=[];V.people=[];
+V.marks=new T.Group();sc.add(V.marks);V.markers=[];V.pools={};
 V.scene=sc;
 },
 // метки жителей: m = {x, y, z, color, label, selected, car}; кружок с номером
@@ -294,16 +287,25 @@ V.scene=sc;
 // едет; heading — угол направления в плане), null — без машины
 setMarkers:function(list){
 if(!V.marks)return;
-while(V.markers.length<list.length){var sp=new T.Sprite(new T.SpriteMaterial({depthTest:true}));sp.renderOrder=4;V.marks.add(sp);
-var car=makeCar(C);V.marks.add(car);V.markers.push(sp);V.cars.push(car);var pp=makePerson(C);V.marks.add(pp);V.people.push(pp);}
-for(var i=0;i<V.markers.length;i++){var sp2=V.markers[i],car2=V.cars[i],m=list[i];
-var per=V.people[i];per.visible=!!(m&&m.person);
-if(m&&m.person){per.position.set(m.person.x,0,m.person.y);per.rotation.y=-(m.person.heading||0);if(per.userData.color!==m.person.color){per.userData.cloth.color.copy(C(m.person.color));per.userData.color=m.person.color}}
-if(!m){sp2.visible=false;car2.visible=false;continue}
-sp2.visible=true;sp2.material.map=markerTexture(m.color,m.label,m.selected);sp2.material.needsUpdate=true;
-var sz=m.selected?22:17;sp2.scale.set(sz,sz,1);sp2.position.set(m.x,(m.z||0)+8,m.y);
-car2.visible=!!m.car;
-if(m.car){car2.position.set(m.car.x,0,m.car.y);car2.rotation.y=-(m.car.heading||0);if(car2.userData.color!==m.car.color){car2.userData.body.color.copy(C(m.car.color));car2.userData.color=m.car.color}}}
+var labelled=list.filter(function(m){return m&&m.label!=null});
+while(V.markers.length<labelled.length){var sp=new T.Sprite(new T.SpriteMaterial({depthTest:true}));sp.renderOrder=4;V.marks.add(sp);V.markers.push(sp)}
+for(var i=0;i<V.markers.length;i++){var sp2=V.markers[i],m=labelled[i];if(!m){sp2.visible=false;continue}
+  sp2.visible=true;sp2.material.map=markerTexture(m.color,m.label,m.selected);sp2.material.needsUpdate=true;
+  var sz=m.selected?22:17;sp2.scale.set(sz,sz,1);sp2.position.set(m.x,(m.z||0)+8,m.y)}
+// машины и люди — пачками
+var cars=[],people=[];list.forEach(function(m){if(!m)return;if(m.car)cars.push(m.car);if(m.person)people.push(m.person)});
+function fill(kind,items){
+  var pool=V.pools[kind];
+  if(!pool||pool.cap<items.length){if(pool)pool.meshes.forEach(function(x){V.marks.remove(x.m);x.m.dispose&&x.m.dispose()});
+    var cap=64;while(cap<items.length)cap*=2;pool=V.pools[kind]=makePool(partsOf()[kind],cap,C,V.marks)}
+  if(!tmpM){tmpM=new T.Matrix4();tmpB=new T.Matrix4()}
+  pool.meshes.forEach(function(x){var k=0;
+    items.forEach(function(it,ii){tmpB.makeRotationY(-(it.heading||0));tmpB.setPosition(it.x,0,it.y);
+      x.local.forEach(function(L0){tmpM.multiplyMatrices(tmpB,L0);x.m.setMatrixAt(k++,tmpM)});
+      if(x.tint){var c=colCache[it.color]||(colCache[it.color]=C(it.color));x.m.setColorAt(ii,c)}});
+    x.m.count=k;x.m.instanceMatrix.needsUpdate=true;if(x.tint&&x.m.instanceColor)x.m.instanceColor.needsUpdate=true});
+}
+fill('car',cars);fill('person',people);
 },
 // навести камеру на охват b = [x0, y0, x1, y1]; o.k — множитель расстояния (1.25 — с запасом), o.bearing — поворот
 fit:function(b,o){o=o||{};if(o.bearing!=null)V.bearing=o.bearing;if(!b){V.tgt=[340,230];V.dist=700;return}V.tgt=[(b[0]+b[2])/2,(b[1]+b[3])/2];V.dist=Math.max(300,Math.max(b[2]-b[0],b[3]-b[1])*(o.k||1.25)+120)},

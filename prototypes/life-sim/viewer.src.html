@@ -65,10 +65,10 @@ canvas{display:block;width:100%;height:100%;touch-action:manipulation;cursor:poi
 aside{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
 aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:0;padding:10px 12px 6px}
 .ppl{list-style:none;margin:0;padding:0 6px 6px}
-.ppl li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:2px 8px;padding:6px;border-radius:7px;cursor:pointer}
+.ppl li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 8px;padding:6px;border-radius:7px;cursor:pointer}
 .ppl li:hover{background:var(--bg)}
 .ppl li[aria-selected="true"]{background:var(--bg);box-shadow:inset 0 0 0 1px var(--line)}
-.num{grid-row:span 2;width:22px;height:22px;border-radius:50%;color:#fff;font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+.num{grid-row:span 2;min-width:22px;height:22px;padding:0 4px;border-radius:11px;color:#fff;font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
 .who{display:flex;justify-content:space-between;gap:8px;font-size:13px;min-width:0}
 .who .act{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .who .job{color:var(--muted);font-size:12px;white-space:nowrap}
@@ -89,11 +89,12 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
 <div class="app">
   <header>
     <div class="ttl">
-      <h1>Деревня 10</h1>
-      <p class="sub">10 жителей с машинами, лавка, мастерская и выезд в Город. Один шаг симуляции — игровая минута.</p>
+      <h1 id="title">Деревня 10</h1>
+      <p class="sub" id="subtitle"></p>
     </div>
     <div class="clock" aria-live="off"><small id="dayl">День 1</small><span id="time">07:30</span></div>
     <div class="ctl">
+      <div class="seg" role="group" aria-label="Сцена" id="scenes"></div>
       <button id="play" type="button" aria-pressed="true">Пауза</button>
       <div class="seg" role="group" aria-label="Скорость">
         <button type="button" data-mps="0.016666667" aria-pressed="false" title="Реальное время: игровая секунда за секунду">1 с/с</button>
@@ -109,6 +110,7 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
 
   <div class="day" id="day" aria-label="Часы работы мест и текущее время"></div>
   <div class="counts" id="counts"></div>
+  <p class="note" id="status" hidden></p>
 
   <div class="main">
     <div class="mapcol">
@@ -127,7 +129,7 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
       <div class="mapw"><canvas id="map" tabindex="0" aria-label="Карта деревни: дороги, дома и жители"></canvas><div id="v3" hidden></div></div>
     </div>
     <aside>
-      <h2>Жители</h2>
+      <h2 id="pplh">Жители</h2>
       <div class="nlegend"><span>усталость</span><span>голод</span><span>долг работы</span><span>еда</span></div>
       <ul class="ppl" id="ppl" role="listbox" aria-label="Жители"></ul>
     </aside>
@@ -137,7 +139,8 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
     <h2 id="dh">Дневник</h2>
     <ol id="diary"></ol>
   </section>
-  <p class="note">У жителей нет расписания, только потребности: усталость, голод, долг рабочих часов (8 в сутки) и запас еды дома. Расписание есть у мест — их часы работы на полосе выше. По деревне ходят пешком (по тротуарам, через зебры), если недалеко, иначе едут; в Город — только на машине. Нажмите на жителя на карте или в списке, чтобы открыть его дневник.</p>
+  <p class="note" id="legend-note">Точки у фасадов в Дорчоле: малиновые — кафе и рестораны, синие — продуктовые магазины, жёлтые — банки, офисы, учреждения и другие места работы. Данные © участники OpenStreetMap, ODbL.</p>
+  <p class="note">У жителей нет расписания, только потребности: усталость, голод, долг рабочих часов (8 в сутки) и запас еды дома. Расписание есть у мест — их часы работы на полосе выше. Ходят пешком (по тротуарам, через зебры), если недалеко, иначе едут. В Город из деревни — только на машине; из Дорчола — и пешком до выезда (дальше — транспорт). В Дорчоле кафе — где обедают и ужинают, продуктовые — где покупают еду домой. Нажмите на жителя на карте или в списке, чтобы открыть его дневник.</p>
 </div>
 
 <script>
@@ -145,7 +148,11 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
 /*@CITY3D@*/
 /*@SIM@*/
 // ---- просмотрщик ----
-const SNAP=/*@SNAPSHOT@*/;
+// сцены: снимок мира + настройки симуляции (presets.mjs)
+const SCENES=/*@SCENES@*/;
+const SCENE_TEXT={village:'10 жителей с машинами, лавка, мастерская и выезд в Город. Один шаг симуляции — игровая минута.',
+  dorcol:'Реальный район Белграда: дома, кафе, магазины, банки и офисы из OpenStreetMap, ~17 800 жителей, 4 выезда в город. Машина — у 8% (больше негде поставить), остальные ходят пешком.'};
+let SCENE='village',SNAP=SCENES[SCENE].snap,BIG=false,FOLLOW=[];
 const $=(id)=>document.getElementById(id);
 const css=(n)=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const ACT_COL=['--a-home','--a-sleep','--a-eat','--a-work','--a-shop','--a-travel'];
@@ -153,7 +160,10 @@ const ACT_LABEL=['дома','спит','ест','работает','покупк
 const START_MIN=7*60+30;               // открываем утро, когда деревня уже на ногах
 let sim,W,A,L,geo,sel=0,playing=!matchMedia('(prefers-reduced-motion: reduce)').matches,mps=20,acc=0;
 
-function placeLabel(p){const k=W.places.kind[p];return k===KIND.OUTSIDE?'Город':k===KIND.SHOP?'лавка':k===KIND.WORK?'мастерская':'дом'}
+function placeLabel(p){const pl=W.places,k=pl.kind[p];
+  if(k===KIND.OUTSIDE)return BIG?'город ('+pl.name[p].replace('внешний мир: ','')+')':'Город';
+  if(!BIG)return k===KIND.SHOP?'лавка':k===KIND.WORK?'мастерская':'дом';
+  return k===KIND.HOME?'дом №'+pl.src[p]:pl.name[p]}
 function placeFull(a,p){return p===A.home[a]?'дома':placeLabel(p)}
 // идёт или едет: mode — MODE.WALK / MODE.CAR (по умолчанию — как сейчас добирается житель)
 function goingTo(a,p,mode){const v=(mode==null?L.mode[a]:mode)===MODE.WALK?'идёт':'едет';return p===A.home[a]?v+' домой':v+': '+placeLabel(p)}
@@ -228,7 +238,8 @@ const S=(p)=>[p[0]*view.k+view.ox,p[1]*view.k+view.oy];
 const dirs=[];
 function agentPositions(now){
   const pos=new Array(A.n),here=new Map();
-  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds){const P=sim.peds.pose(a);if(P){pos[a]=[P.x,P.y];dirs[a]=[Math.cos(P.h),Math.sin(P.h)];continue}}
+  for(let a=0;a<A.n;a++){if(BIG&&L.act[a]!==ACT.TRAVEL&&a!==sel)continue;   // в большом районе — только те, кто на улице, и выбранный
+    if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds&&sim.peds.state[a]===PED.BEYOND){const g=geo.gateOfPlace(W.places.kind[L.to[a]]===KIND.OUTSIDE?L.to[a]:L.from[a]);if(g){pos[a]=[g.box[0]+((a%5)-2)*5.5,g.box[1]+2];continue}}if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds){const P=sim.peds.pose(a);if(P){pos[a]=[P.x,P.y];dirs[a]=[Math.cos(P.h),Math.sin(P.h)];continue}}
     if(L.act[a]===ACT.TRAVEL){const c=carPose(a);if(c){pos[a]=c.p;continue}const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
   for(const [p,list] of here){const c=center(p),out=W.places.kind[p]===KIND.OUTSIDE;
     list.forEach((a,i)=>{if(list.length===1&&!out){pos[a]=c;return}
@@ -252,14 +263,17 @@ function carPose(a){
   const A0=path[i],B0=path[i+1],k=seg[i]?d/seg[i]:0,h=Math.atan2(B0[1]-A0[1],B0[0]-A0[0])+(T.outbound[a]?0:Math.PI);
   return {p:[A0[0]+(B0[0]-A0[0])*k,A0[1]+(B0[1]-A0[1])*k],h};
 }
-function carPoses(){const out=new Array(A.n);for(let a=0;a<A.n;a++)out[a]=carPose(a);return out}
+function carPoses(){const out=new Array(A.n);for(let a=0;a<A.n;a++)if(A.car[a])out[a]=carPose(a);return out}
 let lastPos=[];
 // 2D — те же цвета, что в редакторе дорог (общая палитра City3D.COLORS);
 // карта одинаковая в обеих темах страницы, как бумажная
 const MAPTXT='#2A2F2B';
-function draw2D(now){
-  if(!view)fit();
+// неподвижная часть карты (земля, дороги, дома) рисуется один раз в отдельный холст
+let base=null;
+const KIND_DOT={[KIND.CAFE]:'#B13D8C',[KIND.SHOP]:'#3D7DC8',[KIND.WORK]:'#D49A22'};
+function drawBase(){
   const k=view.k,K=City3D.COLORS,font=css('--font'),RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4;
+  base=document.createElement('canvas');base.width=cv.width;base.height=cv.height;const ctx=base.getContext('2d');
   ctx.setTransform(view.dpr,0,0,view.dpr,0,0);ctx.fillStyle=K.ground;ctx.fillRect(0,0,view.w,view.h);
   ctx.lineCap='round';ctx.lineJoin='round';
   const poly=(P)=>{ctx.beginPath();P.forEach((p,i)=>{const q=S(p);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])});ctx.closePath()};
@@ -276,10 +290,13 @@ function draw2D(now){
   ctx.strokeStyle=K.roadLine;ctx.lineWidth=1.5;ctx.setLineDash([8,7]);SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));ctx.setLineDash([]);
   // дома: цвет типа, оттенок свой у каждого
   for(const b of SNAP.buildings){const f=City3D.lotFill(b.type,b.id);poly(b.outline);ctx.fillStyle=f;ctx.fill();ctx.strokeStyle=City3D.shade(f,-0.45);ctx.lineWidth=1.5;ctx.stroke();
-    if(b.type!=='res'){const q=S(b.center),lbl=b.type==='com'?'Лавка':'Мастерская';ctx.font=`600 ${Math.max(10,Math.min(13,3.2*k))}px ${font}`;ctx.textAlign='center';
+    if(!BIG&&b.type!=='res'){const q=S(b.center),lbl=b.type==='com'?'Лавка':'Мастерская';ctx.font=`600 ${Math.max(10,Math.min(13,3.2*k))}px ${font}`;ctx.textAlign='center';
       // подпись — со стороны, противоположной дороге
       const ac=S(access(b.id)),below=ac[1]<q[1];let top=Infinity,bot=-Infinity;b.outline.forEach((p)=>{const y=S(p)[1];top=Math.min(top,y);bot=Math.max(bot,y)});
       ctx.textBaseline=below?'top':'bottom';ctx.fillStyle=MAPTXT;ctx.globalAlpha=.8;ctx.fillText(lbl,q[0],below?bot+3:top-3);ctx.globalAlpha=1}}
+  // заведения (кафе — малиновые, продукты — синие, работа — жёлтые), точкой у фасада
+  if(BIG){const pl=W.places,cnt=new Map();for(let p=0;p<pl.n;p++){const c=KIND_DOT[pl.kind[p]];if(!c)continue;const i=cnt.get(pl.src[p])||0;cnt.set(pl.src[p],i+1);
+    const q=S([pl.x[p],pl.y[p]]),ang=i*2.4;ctx.beginPath();ctx.arc(q[0]+Math.cos(ang)*i*1.4,q[1]+Math.sin(ang)*i*1.4,Math.max(1.8,0.6*k),0,Math.PI*2);ctx.fillStyle=c;ctx.fill()}}
   // выезд (знак со стрелкой, как в редакторе) и «Город» за ним
   for(const g of geo.gates){
     const q=S(g.box),w=30*k,h=22*k;ctx.fillStyle=K.area;ctx.strokeStyle=K.areaEdge;ctx.lineWidth=1.2;ctx.beginPath();ctx.roundRect(q[0]-w/2,q[1]-h/2,w,h,4*k);ctx.fill();ctx.stroke();
@@ -287,14 +304,21 @@ function draw2D(now){
     const M=S([nodeXY(g.node)[0]+g.dir[0]*RW*1.6,nodeXY(g.node)[1]+g.dir[1]*RW*1.6]),r=Math.max(7,RW*0.95*k),d=g.dir,n=[-d[1],d[0]];
     ctx.beginPath();ctx.arc(M[0],M[1],r,0,Math.PI*2);ctx.fillStyle=K.gate;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();
     ctx.beginPath();ctx.moveTo(M[0]+d[0]*r*.6,M[1]+d[1]*r*.6);ctx.lineTo(M[0]-d[0]*r*.45+n[0]*r*.45,M[1]-d[1]*r*.45+n[1]*r*.45);ctx.lineTo(M[0]-d[0]*r*.45-n[0]*r*.45,M[1]-d[1]*r*.45-n[1]*r*.45);ctx.closePath();ctx.fillStyle='#fff';ctx.fill()}
+}
+function draw2D(now){
+  if(!view)fit();if(!base||base.width!==cv.width||base.height!==cv.height)drawBase();
+  const k=view.k,font=css('--font');
+  ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(base,0,0);ctx.setTransform(view.dpr,0,0,view.dpr,0,0);
   // машины
   carPoses().forEach((c,a)=>{if(!c)return;const q=S(c.p);ctx.save();ctx.translate(q[0],q[1]);ctx.rotate(c.h);
     ctx.fillStyle=CAR_COLORS[a%CAR_COLORS.length];ctx.strokeStyle='#1E1F22';ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(-2.25*k,-0.95*k,4.5*k,1.9*k,0.5*k);ctx.fill();ctx.stroke();
     ctx.fillStyle='#2C3A4A';ctx.fillRect(-0.9*k,-0.75*k,1.8*k,1.5*k);ctx.restore()});
-  // жители
-  const pos=agentPositions(now);lastPos=pos;const r=Math.max(6,2.4*k);
-  ctx.font=`600 ${Math.round(r*1.05)}px ${font}`;ctx.textAlign='center';ctx.textBaseline='middle';
-  for(let a=0;a<A.n;a++){const q=S(pos[a]),act=L.act[a];
+  // жители (в большом районе — точки без номеров, номер — только у выбранного)
+  const pos=agentPositions(now);lastPos=pos;const r0=Math.max(6,2.4*k);
+  ctx.font=`600 ${Math.round(r0*1.05)}px ${font}`;ctx.textAlign='center';ctx.textBaseline='middle';
+  for(let a=0;a<A.n;a++){if(!pos[a])continue;const q=S(pos[a]),act=L.act[a];
+    if(BIG&&a!==sel){ctx.beginPath();ctx.arc(q[0],q[1],Math.max(1.6,0.7*k),0,Math.PI*2);ctx.fillStyle=css(ACT_COL[act]);ctx.fill();continue}
+    const r=r0;
     ctx.globalAlpha=act===ACT.SLEEP?.75:1;ctx.beginPath();ctx.arc(q[0],q[1],r,0,Math.PI*2);ctx.fillStyle=css(ACT_COL[act]);ctx.fill();
     ctx.lineWidth=a===sel?3:1.5;ctx.strokeStyle=a===sel?MAPTXT:'#fff';ctx.stroke();
     ctx.fillStyle='#fff';ctx.fillText(String(a+1),q[0],q[1]+.5);ctx.globalAlpha=1}
@@ -320,14 +344,15 @@ function draw3D(now){
   if(!V3.view)return;
   const pos=agentPositions(now);lastPos=pos;
   const cars=carPoses();
-  V3.view.setMarkers(pos.map((p,a)=>{const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
+  V3.view.setMarkers(pos.map((p,a)=>{if(!p&&!cars[a])return null;const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
+    if(!p){const c=cars[a];return {car:{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}}}   // стоящая машина того, кто дома
     // кружок — над крышей своего места; в пути — над своей машиной или над головой пешехода
     const walk=tr&&L.mode[a]===MODE.WALK;
-    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[at].floors||1)*16+10:walk?9:12;
+    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[W.places.src[at]].floors||1)*16+10:walk?9:12;
     const c=cars[a],d=dirs[a]||[1,0];
-    return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:String(a+1),selected:a===sel,
+    return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:BIG&&a!==sel?null:String(a+1),selected:a===sel,
       car:c?{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}:null,
-      person:walk?{x:p[0]*U,y:p[1]*U,heading:Math.atan2(d[1],d[0]),color:SHIRTS[a%SHIRTS.length]}:null}}));
+      person:walk&&!(sim.peds&&sim.peds.state[a]===PED.BEYOND)?{x:p[0]*U,y:p[1]*U,heading:Math.atan2(d[1],d[0]),color:SHIRTS[a%SHIRTS.length]}:null}}));
   V3.view.render();
 }
 function draw(now){if(V3.on&&V3.view)draw3D(now);else if(!V3.on)draw2D(now)}
@@ -346,13 +371,20 @@ function setView3D(on){
 // ---- панели ----
 function buildPanels(){
   // полоса суток: часы работы мест
-  const day=$('day'),rows=[['Мастерская',W.cfg.hours.work,'--hours-work'],['Лавка',W.cfg.hours.shop,'--hours-shop'],['Город',W.cfg.hours.outside,'--hours-city']];
-  let h='';rows.forEach(([n,[o,c],col],i)=>{const top=4+i*12;h+=`<div class="row" style="top:${top}px"><div class="bar" style="left:${o/24*100}%;width:${(c-o)/24*100}%;background:var(${col})"></div></div><div class="rl" style="top:${top-2}px;right:calc(${100-o/24*100}% + 6px)">${n} ${o}–${c}</div>`});
+  // часы работы: типичные (медиана открытия и закрытия) у мест каждого вида
+  const med=(xs)=>{xs.sort((a,b)=>a-b);return xs[Math.floor(xs.length/2)]};
+  const span=(k)=>{const o=[],c=[];for(let p=0;p<W.places.n;p++)if(W.places.kind[p]===k&&L.close[p]>L.open[p]){o.push(L.open[p]);c.push(L.close[p])}return o.length?[med(o),med(c)]:null};
+  const day=$('day'),rows=[[BIG?'Работа':'Мастерская',span(KIND.WORK),'--hours-work'],[BIG?'Магазины':'Лавка',span(KIND.SHOP),'--hours-shop'],['Кафе',span(KIND.CAFE),'--a-shop'],['Город',span(KIND.OUTSIDE),'--hours-city']].filter((r)=>r[1]);
+  day.style.height=(rows.length*12+20)+'px';
+  let h='';rows.forEach(([n,[o,c],col],i)=>{const top=4+i*12;h+=`<div class="row" style="top:${top}px"><div class="bar" style="left:${o/24*100}%;width:${(c-o)/24*100}%;background:var(${col})"></div></div><div class="rl" style="top:${top-2}px;${o<4?`left:calc(${c/24*100}% + 6px)`:`right:calc(${100-o/24*100}% + 6px)`}">${n} ${o}–${c}</div>`});
   for(let i=0;i<=24;i+=3)h+=`<div class="tick" style="left:${i/24*100}%"></div>`;
   for(const i of [3,6,9,12,15,18,21])h+=`<div class="hr" style="left:${i/24*100}%">${i}</div>`;
   h+='<div class="now" id="now"></div>';day.innerHTML=h;
   // список жителей
-  $('ppl').innerHTML=[...Array(A.n).keys()].map((a)=>`<li role="option" data-a="${a}" aria-selected="${a===sel}"><span class="num" id="n${a}">${a+1}</span>
+  // в большом районе — 10 жителей для наблюдения (и выбранный)
+  FOLLOW=BIG?[...new Set([sel,...Array.from({length:9},(_,i)=>Math.floor((i+0.5)*A.n/9))])]:[...Array(A.n).keys()];
+  $('pplh').textContent=BIG?`Жители — 10 из ${A.n.toLocaleString('ru')}`:'Жители';
+  $('ppl').innerHTML=FOLLOW.map((a)=>`<li role="option" data-a="${a}" aria-selected="${a===sel}"><span class="num" id="n${a}">${a+1}</span>
     <div class="who"><span class="act" id="act${a}"></span><span class="job">${A.job[a]>=0?'работа: '+placeLabel(A.job[a]):'без работы'}</span></div>
     <div class="needs"><div class="need"><i id="f${a}" style="background:var(--a-sleep)"></i></div><div class="need"><i id="h${a}" style="background:var(--a-eat)"></i></div><div class="need"><i id="o${a}" style="background:var(--a-work)"></i></div><span class="food" id="e${a}"></span></div></li>`).join('');
 }
@@ -361,9 +393,11 @@ function updatePanels(){
   const nw=$('now');if(nw)nw.style.left=`calc(${(min%1440)/1440*100}% - 1px)`;
   const s=snapshot(W,A,L);
   const chip=(col,label,n)=>`<span><i class="dot" style="background:var(${col})"></i>${label} <b>${n}</b></span>`;
+  const here=BIG?'в районе':'в деревне';
   $('counts').innerHTML=chip('--a-sleep','спят',s.sleep)+chip('--a-home','дома',s.home)+chip('--a-travel','едут',s.travel)+chip('--a-travel','идут',s.walk)+
-    chip('--a-work','работают в деревне',s.workLocal)+chip('--a-work','в Городе',s.workOutside)+chip('--a-shop','в лавке',s.shopLocal)+chip('--a-shop','покупки в Городе',s.shopOutside)+chip('--a-eat','едят',s.eat);
-  for(let a=0;a<A.n;a++){const act=L.act[a],p=act===ACT.TRAVEL?L.to[a]:L.at[a];
+    chip('--a-work','работают '+here,s.workLocal)+chip('--a-work','в городе',s.workOutside)+chip('--a-shop','в магазинах',s.shopLocal)+chip('--a-shop','покупки в городе',s.shopOutside)+
+    (BIG?chip('--a-shop','в кафе',s.cafe):'')+chip('--a-eat','едят',s.eat);
+  for(const a of FOLLOW){const act=L.act[a],p=act===ACT.TRAVEL?L.to[a]:L.at[a];
     $('n'+a).style.background=`var(${ACT_COL[act]})`;
     $('act'+a).textContent=act===ACT.TRAVEL?goingTo(a,p):ACT_LABEL[act]+(act===ACT.SLEEP||p===A.home[a]&&act===ACT.IDLE?'':' — '+placeFull(a,p));
     $('f'+a).style.width=Math.min(100,L.fatigue[a]*100)+'%';$('h'+a).style.width=Math.min(100,L.hunger[a]/1.2*100)+'%';
@@ -377,12 +411,22 @@ function updatePanels(){
 
 // ---- управление и цикл ----
 function start(seed){
-  sim=createSim(SNAP,{seed});W=sim.world;A=sim.agents;L=sim.life;geo=buildGeo();view=null;acc=0;
-  advance(sim,START_MIN);
-  buildPanels();fit();updatePanels();
-  if(V3.view){V3.view.setScene(sceneDesc())}
-  setView3D(V3.on);
+  SNAP=SCENES[SCENE].snap;
+  $('title').textContent=SCENES[SCENE].title;$('subtitle').textContent=SCENE_TEXT[SCENE]||'';
+  $('status').hidden=false;$('status').textContent='Считаю ночь и утро до 7:30…';
+  // дать странице показать надпись, потом считать
+  setTimeout(()=>{
+    sim=createSim(SNAP,{...SCENES[SCENE].cfg,seed});W=sim.world;A=sim.agents;L=sim.life;BIG=A.n>50;sel=0;geo=buildGeo();view=null;base=null;acc=0;
+    advance(sim,START_MIN);
+    buildPanels();fit();updatePanels();$('status').hidden=true;$('legend-note').hidden=!BIG;
+    if(V3.view){V3.view.setScene(sceneDesc());const b=geo.bounds,el=$('v3'),asp=(el.clientWidth||16)/(el.clientHeight||9);V3.view.fit([b[0]*U,b[1]*U,b[2]*U,b[3]*U],{k:0.72*Math.max(1,1.7/asp),bearing:0})}
+    setView3D(V3.on);
+  },30);
 }
+// выбор сцены
+$('scenes').innerHTML=Object.keys(SCENES).map((k)=>`<button type="button" data-scene="${k}" aria-pressed="${k===SCENE}">${SCENES[k].title}</button>`).join('');
+$('scenes').addEventListener('click',(e)=>{const b=e.target.closest('button');if(!b||b.dataset.scene===SCENE)return;SCENE=b.dataset.scene;
+  document.querySelectorAll('#scenes button').forEach((x)=>x.setAttribute('aria-pressed',String(x===b)));start(Math.max(1,Math.round(+$('seed').value||1)))});
 $('v-3d').addEventListener('click',()=>setView3D(true));
 $('v-2d').addEventListener('click',()=>setView3D(false));
 $('r-l').addEventListener('click',()=>V3.view&&V3.view.rotate(Math.PI/12));
@@ -394,18 +438,20 @@ $('restart').addEventListener('click',()=>start(Math.max(1,Math.round(+$('seed')
 $('seed').addEventListener('keydown',(e)=>{if(e.key==='Enter')$('restart').click()});
 $('ppl').addEventListener('click',(e)=>{const li=e.target.closest('li');if(li){sel=+li.dataset.a;updatePanels();draw(nowT())}});
 cv.addEventListener('click',(e)=>{const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let best=-1,bd=20;
-  lastPos.forEach((p,a)=>{const q=S(p),d=Math.hypot(q[0]-x,q[1]-y);if(d<bd){bd=d;best=a}});if(best>=0){sel=best;updatePanels();draw(nowT())}});
-window.addEventListener('resize',()=>{view=null;draw(nowT())});
+  lastPos.forEach((p,a)=>{if(!p)return;const q=S(p),d=Math.hypot(q[0]-x,q[1]-y);if(d<bd){bd=d;best=a}});if(best>=0){sel=best;if(BIG)buildPanels();updatePanels();draw(nowT())}});
+window.addEventListener('resize',()=>{view=null;base=null;if(sim)draw(nowT())});
 let last=performance.now(),lastUi=0;
 function frame(ts){
   const dt=Math.min(0.25,(ts-last)/1000);last=ts;
-  if(playing)advanceSeconds(sim,Math.min(dt*mps*60,600*60));   // игровые секунды; движение — шагами по 0.5 с
-  draw(nowT());
-  if(ts-lastUi>120){lastUi=ts;updatePanels()}
+  if(sim&&playing){   // игровые секунды; считаем кусками, не дольше ~30 мс за кадр (в большом районе скорость упирается в расчёт)
+    let want=Math.min(dt*mps*60,600*60);const t0=performance.now();
+    while(want>0&&performance.now()-t0<30){const k=Math.min(want,BIG?15:600);advanceSeconds(sim,k);want-=k}}
+  if(sim){draw(nowT());if(ts-lastUi>120){lastUi=ts;updatePanels()}}
   requestAnimationFrame(frame);
 }
 $('play').setAttribute('aria-pressed',String(playing));$('play').textContent=playing?'Пауза':'Пуск';
 start(1);requestAnimationFrame(frame);
+$('legend-note').hidden=true;
 // для проверок: перемотать на игровое время (секунды от полуночи первого дня)
 window.__viewer={seek:(sec)=>{advanceSeconds(sim,Math.max(0,sec-simSeconds(sim)));updatePanels();draw(nowT())},speed:(m)=>{mps=m},sim:()=>sim};
 })();
