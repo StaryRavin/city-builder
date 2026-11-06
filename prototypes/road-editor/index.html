@@ -1209,7 +1209,7 @@ lotsRaw:function(){return lots},
 // внутренние функции для стресс-тестов
 api:{loadScene:loadScene,G:function(){return G},overlaps:overlaps,unionOutline:unionOutline,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
 snap:snap,endFor:endFor,capOf:capOf,totals:totals,exportSim:exportSim,exitLinks:exitLinks,exits:function(){return exits},buildVillage:buildVillage,buildHamlet:buildHamlet,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
-reset:function(){nodes={};segs={};lots=[];exits=[];nid=1;sid=1;drawStatic()},addLot:function(l){l.floors=l.floors||1+Math.floor(Math.random()*8);l.color=l.color||nextColor();lots.push(l)}},
+reset:function(){nodes={};segs={};lots=[];exits=[];nid=1;sid=1;W=W0;SW=0;drawStatic()},setWidth:function(w,sw){W=w;SW=sw||0;drawStatic()},addLot:function(l){l.floors=l.floors||1+Math.floor(Math.random()*8);l.color=l.color||nextColor();lots.push(l)}},
 // инвариант: каждый узел стоит на линии сетки каждой своей дороги
 gridCheck:function(){var bad=[];Object.keys(segs).forEach(function(id){var g=segs[id],E=segEnds(g),L=len(sub(E[1],E[0])),cw=segCw(g),ph=segPh(g);
 function on(u){var r=((u-ph)%cw+cw)%cw;return Math.min(r,cw-r)<0.05}

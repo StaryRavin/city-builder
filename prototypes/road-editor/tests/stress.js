@@ -38,14 +38,16 @@ const b=await chromium.launch();const p=await b.newPage({viewport:{width:900,hei
 const errs=[];p.on('pageerror',e=>errs.push(e.message));
 await p.goto('file://'+path.resolve(__dirname,'../index.html'));
 const nets=+process.argv[2]||60;
-const res=await p.evaluate((nets)=>{
+// ширина улицы (единицы, клетка = 16): node stress.js 60 28 — улицы 14 м с тротуарами, как в деревнях
+const WIDE=+process.argv[3]||0,WIDE_SW=WIDE?8:0;
+const res=await p.evaluate(([nets,WIDE,WIDE_SW])=>{
 const A=window.__dbg.api,s=16,D=4;
 const add=(a,b)=>[a[0]+b[0],a[1]+b[1]],mul=(a,k)=>[a[0]*k,a[1]*k];
 let seed=1;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
 const bugs=[],stats={nets:0,segs:0,cells:0,corners:0,ok:0},legit={};
 const ok=k=>{legit[k]=(legit[k]||0)+1};
 for(let sd=1;sd<=nets;sd++){
- seed=sd*7919;A.reset();
+ seed=sd*7919;A.reset();if(WIDE)A.setWidth(WIDE,WIDE_SW);
  // случайная сеть: 40 попыток провести звено от узла, от точки на дороге или из пустоты
  for(let t=0;t<40;t++){
   const st=window.__dbg.state(),ns=Object.values(st.nodes),sg=Object.values(st.segs);
@@ -115,7 +117,7 @@ function area(p){let a=0;for(let i=0;i<p.length;i++){const q=p[(i+1)%p.length];a
 function interArea(PA,PB){let s=0;PA.forEach(a=>PB.forEach(b=>{if(area(a)<1e-6||area(b)<1e-6)return;const c=clipConvex(a,b);if(c.length>=3)s+=area(c)}));return s}
 const LIM=0.05; // допустимая площадь пересечения (погрешность вычислений)
 for(let sd=1;sd<=Math.min(nets,40);sd++){
- seed=sd*104729;A.reset();
+ seed=sd*104729;A.reset();if(WIDE)A.setWidth(WIDE,WIDE_SW);
  for(let t=0;t<40;t++){
   const st=window.__dbg.state(),ns=Object.values(st.nodes),sg=Object.values(st.segs);
   let P0;const r=rnd();
@@ -176,7 +178,7 @@ for(let sd=1;sd<=Math.min(nets,40);sd++){
 }
 const by={};bugs.forEach(f=>{by[f.type]=(by[f.type]||0)+1});
 return {stats,legit,by,sample:bugs.slice(0,200)};
-},nets);
+},[nets,WIDE,WIDE_SW]);
 console.log('проверено:',JSON.stringify(res.stats));
 console.log('законные отказы:',JSON.stringify(res.legit));
 if(errs.length)console.log('ошибки страницы:',errs.slice(0,5));
