@@ -16,9 +16,11 @@
  *   buildings      — [{outline, parts?, floors, style, type, bad?, color?}]:
  *                    outline — контур дома (если нет — простые призмы по parts);
  *                    style — индекс в City3D.STYLES; type — res / com / work;
+ *   sidewalk       — ширина тротуара (0 — нет): проезжая часть — roadHalfWidth − sidewalk;
+ *   crosswalks     — {unit, skip:[[x,y]]}: рисовать зебры у концов звеньев (кроме skip);
  *   gates          — [{at:[x,y], dir:[dx,dy], ok}] выезды во внешний мир;
  *   areas          — [{poly, color, label}] плоские площадки (например, «Город»).
- * Жители — setMarkers([{x, y, z, color, label, car, heading, selected}]).
+ * Жители — setMarkers([{x, y, z, color, label, selected, car, person}]).
  */
 (function(){
 'use strict';
@@ -33,7 +35,26 @@ var STYLES=[
 {name:'бежевый кирпич',wall:'#C7A07C',trim:'#EADDC9',plinth:'#8A6C56',roof:'#4E4846',roofType:'mansard',arch:false}];
 // цвета карты — общие для 2D и 3D во всех прототипах
 var COLORS={ground:'#E6E0CC',sky:'#DFE7EA',road:'#5A5F66',roadLine:'#F2F2F2',zoneCell:'#9ED38F',zoneCell3D:'#B5D8A4',
-  zone:{res:'#3F8F4E',com:'#3D7DC8',work:'#D49A22'},gate:'#2F6F8F',bad:'#D9363E',area:'#D6DAE0',areaEdge:'#8A93A0'};
+  zone:{res:'#3F8F4E',com:'#3D7DC8',work:'#D49A22'},gate:'#2F6F8F',bad:'#D9363E',area:'#D6DAE0',areaEdge:'#8A93A0',
+  sidewalk:'#C9C6BD',crosswalk:'#F4F4F0'};
+// улица: зебра — поперёк проезжей части, центр в crossAt м от узла (граница перекрёстка 5 м + 1.5),
+// шириной crossLen м вдоль улицы; полосы по 0.5 м через 0.5 м (как в симуляции движения)
+var STREET={crossAt:6.5,crossLen:3,stripe:0.5};
+/*
+ * Зебры для описания сцены: у каждого конца каждого звена, кроме ворот (skip — точки узлов,
+ * где зебр нет). u — единиц в метре (редактор — 4, просмотрщик переводит метры в те же единицы).
+ * Возвращает плоские многоугольники полос.
+ */
+function crosswalkPolys(desc){
+  var cw=desc.crosswalks;if(!cw||!desc.sidewalk)return [];
+  var u=cw.unit||4,C=desc.roadHalfWidth-desc.sidewalk,at=STREET.crossAt*u,hl=STREET.crossLen*u/2,sw=STREET.stripe*u,out=[];
+  var skip=(cw.skip||[]),isSkip=function(p){return skip.some(function(q){return Math.hypot(q[0]-p[0],q[1]-p[1])<1e-3})};
+  (desc.segments||[]).forEach(function(sg){[[sg.a,sg.b],[sg.b,sg.a]].forEach(function(pr){var P=pr[0],Q=pr[1];if(isSkip(P))return;
+    var d=nrm(sub(Q,P)),n=[-d[1],d[0]],M=add(P,mul(d,at));
+    for(var k=-C+sw/2;k<=C-sw/2+1e-6;k+=2*sw){var c=add(M,mul(n,k));
+      out.push([add(add(c,mul(d,-hl)),mul(n,-sw/2)),add(add(c,mul(d,hl)),mul(n,-sw/2)),add(add(c,mul(d,hl)),mul(n,sw/2)),add(add(c,mul(d,-hl)),mul(n,sw/2))])}})});
+  return out;
+}
 // стили домов по типу: из них выбирает редактор, по ним же красит симуляция
 var ZONE_STYLES={res:[0,5,7,1,2,4],com:[6],work:[3]};
 function shade(hex,f){var n=parseInt(hex.slice(1),16),c=[n>>16,(n>>8)&255,n&255].map(function(v){return Math.round(f<0?v*(1+f):v+(255-v)*f)});return '#'+c.map(function(v){return ('0'+v.toString(16)).slice(-2)}).join('')}
@@ -98,8 +119,9 @@ polys.forEach(function(p){for(var i=1;i<p.length-1;i++)[p[0],p[i],p[i+1]].forEac
 var g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.computeVertexNormals();return g;
 }
 // полосы дорог: прямоугольник вдоль каждого звена и восьмиугольник в каждом узле
-function roadBands(desc){
-var W=desc.roadHalfWidth,bands=[];
+// halfWidth — ширина полосы от оси (проезжая часть или вся улица с тротуарами)
+function roadBands(desc,halfWidth){
+var W=halfWidth||desc.roadHalfWidth,bands=[];
 (desc.segments||[]).forEach(function(sg){var A=sg.a,B=sg.b,t=nrm(sub(B,A)),nl=[-t[1],t[0]];
 var poly=[add(A,mul(nl,W)),add(B,mul(nl,W)),add(B,mul(nl,-W)),add(A,mul(nl,-W))];bands.push({poly:poly,A:A,B:B,t:t,bb:bbox(poly)})});
 (desc.nodes||[]).forEach(function(c){var p=[];for(var i=0;i<8;i++){var a=i*Math.PI/4+Math.PI/8;p.push([c[0]+W*Math.cos(a),c[1]+W*Math.sin(a)])}bands.push({poly:p,node:true,bb:bbox(p)})});
@@ -219,10 +241,21 @@ var w=new T.Mesh(carGeo.glass,glass);w.position.set(-1.2,6.2,0);g.add(w);
 g.userData={body:body,color:null};return g;
 }
 
+// ---------- пешеход: простая фигура (ноги, туловище, голова), рост ~1.75 м ----------
+var personGeo=null;
+function makePerson(C){
+var T=THREE;if(!personGeo)personGeo={legs:new T.CylinderGeometry(0.75,0.6,3.4,8),body:new T.CylinderGeometry(1.0,0.85,2.8,10),head:new T.SphereGeometry(0.75,10,8)};
+var g=new T.Group(),cloth=new T.MeshLambertMaterial({color:0xffffff}),pants=new T.MeshLambertMaterial({color:C('#3A3F4A')}),skin=new T.MeshLambertMaterial({color:C('#E2B999')});
+var l=new T.Mesh(personGeo.legs,pants);l.position.y=1.7;g.add(l);
+var b=new T.Mesh(personGeo.body,cloth);b.position.y=4.8;g.add(b);
+var h=new T.Mesh(personGeo.head,skin);h.position.y=6.75;g.add(h);
+g.userData={cloth:cloth,color:null};return g;
+}
+
 // ---------- вид: сцена, камера, управление ----------
 function createView(el,opts){
 opts=opts||{};
-var T=THREE,V={bearing:-0.5,elev:60,tgt:[0,0],dist:700,ptrs:{},last:null,rot:false,scene:null,marks:null,markers:[],cars:[]};
+var T=THREE,V={bearing:-0.5,elev:60,tgt:[0,0],dist:700,ptrs:{},last:null,rot:false,scene:null,marks:null,markers:[],cars:[],people:[]};
 var R=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,logarithmicDepthBuffer:true});R.outputEncoding=T.sRGBEncoding;R.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
 el.appendChild(R.domElement);
 var cam=new T.PerspectiveCamera(40,680/460,1,30000),cv=R.domElement;
@@ -238,19 +271,22 @@ var sc=new T.Scene();sc.background=C(COLORS.sky);
 sc.add(new T.HemisphereLight(0xffffff,0x8d8573,0.6));
 var sun=new T.DirectionalLight(0xffffff,0.6);sun.position.set(-400,700,-250);sc.add(sun);
 var ground=new T.Mesh(new T.PlaneGeometry(20000,20000),new T.MeshBasicMaterial({color:C(COLORS.ground)}));ground.rotation.x=-Math.PI/2;sc.add(ground);
-var side=T.DoubleSide,bands=roadBands(desc),W=desc.roadHalfWidth,H=2.2*(desc.cell||16);
+var side=T.DoubleSide,SW=desc.sidewalk||0,bands=roadBands(desc,desc.roadHalfWidth-SW),W=desc.roadHalfWidth,H=2.2*(desc.cell||16);
+// тротуары — светлая полоса под проезжей частью, до домов; зебры — поверх асфальта
+if(SW>0){var wb=roadBands(desc,desc.roadHalfWidth);sc.add(new T.Mesh(flatGeo(wb.map(function(b){return b.poly}),1.45),new T.MeshBasicMaterial({color:C(COLORS.sidewalk),side:side})));}
+var zp=crosswalkPolys(desc);if(zp.length)sc.add(new T.Mesh(flatGeo(zp,1.7),new T.MeshBasicMaterial({color:C(COLORS.crosswalk),side:side})));
 if(desc.zoneCells&&desc.zoneCells.length)sc.add(new T.Mesh(flatGeo(desc.zoneCells,0.8),new T.MeshBasicMaterial({color:C(COLORS.zoneCell3D),side:side})));
 (desc.areas||[]).forEach(function(a){sc.add(new T.Mesh(flatGeo([a.poly],1.2),new T.MeshBasicMaterial({color:C(a.color||COLORS.area),side:side})));
 if(a.label){var sp=textSprite(a.label),c=a.poly.reduce(function(s,q){return [s[0]+q[0]/a.poly.length,s[1]+q[1]/a.poly.length]},[0,0]),top=Math.min.apply(null,a.poly.map(function(q){return q[1]}));sp.position.set(c[0],24,top-8);sc.add(sp)}});
 if(bands.length)sc.add(new T.Mesh(flatGeo(bands.map(function(b){return b.poly}),1.6),new T.MeshBasicMaterial({color:C(COLORS.road),side:side})));
-buildHouses(sc,C,desc,bands,R);
+buildHouses(sc,C,desc,SW>0?roadBands(desc,desc.roadHalfWidth):bands,R);
 // выезды: арка-портал над концом дороги
 (desc.gates||[]).forEach(function(x){var d=x.dir,n=[-d[1],d[0]],P=add(x.at,mul(d,W*0.6)),ang=-Math.atan2(n[1],n[0]);
 var post=new T.MeshLambertMaterial({color:C('#ECEDEA')}),beam=new T.MeshLambertMaterial({color:C(x.ok===false?COLORS.bad:COLORS.gate)});
 [-1,1].forEach(function(sd){var m=new T.Mesh(new T.BoxGeometry(4,H,4),post),q=add(P,mul(n,sd*(W+3)));m.position.set(q[0],H/2,q[1]);sc.add(m)});
 var bm=new T.Mesh(new T.BoxGeometry(2*W+10,9,3),beam);bm.position.set(P[0],H-4.5,P[1]);bm.rotation.y=ang;sc.add(bm);
 if(x.label){var sp=textSprite(x.label);sp.position.set(P[0],H+12,P[1]);sc.add(sp)}});
-V.marks=new T.Group();sc.add(V.marks);V.markers=[];V.cars=[];
+V.marks=new T.Group();sc.add(V.marks);V.markers=[];V.cars=[];V.people=[];
 V.scene=sc;
 },
 // метки жителей: m = {x, y, z, color, label, selected, car}; кружок с номером
@@ -259,8 +295,10 @@ V.scene=sc;
 setMarkers:function(list){
 if(!V.marks)return;
 while(V.markers.length<list.length){var sp=new T.Sprite(new T.SpriteMaterial({depthTest:true}));sp.renderOrder=4;V.marks.add(sp);
-var car=makeCar(C);V.marks.add(car);V.markers.push(sp);V.cars.push(car);}
+var car=makeCar(C);V.marks.add(car);V.markers.push(sp);V.cars.push(car);var pp=makePerson(C);V.marks.add(pp);V.people.push(pp);}
 for(var i=0;i<V.markers.length;i++){var sp2=V.markers[i],car2=V.cars[i],m=list[i];
+var per=V.people[i];per.visible=!!(m&&m.person);
+if(m&&m.person){per.position.set(m.person.x,0,m.person.y);per.rotation.y=-(m.person.heading||0);if(per.userData.color!==m.person.color){per.userData.cloth.color.copy(C(m.person.color));per.userData.color=m.person.color}}
 if(!m){sp2.visible=false;car2.visible=false;continue}
 sp2.visible=true;sp2.material.map=markerTexture(m.color,m.label,m.selected);sp2.material.needsUpdate=true;
 var sz=m.selected?22:17;sp2.scale.set(sz,sz,1);sp2.position.set(m.x,(m.z||0)+8,m.y);
@@ -302,5 +340,5 @@ window.addEventListener('resize',render);
 return api;
 }
 
-window.City3D={STYLES:STYLES,COLORS:COLORS,ZONE_STYLES:ZONE_STYLES,shade:shade,lotFill:lotFill,loadThree:loadThree,createView:createView,offsetPoly:offsetPoly};
+window.City3D={STREET:STREET,crosswalkPolys:crosswalkPolys,STYLES:STYLES,COLORS:COLORS,ZONE_STYLES:ZONE_STYLES,shade:shade,lotFill:lotFill,loadThree:loadThree,createView:createView,offsetPoly:offsetPoly};
 })();

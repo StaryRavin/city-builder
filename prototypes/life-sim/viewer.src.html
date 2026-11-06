@@ -137,7 +137,7 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
     <h2 id="dh">Дневник</h2>
     <ol id="diary"></ol>
   </section>
-  <p class="note">У жителей нет расписания, только потребности: усталость, голод, долг рабочих часов (8 в сутки) и запас еды дома. Расписание есть у мест — их часы работы на полосе выше. Время в пути считается по дорогам с ровной скоростью; пробок пока нет. Нажмите на жителя на карте или в списке, чтобы открыть его дневник.</p>
+  <p class="note">У жителей нет расписания, только потребности: усталость, голод, долг рабочих часов (8 в сутки) и запас еды дома. Расписание есть у мест — их часы работы на полосе выше. По деревне ходят пешком (по тротуарам, через зебры), если недалеко, иначе едут; в Город — только на машине. Нажмите на жителя на карте или в списке, чтобы открыть его дневник.</p>
 </div>
 
 <script>
@@ -155,7 +155,10 @@ let sim,W,A,L,geo,sel=0,playing=!matchMedia('(prefers-reduced-motion: reduce)').
 
 function placeLabel(p){const k=W.places.kind[p];return k===KIND.OUTSIDE?'Город':k===KIND.SHOP?'лавка':k===KIND.WORK?'мастерская':'дом'}
 function placeFull(a,p){return p===A.home[a]?'дома':placeLabel(p)}
-function goingTo(a,p){return p===A.home[a]?'едет домой':'едет: '+placeLabel(p)}
+// идёт или едет: mode — MODE.WALK / MODE.CAR (по умолчанию — как сейчас добирается житель)
+function goingTo(a,p,mode){const v=(mode==null?L.mode[a]:mode)===MODE.WALK?'идёт':'едет';return p===A.home[a]?v+' домой':v+': '+placeLabel(p)}
+// цвет одежды пешехода — свой у каждого
+const SHIRTS=['#C2463D','#3E6DB5','#E0A43A','#4F8F5B','#7E57A8','#D9734E','#2F7F86','#B7A23A','#8B5A3C','#5A6B7D'];
 const hhmm=(min)=>{min=((Math.round(min)%1440)+1440)%1440;return String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0')};
 const hhmmss=(min)=>{let s=Math.floor(min*60)%86400;s=(s+86400)%86400;return hhmm(Math.floor(s/60))+':'+String(s%60).padStart(2,'0')};
 // игровое время на экране, в минутах: шаг тика t описывает минуту [t, t+1), поэтому -1
@@ -225,7 +228,8 @@ const S=(p)=>[p[0]*view.k+view.ox,p[1]*view.k+view.oy];
 const dirs=[];
 function agentPositions(now){
   const pos=new Array(A.n),here=new Map();
-  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL){const c=carPose(a);if(c){pos[a]=c.p;continue}const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
+  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds){const P=sim.peds.pose(a);if(P){pos[a]=[P.x,P.y];dirs[a]=[Math.cos(P.h),Math.sin(P.h)];continue}}
+    if(L.act[a]===ACT.TRAVEL){const c=carPose(a);if(c){pos[a]=c.p;continue}const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
   for(const [p,list] of here){const c=center(p),out=W.places.kind[p]===KIND.OUTSIDE;
     list.forEach((a,i)=>{if(list.length===1&&!out){pos[a]=c;return}
       if(out){const cols=4,row=Math.floor(i/cols),col=i%cols;pos[a]=[c[0]+(col-1.5)*6.5,c[1]-4+row*6.5];return}
@@ -264,7 +268,11 @@ function draw2D(now){
   for(const c of (SNAP.render&&SNAP.render.zoneCells)||[]){poly(c);ctx.fill();ctx.stroke()}
   // дороги, дорога к «Городу» и разметка
   const line=(a,b)=>{const p=S(a),q=S(b);ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.stroke()};
-  ctx.strokeStyle=K.road;ctx.lineWidth=2*RW*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));
+  const SW=(SNAP.render&&SNAP.render.sidewalk)||0;
+  if(SW>0){ctx.strokeStyle=K.sidewalk;ctx.lineWidth=2*RW*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)))}   // тротуары
+  ctx.strokeStyle=K.road;ctx.lineWidth=2*(RW-SW)*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));
+  // зебры — общий расчёт с 3D и редактором
+  ctx.fillStyle=K.crosswalk;for(const z of City3D.crosswalkPolys({roadHalfWidth:RW,sidewalk:SW,segments:SNAP.edges.map((e)=>({a:nodeXY(e.a),b:nodeXY(e.b)})),crosswalks:{unit:1,skip:geo.gates.map((g)=>nodeXY(g.node))}})){poly(z);ctx.fill()}
   ctx.strokeStyle=K.roadLine;ctx.lineWidth=1.5;ctx.setLineDash([8,7]);SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));ctx.setLineDash([]);
   // дома: цвет типа, оттенок свой у каждого
   for(const b of SNAP.buildings){const f=City3D.lotFill(b.type,b.id);poly(b.outline);ctx.fillStyle=f;ctx.fill();ctx.strokeStyle=City3D.shade(f,-0.45);ctx.lineWidth=1.5;ctx.stroke();
@@ -299,7 +307,8 @@ const toU=(p)=>[p[0]*U,p[1]*U];
 function sceneDesc(){
   const RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4;
   const boxPoly=(g)=>[[g.box[0]-15,g.box[1]-11],[g.box[0]+15,g.box[1]-11],[g.box[0]+15,g.box[1]+11],[g.box[0]-15,g.box[1]+11]].map(toU);
-  return {cell:16,roadHalfWidth:RW*U,
+  const SW=(SNAP.render&&SNAP.render.sidewalk)||0;
+  return {cell:16,roadHalfWidth:RW*U,sidewalk:SW*U,crosswalks:{unit:U,skip:geo.gates.flatMap((g)=>[toU(nodeXY(g.node)),toU(g.stub)])},
     segments:SNAP.edges.map((e)=>({a:toU(nodeXY(e.a)),b:toU(nodeXY(e.b))})).concat(geo.gates.map((g)=>({a:toU(nodeXY(g.node)),b:toU(g.stub)}))),
     nodes:SNAP.nodes.map(toU),
     zoneCells:((SNAP.render&&SNAP.render.zoneCells)||[]).map((c)=>c.map(toU)),
@@ -312,11 +321,13 @@ function draw3D(now){
   const pos=agentPositions(now);lastPos=pos;
   const cars=carPoses();
   V3.view.setMarkers(pos.map((p,a)=>{const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
-    // кружок — над крышей своего места; в пути — над своей машиной
-    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[at].floors||1)*16+10:12;
-    const c=cars[a];
+    // кружок — над крышей своего места; в пути — над своей машиной или над головой пешехода
+    const walk=tr&&L.mode[a]===MODE.WALK;
+    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[at].floors||1)*16+10:walk?9:12;
+    const c=cars[a],d=dirs[a]||[1,0];
     return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:String(a+1),selected:a===sel,
-      car:c?{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}:null}}));
+      car:c?{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}:null,
+      person:walk?{x:p[0]*U,y:p[1]*U,heading:Math.atan2(d[1],d[0]),color:SHIRTS[a%SHIRTS.length]}:null}}));
   V3.view.render();
 }
 function draw(now){if(V3.on&&V3.view)draw3D(now);else if(!V3.on)draw2D(now)}
@@ -350,7 +361,7 @@ function updatePanels(){
   const nw=$('now');if(nw)nw.style.left=`calc(${(min%1440)/1440*100}% - 1px)`;
   const s=snapshot(W,A,L);
   const chip=(col,label,n)=>`<span><i class="dot" style="background:var(${col})"></i>${label} <b>${n}</b></span>`;
-  $('counts').innerHTML=chip('--a-sleep','спят',s.sleep)+chip('--a-home','дома',s.home)+chip('--a-travel','в пути',s.travel)+
+  $('counts').innerHTML=chip('--a-sleep','спят',s.sleep)+chip('--a-home','дома',s.home)+chip('--a-travel','едут',s.travel)+chip('--a-travel','идут',s.walk)+
     chip('--a-work','работают в деревне',s.workLocal)+chip('--a-work','в Городе',s.workOutside)+chip('--a-shop','в лавке',s.shopLocal)+chip('--a-shop','покупки в Городе',s.shopOutside)+chip('--a-eat','едят',s.eat);
   for(let a=0;a<A.n;a++){const act=L.act[a],p=act===ACT.TRAVEL?L.to[a]:L.at[a];
     $('n'+a).style.background=`var(${ACT_COL[act]})`;
@@ -360,7 +371,7 @@ function updatePanels(){
   // дневник выбранного жителя: сегодняшние события
   const today=Math.floor(min/1440)*1440,ev=L.log.filter(([t,a])=>a===sel&&t*W.cfg.tickSeconds/60>=today-60);
   $('dh').textContent=`Дневник жителя ${sel+1} — ${A.job[sel]>=0?'работает: '+placeLabel(A.job[sel]):'без работы'}`;
-  $('diary').innerHTML=ev.slice(-16).map(([t,a,act,p])=>`<li><time>${hhmm(t*W.cfg.tickSeconds/60)}</time><span>${act===ACT.TRAVEL?goingTo(a,p):act===ACT.SLEEP?'ложится спать':act===ACT.IDLE?(p===A.home[a]?'дома, свободен':'свободен — '+placeLabel(p)):ACT_LABEL[act]+' — '+placeFull(a,p)}</span></li>`).join('')||'<li><span>Сегодня пока ничего — спит.</span></li>';
+  $('diary').innerHTML=ev.slice(-16).map(([t,a,act,p,mode])=>`<li><time>${hhmm(t*W.cfg.tickSeconds/60)}</time><span>${act===ACT.TRAVEL?goingTo(a,p,mode):act===ACT.SLEEP?'ложится спать':act===ACT.IDLE?(p===A.home[a]?'дома, свободен':'свободен — '+placeLabel(p)):ACT_LABEL[act]+' — '+placeFull(a,p)}</span></li>`).join('')||'<li><span>Сегодня пока ничего — спит.</span></li>';
   document.querySelectorAll('#ppl li').forEach((li)=>li.setAttribute('aria-selected',String(+li.dataset.a===sel)));
 }
 

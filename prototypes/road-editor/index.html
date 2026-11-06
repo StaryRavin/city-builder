@@ -160,6 +160,7 @@
  * на дорогу или на другой участок.
  */
 (function(){
+var SW=0;   // ширина тротуара (единицы); у деревень — 2 м
 var s=16,W=16,W0=16,D=4,EPS=0.5,OVL=0.01,MINANG=20*Math.PI/180,VW=680,VH=460;
 function add(a,b){return [a[0]+b[0],a[1]+b[1]]}
 function sub(a,b){return [a[0]-b[0],a[1]-b[1]]}
@@ -658,7 +659,7 @@ return out+'</g>';
 }
 function drawStatic(){
 derive();
-var cells='',roads='',dash='',nd='';G.drawn=[];
+var cells='',roads='',dash='',nd='',walks='';G.drawn=[];
 Object.keys(G.hs).forEach(function(k){var S=G.hs[k],fa=frame(k,'a');
 for(var i=0;i<S.nC;i++)for(var j=0;j<D;j++){
 var c=cellF(fa,i,j),kind='full';if(!c)continue;
@@ -671,12 +672,15 @@ G.drawn.push({key:k,i:i,j:j,ce:ce,poly:c});
 cells+='<polygon class="ns" points="'+pts(c)+'" fill="'+(kind==='full'?'#9ED38F':'#F2B866')+'" stroke="'+(kind==='full'?'#6FA862':'#B27A24')+'" stroke-width="0.6"/>';
 }});
 Object.keys(segs).forEach(function(id){var E=segEnds(segs[id]);
-roads+='<line x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="#5A5F66" stroke-width="'+(2*W)+'" stroke-linecap="round"/>';
+if(SW>0)walks+='<line x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="'+City3D.COLORS.sidewalk+'" stroke-width="'+(2*W)+'" stroke-linecap="round"/>';
+roads+='<line x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="#5A5F66" stroke-width="'+(2*(W-SW))+'" stroke-linecap="round"/>';
 dash+='<line class="ns" x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="#F2F2F2" stroke-width="1.5" stroke-dasharray="8 7"/>';
 });
 if(mode==='road')Object.keys(nodes).forEach(function(n){nd+='<circle class="ns" cx="'+nodes[n].x+'" cy="'+nodes[n].y+'" r="'+(W*0.45)+'" fill="#fff" stroke="#2f6f8f" stroke-width="1.5"/>'});
 document.getElementById('cells').innerHTML=cells;
-document.getElementById('roads').innerHTML=roads+dash;
+// зебры — общий расчёт с 3D (City3D.crosswalkPolys)
+var zebra=SW>0?City3D.crosswalkPolys(streetDesc()).map(function(p){return '<polygon points="'+pts(p)+'" fill="'+City3D.COLORS.crosswalk+'"/>'}).join(''):'';
+document.getElementById('roads').innerHTML=walks+roads+zebra+dash;
 document.getElementById('nodes').innerHTML=nd;
 document.getElementById('ghost').innerHTML=ghost.map(function(g){return '<polygon class="ns" points="'+pts(g.p)+'" fill="#000" fill-opacity="0.06" stroke="#5c4a3a" stroke-opacity="0.45" stroke-width="0.6"/>'}).join('');
 drawLots();
@@ -770,9 +774,9 @@ sv.addEventListener('wheel',function(e){e.preventDefault();var p=svgPt(e);zoomAt
 document.getElementById('z-in').addEventListener('click',function(){if(V3.on){if(V3.view)V3.view.zoom(1.25);return}zoomAt(1.25,VW/2,VH/2)});
 document.getElementById('z-out').addEventListener('click',function(){if(V3.on){if(V3.view)V3.view.zoom(0.8);return}zoomAt(0.8,VW/2,VH/2)});
 ['road','lot','exit','pan'].forEach(function(m){document.getElementById('m-'+m).addEventListener('click',function(){setMode(m)})});
-document.getElementById('b-clr').addEventListener('click',function(){nodes={};segs={};lots=[];exits=[];W=W0;ghost=[];drawStatic();idle();if(V3.on){fit3();build3D()}});
+document.getElementById('b-clr').addEventListener('click',function(){nodes={};segs={};lots=[];exits=[];W=W0;SW=0;ghost=[];drawStatic();idle();if(V3.on){fit3();build3D()}});
 document.getElementById('b-demo').addEventListener('click',function(){
-nodes={};segs={};lots=[];exits=[];nid=1;sid=1;W=W0;ghost=[];
+nodes={};segs={};lots=[];exits=[];nid=1;sid=1;W=W0;SW=0;ghost=[];
 function nd(x,y){var n=nid++;nodes[n]={x:x,y:y};return n}
 function sg(a,b){segs[sid++]={a:a,b:b}}
 var c=nd(336,224),th=60*Math.PI/180;
@@ -841,7 +845,7 @@ skipped++;
 return {placed:placed,skipped:skipped,courtyard:courtyard};
 }
 function loadScene(sc){
-nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=sc.roadHalfWidth||W0;
+nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=sc.roadHalfWidth||W0;SW=0;
 var map=sc.nodes.map(function(q){var n=nid++;nodes[n]={x:q[0],y:q[1]};return n});
 sc.segs.forEach(function(e){var A=sc.nodes[e[0]],B=sc.nodes[e[1]],L=len(sub(B,A));
 segs[sid++]={a:map[e[0]],b:map[e[1]],ph:0,cw:L/Math.max(1,Math.round(L/s))};});
@@ -869,7 +873,7 @@ document.getElementById('b-bg').addEventListener('click',function(){loadScene(JS
 var VILLAGE={residents:100,seed:11,main:30,cross:20,comR:5,workX:18};
 function buildVillage(){
 var V=VILLAGE;
-nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=VILLAGE_W;ghost=[];
+nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=VILLAGE_W;SW=VILLAGE_SW;ghost=[];
 function nd(x,y){var n=nid++;nodes[n]={x:x,y:y};return n}
 function sg(a,b){segs[sid++]={a:a,b:b}}
 var c=nd(0,0),east=nd(V.main*s,0);
@@ -923,10 +927,10 @@ document.getElementById('b-vil').addEventListener('click',buildVillage);
  * остальным жители ездят во внешний мир через ворота на востоке.
  * Раскладка ручная: дом ставится в клетку у улицы по мировой точке (в клетках).
  */
-// улицы деревень — 10 м: две полосы и парковка вдоль бордюра с обеих сторон
-var VILLAGE_W=20;
+// улицы деревень — 14 м: тротуар 2 м, парковка, две полосы, парковка, тротуар 2 м
+var VILLAGE_W=28,VILLAGE_SW=8;
 function buildHamlet(){
-nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=VILLAGE_W;ghost=[];
+nodes={};segs={};lots=[];exits=[];nid=1;sid=1;colorN=0;W=VILLAGE_W;SW=VILLAGE_SW;ghost=[];
 function nd(x,y){var n=nid++;nodes[n]={x:x*s,y:y*s};return n}
 function sg(a,b){segs[sid++]={a:a,b:b}}
 var w=nd(-24,0),c1=nd(-8,0),c2=nd(8,0),e=nd(24,0),n1=nd(-8,-10),s1=nd(-8,10),n2=nd(8,-10),s2=nd(8,10);
@@ -934,7 +938,11 @@ sg(w,c1);sg(c1,c2);sg(c2,e);sg(n1,c1);sg(c1,s1);sg(n2,c2);sg(c2,s2);sg(n1,n2);
 addExit(e,'Город');
 derive();
 // дом: клетка у улицы в точке (x, y) в клетках, ширина w колонок, глубина d
-function put(x,y,w,d,type){var h=hitCell([x*s,y*s]);if(!h)throw new Error('нет клетки в '+x+','+y);
+// координаты даны для улицы в 2 клетки шириной (W = 16): от оси отодвигаем на столько, на сколько улица шире
+function put(x,y,w,d,type){var P=[x*s,y*s],bs=null,bd=Infinity;
+Object.keys(segs).forEach(function(id){var E=segEnds(segs[id]),dd=segDist(P,E[0],E[1]);if(dd<bd){bd=dd;bs=E}});
+var tt=nrm(sub(bs[1],bs[0])),nn=[-tt[1],tt[0]],sd=dot(sub(P,bs[0]),nn)>0?1:-1;P=add(P,mul(nn,sd*(W-16)));
+var h=hitCell(P);if(!h)throw new Error('нет клетки в '+x+','+y);
 var l={key:h.key,k0:h.k,k1:h.k+w-1,j1:d-1,ext:null,floors:1,type:type};
 if(check(l,null)){l.k0=h.k-w+1;l.k1=h.k}           // колонки идут в другую сторону
 var why=check(l,null);if(why)throw new Error('дом в '+x+','+y+': '+why);
@@ -1057,7 +1065,7 @@ bl.push({id:bl.length,type:typeOf(l),floors:l.floors||1,cells:cellsOf(l),capacit
 var gl=exits.filter(exitValid).map(function(x,i){return {id:i,node:ni[x.node],name:x.name}});
 // render — только для отрисовки (тот же вид, что в редакторе), симуляция его не читает
 var zc=G.drawn.map(function(c){return c.poly.map(function(q){return [r2(q[0]*M),r2(q[1]*M)]})});
-return {format:'city-builder/world@1',units:'m',nodes:nl,edges:el,buildings:bl,gates:gl,render:{cell:4,roadHalfWidth:r2(W*M),zoneCells:zc}};
+return {format:'city-builder/world@1',units:'m',nodes:nl,edges:el,buildings:bl,gates:gl,render:{cell:4,roadHalfWidth:r2(W*M),sidewalk:r2(SW*M),zoneCells:zc}};
 }
 document.getElementById('b-exp').addEventListener('click',function(){
 var a=document.createElement('a'),bl=new Blob([JSON.stringify(exportSim(),null,1)],{type:'application/json'});
@@ -1106,10 +1114,14 @@ dlg.addEventListener('pointerdown',function(e){if(e.target===dlg)closeDlg();});
 var V3={on:false,view:null};
 var v3el=document.getElementById('v3d');
 function seeded(seed){var x=seed*9301+49297;return function(){x=(x*9301+49297)%233280;return x/233280}}
+// улица для общего модуля: оси, узлы, ширина, тротуар, зебры (кроме выездов)
+function streetDesc(){return {roadHalfWidth:W,sidewalk:SW,segments:Object.keys(segs).map(function(id){var E=segEnds(segs[id]);return {a:E[0],b:E[1]}}),
+crosswalks:{unit:s/4,skip:exits.filter(function(x){return nodes[x.node]}).map(function(x){return [nodes[x.node].x,nodes[x.node].y]})}}}
 function sceneDesc(){
 var bl=lots.map(function(l){var S=shape(l),o=S.parts.length?unionOutline(S.parts):{};
 return {outline:o.loop&&o.loop.length>=3?o.loop:null,parts:S.parts,floors:l.floors||1,style:styleOf(l),type:typeOf(l),bad:!!check(l,l),color:l.color}});
-return {cell:s,roadHalfWidth:W,
+var sd=streetDesc();
+return {cell:s,roadHalfWidth:W,sidewalk:SW,crosswalks:sd.crosswalks,
 segments:Object.keys(segs).map(function(id){var E=segEnds(segs[id]);return {a:E[0],b:E[1]}}),
 nodes:Object.keys(nodes).filter(function(n){return degree(+n)>0}).map(function(n){return [nodes[n].x,nodes[n].y]}),
 zoneCells:G.drawn.map(function(c){return c.poly}),buildings:bl,

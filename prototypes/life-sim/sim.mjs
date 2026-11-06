@@ -5,6 +5,8 @@ import {buildWorld} from './world.mjs';
 import {createPopulation} from './population.mjs';
 import {createLife,step,snapshot,checkInvariants} from './life.mjs';
 import {createTraffic} from './traffic.mjs';
+import {createPeds} from './peds.mjs';
+import {MODE} from './life.mjs';
 
 export function createSim(snapshot,cfg={}){
   const c=withDefaults(cfg),rng=makeRng(c.seed);
@@ -12,7 +14,9 @@ export function createSim(snapshot,cfg={}){
   const agents=createPopulation(world,rng);
   const life=createLife(world,agents,rng);
   const traffic=c.traffic.on?createTraffic(world,agents,life):null;
-  return {cfg:c,rng,world,agents,life,traffic,sub:0,carry:0};
+  const peds=traffic?createPeds(world,agents,life,traffic):null;
+  if(peds)life.walkDist=peds.walkDist;
+  return {cfg:c,rng,world,agents,life,traffic,peds,sub:0,carry:0};
 }
 /*
  * Время идёт шагами движения по dt секунд (0.5 с); в начале каждой игровой
@@ -24,11 +28,12 @@ function subStep(sim,{check,onTick}){
   const per=subPerTick(sim),T=sim.traffic;
   if(sim.sub%per===0){
     step(sim.world,sim.agents,sim.life);
-    if(T)for(const a of sim.life.trips.splice(0))T.startTrip(a,sim.life.from[a],sim.life.to[a]);
+    if(T)for(const a of sim.life.trips.splice(0)){const L=sim.life;
+      if(L.mode[a]===MODE.CAR)T.startTrip(a,L.from[a],L.to[a]);else sim.peds.startWalk(a,L.from[a],L.to[a])}
     if(check)checkInvariants(sim.world,sim.agents,sim.life);
     if(onTick)onTick(sim);
   }
-  if(T){T.step(sim.cfg.traffic.dt);if(check)T.check()}
+  if(T){T.step(sim.cfg.traffic.dt);sim.peds.step(sim.cfg.traffic.dt);if(check){T.check();sim.peds.check()}}
   sim.sub++;
 }
 // прожить sec игровых секунд (можно дробно — остаток копится)
@@ -36,7 +41,7 @@ export function advanceSeconds(sim,sec,opts={}){
   const dt=sim.traffic?sim.cfg.traffic.dt:sim.cfg.tickSeconds,per=subPerTick(sim);
   sim.carry+=sec;
   while(sim.carry>=dt-1e-9){
-    if(sim.traffic&&sim.sub%per!==0&&!sim.traffic.busy()&&sim.carry>=(per-sim.sub%per)*dt){ // пусто — сразу к следующей минуте
+    if(sim.traffic&&sim.sub%per!==0&&!sim.traffic.busy()&&!sim.peds.busy()&&sim.carry>=(per-sim.sub%per)*dt){ // пусто — сразу к следующей минуте
       const k=per-sim.sub%per;sim.traffic.time+=k*dt;sim.sub+=k;sim.carry-=k*dt;continue}
     subStep(sim,opts);sim.carry-=dt;
   }

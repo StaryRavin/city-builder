@@ -57,8 +57,10 @@ export function buildWorld(snap,cfg){
   }
   // для парковки на свободной земле движению нужны контуры зданий и ширина дороги
   const outlines=snap.buildings.map((b)=>b.outline||[]);
+  // ширина улицы — от оси до домов, вместе с тротуаром (sidewalk; 0 — тротуара нет)
   const roadHalfWidth=(snap.render&&snap.render.roadHalfWidth)||cfg.traffic.roadHalfWidth;
-  return {name:snap.name||'',nodes,edges,dist,places,cfg,outlines,roadHalfWidth};
+  const sidewalk=(snap.render&&snap.render.sidewalk)||0;
+  return {name:snap.name||'',nodes,edges,dist,places,cfg,outlines,roadHalfWidth,sidewalk};
 }
 
 // расстояние по дорогам между местами p и q, м (без пути за воротами)

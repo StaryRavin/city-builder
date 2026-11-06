@@ -15,17 +15,17 @@ test('деревня 10: неделя, 3 seed — машины не перекр
     advance(sim,7*ticksPerDay(sim),{check:true});            // проверки движения — на каждом шаге 0.5 с
     const T=sim.traffic;
     advance(sim,1,{check:true});
-    assert.ok(T.stats.trips>100);
+    const P=sim.peds;assert.ok(T.stats.trips+P.stats.walks>100);
     // в 3 часа ночи все дома, все машины стоят
-    const inTrip=T.stats.trips-T.stats.arrivals;assert.ok(inTrip<=2,`seed ${seed}: не доехали ${inTrip}`);
+    const inTrip=T.stats.trips-T.stats.arrivals+P.stats.walks-P.stats.arrivals;assert.ok(inTrip<=2,`seed ${seed}: не доехали ${inTrip}`);
   }
 });
 
-test('машины стоят на улице у своего здания',()=>{
+test('машины стоят у здания, где их оставили',()=>{
   const sim=createSim(load('village.snapshot.json'),{seed:1}),T=sim.traffic,pl=sim.world.places;
   advance(sim,11*60,{check:true});                            // 11:00 — все на местах
   for(let a=0;a<sim.agents.n;a++){if(T.state[a]!==CAR.PARKED)continue;
-    const p=sim.life.at[a],sl=T.slot[a],d=Math.hypot(T.slots.x[sl]-pl.x[p],T.slots.y[sl]-pl.y[p]);
+    const p=sim.life.carAt[a],sl=T.slot[a],d=Math.hypot(T.slots.x[sl]-pl.x[p],T.slots.y[sl]-pl.y[p]);
     assert.ok(d<30,`машина ${a} стоит в ${d.toFixed(1)} м от своего здания`)}
 });
 
@@ -34,7 +34,7 @@ test('деревня 100, 60 машин: утренний час пик без �
   const sim=createSim(load('village100.snapshot.json'),{seed:1,cars:60});
   advance(sim,2*ticksPerDay(sim),{check:true});
   const st=sim.traffic.stats;
-  assert.ok(st.trips>250);
+  assert.ok(st.trips+sim.peds.stats.walks>250);
   assert.ok(st.intersectionWaits>0,'на перекрёстках ждали');
   assert.ok(st.mergeWaits>0,'с парковки выезжали, дождавшись просвета');
   assert.ok(st.maxTripSec<45*60,`самая долгая поездка ${Math.round(st.maxTripSec/60)} мин`);
@@ -57,7 +57,7 @@ function crossroads(){
 function rig(homes){
   const cfg=withDefaults({}),w=buildWorld(crossroads(),cfg),n=homes.length;
   const A={n,home:Int32Array.from(homes),job:new Int32Array(n).fill(-1),car:new Uint8Array(n).fill(1)};
-  const L={tick:0,arrive:new Int32Array(n),act:new Uint8Array(n)};
+  const L={tick:0,arrive:new Int32Array(n),act:new Uint8Array(n),mode:new Uint8Array(n)};   // все — на машине
   return {w,A,L,T:createTraffic(w,A,L)};
 }
 function go(r,trips){for(const [a,to] of trips){r.L.act[a]=5;r.L.arrive[a]=2147483647;r.T.startTrip(a,r.A.home[a],to)}}

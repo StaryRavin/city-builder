@@ -12,8 +12,8 @@
  *
  * Каждый тик (1 игровая минута) житель:
  *   1. копит потребности;
- *   2. в пути — едет до тика прибытия: на машине его ставит движение по
- *      дорогам (traffic.mjs), пешком — время по формуле;
+ *   2. в пути — до тика прибытия: его ставят движение машин (traffic.mjs)
+ *      или пешеходов (peds.mjs); без них — время по формуле;
  *   3. на месте — продолжает занятие, пока оно не кончилось:
  *        сон — до утра (своё время подъёма 5:30–7:00); еда — 30 мин; покупки — 20 мин;
  *        работа — пока есть долг и место открыто (проголодался — ест на месте);
@@ -27,7 +27,32 @@
  * Состояние — пачка массивов, индекс = номер жителя. Жители обходятся по
  * порядку, случайность — только из rng: при одном seed всё повторяется.
  */
-import {KIND,travelTime} from './world.mjs';
+import {KIND,travelTime,distance} from './world.mjs';
+
+export const MODE={CAR:0,WALK:1};
+/*
+ * Пешком или на машине (modeFor):
+ *   - в Город и из Города — только на машине;
+ *   - по деревне — пешком, если идти не дальше своего порога walkMax (у
+ *     каждого свой, 120–450 м), иначе на машине, но только если она здесь;
+ *     машина осталась в другом месте — пешком.
+ * В Город, а машина не здесь: сначала дойти до неё пешком (travel).
+ */
+function walkDist(w,L,from,to){return L.walkDist?L.walkDist(from,to):distance(w,from,to)}
+export function modeFor(w,A,L,a,from,to){
+  const pl=w.places;
+  if(pl.kind[to]===KIND.OUTSIDE||pl.kind[from]===KIND.OUTSIDE)return MODE.CAR;
+  if(!A.car[a]||L.carAt[a]!==from)return MODE.WALK;
+  return walkDist(w,L,from,to)>L.walkMax[a]?MODE.CAR:MODE.WALK;
+}
+// время в пути для решений (когда выезжать, какой магазин ближе), с
+export function tripSeconds(w,A,L,a,from,to){
+  if(from===to)return 0;
+  const pl=w.places,out=pl.kind[to]===KIND.OUTSIDE;
+  if(out&&!A.car[a]&&w.cfg.outside.carOnly)return Infinity;
+  if(out&&L.carAt[a]!==from)return walkDist(w,L,from,L.carAt[a])/w.cfg.speed.walk+travelTime(w,L.carAt[a],to,true);
+  return modeFor(w,A,L,a,from,to)===MODE.CAR?travelTime(w,from,to,true):walkDist(w,L,from,to)/w.cfg.speed.walk;
+}
 
 export const ACT={IDLE:0,SLEEP:1,EAT:2,WORK:3,SHOP:4,TRAVEL:5};
 export const ACT_NAME=['дома/свободен','сон','еда','работа','покупки','в пути'];
@@ -47,7 +72,11 @@ export function createLife(w,A,rng){
     shoppers:new Int32Array(pl.n),workers:new Int32Array(pl.n),
     open:new Float64Array(pl.n),close:new Float64Array(pl.n),
     log:[],                       // события: [тик, житель, занятие, место]
-    trips:cfg.traffic.on?[]:null, // новые поездки на машине — их забирает движение
+    trips:cfg.traffic.on?[]:null, // новые поездки — их забирает движение (машины и пешеходы)
+    mode:new Uint8Array(n),       // как добирается сейчас: MODE.CAR / MODE.WALK
+    carAt:new Int32Array(n).fill(-1), // где стоит его машина (место)
+    walkMax:new Float64Array(n),  // до скольких метров идёт пешком
+    walkDist:null,                // длина пешего пути по тротуарам (задаёт peds.mjs)
   };
   for(let p=0;p<pl.n;p++){const h=cfg.hours[['','shop','work','outside'][pl.kind[p]]];if(h){L.open[p]=h[0];L.close[p]=h[1]}}
   // начало: полночь, все дома и спят; потребности немного разные
@@ -58,6 +87,7 @@ export function createLife(w,A,rng){
     L.hunger[a]=0.2+0.2*rng.next();
     L.owed[a]=A.job[a]>=0?2+rng.next():0;
     L.food[a]=2+rng.int(5);
+    L.carAt[a]=A.home[a];L.walkMax[a]=cfg.peds.walkMin+(cfg.peds.walkMax-cfg.peds.walkMin)*rng.next();
   }
   return L;
 }
@@ -67,7 +97,8 @@ export const dayOf=(L,cfg)=>Math.floor(L.tick*cfg.tickSeconds/86400);
 function isNight(h,nt){return nt[0]>nt[1]?(h>=nt[0]||h<nt[1]):(h>=nt[0]&&h<nt[1])}
 function isOpen(L,p,h){return L.close[p]>L.open[p]&&h>=L.open[p]&&h<L.close[p]}
 
-function setAct(L,a,act,p,end){L.act[a]=act;L.actEnd[a]=end;L.log.push([L.tick,a,act,p])}
+// дневник: [тик, житель, занятие, место, как добирается (только для поездок)]
+function setAct(L,a,act,p,end){L.act[a]=act;L.actEnd[a]=end;L.log.push(act===ACT.TRAVEL?[L.tick,a,act,p,L.mode[a]]:[L.tick,a,act,p])}
 
 function startAct(w,A,L,a,act){
   const p=L.at[a],nd=w.cfg.needs,mt=60/w.cfg.tickSeconds;
@@ -87,9 +118,13 @@ function endAct(w,A,L,a){
 // прибытия, когда машина встала на место); без машины или без движения —
 // время по формуле
 function travel(w,A,L,a,dest,intent){
-  L.from[a]=L.at[a];L.to[a]=dest;L.at[a]=-1;L.intent[a]=intent;L.depart[a]=L.tick;
-  if(L.trips&&A.car[a]){L.arrive[a]=2147483647;L.trips.push(a)}
-  else{const sec=travelTime(w,L.from[a],dest,A.car[a]===1);L.arrive[a]=L.tick+Math.max(1,Math.ceil(sec/w.cfg.tickSeconds))}
+  const from=L.at[a];
+  // в Город, а машина в другом месте — сначала к машине пешком (на месте решит снова)
+  if(w.places.kind[dest]===KIND.OUTSIDE&&L.carAt[a]!==from&&L.carAt[a]>=0){dest=L.carAt[a];intent=ACT.IDLE}
+  const mode=modeFor(w,A,L,a,from,dest);
+  L.from[a]=from;L.to[a]=dest;L.at[a]=-1;L.intent[a]=intent;L.depart[a]=L.tick;L.mode[a]=mode;
+  if(L.trips){L.arrive[a]=2147483647;L.trips.push(a)}
+  else{const sec=mode===MODE.CAR?travelTime(w,from,dest,true):walkDist(w,L,from,dest)/w.cfg.speed.walk;L.arrive[a]=L.tick+Math.max(1,Math.ceil(sec/w.cfg.tickSeconds))}
   setAct(L,a,ACT.TRAVEL,dest,L.arrive[a]);
 }
 // свободный житель выбирает занятие: возвращает [занятие, место]
@@ -102,23 +137,23 @@ function choose(w,A,L,a,h){
   if(hungry&&L.food[a]>0)return [ACT.EAT,here];
   if(isNight(h,[L.bed[a],L.wake[a]])&&L.fatigue[a]>=nd.sleepAtNight)return [ACT.SLEEP,home];
   // голоден, а еды нет — сначала магазин (с работы — перерыв на обед)
-  if(hungry){const s=nearestShop(w,L,here,car,h);if(s>=0)return [ACT.SHOP,s]}
+  if(hungry){const s=nearestShop(w,A,L,a,here,h);if(s>=0)return [ACT.SHOP,s]}
   // работа — на своём месте; выехать так, чтобы приехать к открытию
   const j=A.job[a];
   // на месте работы — вернуться к работе, если должен хотя бы 15 мин; ехать из другого места — если должен workMinOwed часов
   if(j>=0&&L.owed[a]>(here===j?0.25:nd.workMinOwed)){
-    const tt=here===j?0:travelTime(w,here,j,car)/3600;
+    const tt=tripSeconds(w,A,L,a,here,j)/3600;
     if(h+tt>=L.open[j]&&h+tt<L.close[j]-0.5)return [ACT.WORK,j];
   }
   // магазин — когда дома мало еды
-  if(L.food[a]<=nd.shopAt){const s=nearestShop(w,L,here,car,h);if(s>=0)return [ACT.SHOP,s]}
+  if(L.food[a]<=nd.shopAt){const s=nearestShop(w,A,L,a,here,h);if(s>=0)return [ACT.SHOP,s]}
   return [ACT.IDLE,home];
 }
 // ближайший открытый магазин со свободным местом (выбор по полезности — этап 3)
-function nearestShop(w,L,here,car,h){
+function nearestShop(w,A,L,a,here,h){
   const pl=w.places;let best=-1,bt=Infinity;
   for(let p=0;p<pl.n;p++){if(pl.visitors[p]<=0||L.shoppers[p]>=pl.visitors[p])continue;
-    const tt=p===here?0:travelTime(w,here,p,car);if(tt===Infinity||!isOpen(L,p,h+tt/3600))continue;
+    const tt=tripSeconds(w,A,L,a,here,p);if(tt===Infinity||!isOpen(L,p,h+tt/3600))continue;
     if(tt<bt){bt=tt;best=p}}
   return best;
 }
@@ -134,7 +169,7 @@ export function step(w,A,L){
     // 2. в пути
     if(L.act[a]===ACT.TRAVEL){
       if(L.tick<L.arrive[a])continue;
-      L.at[a]=L.to[a];L.to[a]=-1;L.act[a]=ACT.IDLE;
+      L.at[a]=L.to[a];L.to[a]=-1;L.act[a]=ACT.IDLE;if(L.mode[a]===MODE.CAR)L.carAt[a]=L.at[a];
       const it=L.intent[a],p=L.at[a];
       if(it===ACT.SHOP&&(L.shoppers[p]>=w.places.visitors[p]||!isOpen(L,p,h))){}      // занято или закрыто — выберет снова
       else if(it===ACT.WORK&&!isOpen(L,p,h)){}
@@ -147,8 +182,10 @@ export function step(w,A,L){
     else if(act===ACT.EAT||act===ACT.SHOP){if(L.tick<L.actEnd[a])continue;endAct(w,A,L,a)}
     else if(act===ACT.WORK){
       if(L.owed[a]>0&&isOpen(L,p,h)){
+        // работает в магазине — там же и покупает еду домой, если её мало
+        if(w.places.kind[p]===KIND.SHOP&&L.food[a]<=nd.shopAt){L.food[a]+=nd.buyPortions;L.log.push([L.tick,a,ACT.SHOP,p])}
         if(L.hunger[a]>=nd.eatAt){if(L.food[a]>0){endAct(w,A,L,a);startAct(w,A,L,a,ACT.EAT);continue} // обед на работе
-          if(nearestShop(w,L,p,A.car[a]===1,h)<0)continue;           // еды нет и купить негде — работает дальше
+          if(nearestShop(w,A,L,a,p,h)<0)continue;           // еды нет и купить негде — работает дальше
           endAct(w,A,L,a);}                                          // еды нет — за едой (см. выбор)
         else continue;}
       else endAct(w,A,L,a);
@@ -163,10 +200,10 @@ export function step(w,A,L){
 
 // снимок: сколько жителей где и чем заняты
 export function snapshot(w,A,L){
-  const pl=w.places,s={home:0,sleep:0,travel:0,workLocal:0,workOutside:0,shopLocal:0,shopOutside:0,eat:0,outsideOther:0,localOther:0};
+  const pl=w.places,s={home:0,sleep:0,travel:0,walk:0,workLocal:0,workOutside:0,shopLocal:0,shopOutside:0,eat:0,outsideOther:0,localOther:0};
   for(let a=0;a<A.n;a++){
     const act=L.act[a],p=L.at[a],out=p>=0&&pl.kind[p]===KIND.OUTSIDE;
-    if(act===ACT.TRAVEL)s.travel++;
+    if(act===ACT.TRAVEL){if(L.mode[a]===MODE.WALK)s.walk++;else s.travel++}
     else if(act===ACT.SLEEP)s.sleep++;
     else if(act===ACT.WORK)out?s.workOutside++:s.workLocal++;
     else if(act===ACT.SHOP)out?s.shopOutside++:s.shopLocal++;

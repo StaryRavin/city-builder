@@ -43,6 +43,13 @@ export const DEFAULTS={
     mergeBack:15,mergeAhead:7, // нужный просвет на полосе, чтобы выехать с парковки
     enterSpeed:3,           // скорость въезда от ворот
   },
+  peds:{                    // пешеходы (peds.mjs), метры
+    crossAt:1.5,            // зебра — сразу за границей перекрёстка: центр в box + crossAt от узла
+    crossLen:3,             // ширина зебры вдоль дороги: столько полосы у перекрёстка машины держат свободным
+    walkMin:120,walkMax:450,// до скольких метров житель идёт пешком, а не едет (у каждого своё, случайно)
+    keepRight:0.4,          // идёт правее середины тротуара
+    drivewayClear:4,        // машина не заезжает через тротуар, если пешеход ближе
+  },
   outside:{                 // внешний мир за каждыми воротами — запись с числами, не агенты
     jobs:40,                // рабочих мест снаружи, доступных жителям
     minutesBeyondGate:20,   // от ворот до места снаружи (на машине)
@@ -51,5 +58,5 @@ export const DEFAULTS={
 };
 export function withDefaults(cfg={}){
   return {...DEFAULTS,...cfg,speed:{...DEFAULTS.speed,...cfg.speed},outside:{...DEFAULTS.outside,...cfg.outside},
-    hours:{...DEFAULTS.hours,...cfg.hours},needs:{...DEFAULTS.needs,...cfg.needs},traffic:{...DEFAULTS.traffic,...cfg.traffic}};
+    hours:{...DEFAULTS.hours,...cfg.hours},needs:{...DEFAULTS.needs,...cfg.needs},traffic:{...DEFAULTS.traffic,...cfg.traffic},peds:{...DEFAULTS.peds,...cfg.peds}};
 }

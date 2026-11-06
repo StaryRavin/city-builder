@@ -137,7 +137,7 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
     <h2 id="dh">Дневник</h2>
     <ol id="diary"></ol>
   </section>
-  <p class="note">У жителей нет расписания, только потребности: усталость, голод, долг рабочих часов (8 в сутки) и запас еды дома. Расписание есть у мест — их часы работы на полосе выше. Время в пути считается по дорогам с ровной скоростью; пробок пока нет. Нажмите на жителя на карте или в списке, чтобы открыть его дневник.</p>
+  <p class="note">У жителей нет расписания, только потребности: усталость, голод, долг рабочих часов (8 в сутки) и запас еды дома. Расписание есть у мест — их часы работы на полосе выше. По деревне ходят пешком (по тротуарам, через зебры), если недалеко, иначе едут; в Город — только на машине. Нажмите на жителя на карте или в списке, чтобы открыть его дневник.</p>
 </div>
 
 <script>
@@ -160,9 +160,11 @@ aside h2,.diary h2{font-size:12px;font-weight:600;color:var(--muted);text-transf
  *   buildings      — [{outline, parts?, floors, style, type, bad?, color?}]:
  *                    outline — контур дома (если нет — простые призмы по parts);
  *                    style — индекс в City3D.STYLES; type — res / com / work;
+ *   sidewalk       — ширина тротуара (0 — нет): проезжая часть — roadHalfWidth − sidewalk;
+ *   crosswalks     — {unit, skip:[[x,y]]}: рисовать зебры у концов звеньев (кроме skip);
  *   gates          — [{at:[x,y], dir:[dx,dy], ok}] выезды во внешний мир;
  *   areas          — [{poly, color, label}] плоские площадки (например, «Город»).
- * Жители — setMarkers([{x, y, z, color, label, car, heading, selected}]).
+ * Жители — setMarkers([{x, y, z, color, label, selected, car, person}]).
  */
 (function(){
 'use strict';
@@ -177,7 +179,26 @@ var STYLES=[
 {name:'бежевый кирпич',wall:'#C7A07C',trim:'#EADDC9',plinth:'#8A6C56',roof:'#4E4846',roofType:'mansard',arch:false}];
 // цвета карты — общие для 2D и 3D во всех прототипах
 var COLORS={ground:'#E6E0CC',sky:'#DFE7EA',road:'#5A5F66',roadLine:'#F2F2F2',zoneCell:'#9ED38F',zoneCell3D:'#B5D8A4',
-  zone:{res:'#3F8F4E',com:'#3D7DC8',work:'#D49A22'},gate:'#2F6F8F',bad:'#D9363E',area:'#D6DAE0',areaEdge:'#8A93A0'};
+  zone:{res:'#3F8F4E',com:'#3D7DC8',work:'#D49A22'},gate:'#2F6F8F',bad:'#D9363E',area:'#D6DAE0',areaEdge:'#8A93A0',
+  sidewalk:'#C9C6BD',crosswalk:'#F4F4F0'};
+// улица: зебра — поперёк проезжей части, центр в crossAt м от узла (граница перекрёстка 5 м + 1.5),
+// шириной crossLen м вдоль улицы; полосы по 0.5 м через 0.5 м (как в симуляции движения)
+var STREET={crossAt:6.5,crossLen:3,stripe:0.5};
+/*
+ * Зебры для описания сцены: у каждого конца каждого звена, кроме ворот (skip — точки узлов,
+ * где зебр нет). u — единиц в метре (редактор — 4, просмотрщик переводит метры в те же единицы).
+ * Возвращает плоские многоугольники полос.
+ */
+function crosswalkPolys(desc){
+  var cw=desc.crosswalks;if(!cw||!desc.sidewalk)return [];
+  var u=cw.unit||4,C=desc.roadHalfWidth-desc.sidewalk,at=STREET.crossAt*u,hl=STREET.crossLen*u/2,sw=STREET.stripe*u,out=[];
+  var skip=(cw.skip||[]),isSkip=function(p){return skip.some(function(q){return Math.hypot(q[0]-p[0],q[1]-p[1])<1e-3})};
+  (desc.segments||[]).forEach(function(sg){[[sg.a,sg.b],[sg.b,sg.a]].forEach(function(pr){var P=pr[0],Q=pr[1];if(isSkip(P))return;
+    var d=nrm(sub(Q,P)),n=[-d[1],d[0]],M=add(P,mul(d,at));
+    for(var k=-C+sw/2;k<=C-sw/2+1e-6;k+=2*sw){var c=add(M,mul(n,k));
+      out.push([add(add(c,mul(d,-hl)),mul(n,-sw/2)),add(add(c,mul(d,hl)),mul(n,-sw/2)),add(add(c,mul(d,hl)),mul(n,sw/2)),add(add(c,mul(d,-hl)),mul(n,sw/2))])}})});
+  return out;
+}
 // стили домов по типу: из них выбирает редактор, по ним же красит симуляция
 var ZONE_STYLES={res:[0,5,7,1,2,4],com:[6],work:[3]};
 function shade(hex,f){var n=parseInt(hex.slice(1),16),c=[n>>16,(n>>8)&255,n&255].map(function(v){return Math.round(f<0?v*(1+f):v+(255-v)*f)});return '#'+c.map(function(v){return ('0'+v.toString(16)).slice(-2)}).join('')}
@@ -242,8 +263,9 @@ polys.forEach(function(p){for(var i=1;i<p.length-1;i++)[p[0],p[i],p[i+1]].forEac
 var g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.computeVertexNormals();return g;
 }
 // полосы дорог: прямоугольник вдоль каждого звена и восьмиугольник в каждом узле
-function roadBands(desc){
-var W=desc.roadHalfWidth,bands=[];
+// halfWidth — ширина полосы от оси (проезжая часть или вся улица с тротуарами)
+function roadBands(desc,halfWidth){
+var W=halfWidth||desc.roadHalfWidth,bands=[];
 (desc.segments||[]).forEach(function(sg){var A=sg.a,B=sg.b,t=nrm(sub(B,A)),nl=[-t[1],t[0]];
 var poly=[add(A,mul(nl,W)),add(B,mul(nl,W)),add(B,mul(nl,-W)),add(A,mul(nl,-W))];bands.push({poly:poly,A:A,B:B,t:t,bb:bbox(poly)})});
 (desc.nodes||[]).forEach(function(c){var p=[];for(var i=0;i<8;i++){var a=i*Math.PI/4+Math.PI/8;p.push([c[0]+W*Math.cos(a),c[1]+W*Math.sin(a)])}bands.push({poly:p,node:true,bb:bbox(p)})});
@@ -363,10 +385,21 @@ var w=new T.Mesh(carGeo.glass,glass);w.position.set(-1.2,6.2,0);g.add(w);
 g.userData={body:body,color:null};return g;
 }
 
+// ---------- пешеход: простая фигура (ноги, туловище, голова), рост ~1.75 м ----------
+var personGeo=null;
+function makePerson(C){
+var T=THREE;if(!personGeo)personGeo={legs:new T.CylinderGeometry(0.75,0.6,3.4,8),body:new T.CylinderGeometry(1.0,0.85,2.8,10),head:new T.SphereGeometry(0.75,10,8)};
+var g=new T.Group(),cloth=new T.MeshLambertMaterial({color:0xffffff}),pants=new T.MeshLambertMaterial({color:C('#3A3F4A')}),skin=new T.MeshLambertMaterial({color:C('#E2B999')});
+var l=new T.Mesh(personGeo.legs,pants);l.position.y=1.7;g.add(l);
+var b=new T.Mesh(personGeo.body,cloth);b.position.y=4.8;g.add(b);
+var h=new T.Mesh(personGeo.head,skin);h.position.y=6.75;g.add(h);
+g.userData={cloth:cloth,color:null};return g;
+}
+
 // ---------- вид: сцена, камера, управление ----------
 function createView(el,opts){
 opts=opts||{};
-var T=THREE,V={bearing:-0.5,elev:60,tgt:[0,0],dist:700,ptrs:{},last:null,rot:false,scene:null,marks:null,markers:[],cars:[]};
+var T=THREE,V={bearing:-0.5,elev:60,tgt:[0,0],dist:700,ptrs:{},last:null,rot:false,scene:null,marks:null,markers:[],cars:[],people:[]};
 var R=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,logarithmicDepthBuffer:true});R.outputEncoding=T.sRGBEncoding;R.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
 el.appendChild(R.domElement);
 var cam=new T.PerspectiveCamera(40,680/460,1,30000),cv=R.domElement;
@@ -382,19 +415,22 @@ var sc=new T.Scene();sc.background=C(COLORS.sky);
 sc.add(new T.HemisphereLight(0xffffff,0x8d8573,0.6));
 var sun=new T.DirectionalLight(0xffffff,0.6);sun.position.set(-400,700,-250);sc.add(sun);
 var ground=new T.Mesh(new T.PlaneGeometry(20000,20000),new T.MeshBasicMaterial({color:C(COLORS.ground)}));ground.rotation.x=-Math.PI/2;sc.add(ground);
-var side=T.DoubleSide,bands=roadBands(desc),W=desc.roadHalfWidth,H=2.2*(desc.cell||16);
+var side=T.DoubleSide,SW=desc.sidewalk||0,bands=roadBands(desc,desc.roadHalfWidth-SW),W=desc.roadHalfWidth,H=2.2*(desc.cell||16);
+// тротуары — светлая полоса под проезжей частью, до домов; зебры — поверх асфальта
+if(SW>0){var wb=roadBands(desc,desc.roadHalfWidth);sc.add(new T.Mesh(flatGeo(wb.map(function(b){return b.poly}),1.45),new T.MeshBasicMaterial({color:C(COLORS.sidewalk),side:side})));}
+var zp=crosswalkPolys(desc);if(zp.length)sc.add(new T.Mesh(flatGeo(zp,1.7),new T.MeshBasicMaterial({color:C(COLORS.crosswalk),side:side})));
 if(desc.zoneCells&&desc.zoneCells.length)sc.add(new T.Mesh(flatGeo(desc.zoneCells,0.8),new T.MeshBasicMaterial({color:C(COLORS.zoneCell3D),side:side})));
 (desc.areas||[]).forEach(function(a){sc.add(new T.Mesh(flatGeo([a.poly],1.2),new T.MeshBasicMaterial({color:C(a.color||COLORS.area),side:side})));
 if(a.label){var sp=textSprite(a.label),c=a.poly.reduce(function(s,q){return [s[0]+q[0]/a.poly.length,s[1]+q[1]/a.poly.length]},[0,0]),top=Math.min.apply(null,a.poly.map(function(q){return q[1]}));sp.position.set(c[0],24,top-8);sc.add(sp)}});
 if(bands.length)sc.add(new T.Mesh(flatGeo(bands.map(function(b){return b.poly}),1.6),new T.MeshBasicMaterial({color:C(COLORS.road),side:side})));
-buildHouses(sc,C,desc,bands,R);
+buildHouses(sc,C,desc,SW>0?roadBands(desc,desc.roadHalfWidth):bands,R);
 // выезды: арка-портал над концом дороги
 (desc.gates||[]).forEach(function(x){var d=x.dir,n=[-d[1],d[0]],P=add(x.at,mul(d,W*0.6)),ang=-Math.atan2(n[1],n[0]);
 var post=new T.MeshLambertMaterial({color:C('#ECEDEA')}),beam=new T.MeshLambertMaterial({color:C(x.ok===false?COLORS.bad:COLORS.gate)});
 [-1,1].forEach(function(sd){var m=new T.Mesh(new T.BoxGeometry(4,H,4),post),q=add(P,mul(n,sd*(W+3)));m.position.set(q[0],H/2,q[1]);sc.add(m)});
 var bm=new T.Mesh(new T.BoxGeometry(2*W+10,9,3),beam);bm.position.set(P[0],H-4.5,P[1]);bm.rotation.y=ang;sc.add(bm);
 if(x.label){var sp=textSprite(x.label);sp.position.set(P[0],H+12,P[1]);sc.add(sp)}});
-V.marks=new T.Group();sc.add(V.marks);V.markers=[];V.cars=[];
+V.marks=new T.Group();sc.add(V.marks);V.markers=[];V.cars=[];V.people=[];
 V.scene=sc;
 },
 // метки жителей: m = {x, y, z, color, label, selected, car}; кружок с номером
@@ -403,8 +439,10 @@ V.scene=sc;
 setMarkers:function(list){
 if(!V.marks)return;
 while(V.markers.length<list.length){var sp=new T.Sprite(new T.SpriteMaterial({depthTest:true}));sp.renderOrder=4;V.marks.add(sp);
-var car=makeCar(C);V.marks.add(car);V.markers.push(sp);V.cars.push(car);}
+var car=makeCar(C);V.marks.add(car);V.markers.push(sp);V.cars.push(car);var pp=makePerson(C);V.marks.add(pp);V.people.push(pp);}
 for(var i=0;i<V.markers.length;i++){var sp2=V.markers[i],car2=V.cars[i],m=list[i];
+var per=V.people[i];per.visible=!!(m&&m.person);
+if(m&&m.person){per.position.set(m.person.x,0,m.person.y);per.rotation.y=-(m.person.heading||0);if(per.userData.color!==m.person.color){per.userData.cloth.color.copy(C(m.person.color));per.userData.color=m.person.color}}
 if(!m){sp2.visible=false;car2.visible=false;continue}
 sp2.visible=true;sp2.material.map=markerTexture(m.color,m.label,m.selected);sp2.material.needsUpdate=true;
 var sz=m.selected?22:17;sp2.scale.set(sz,sz,1);sp2.position.set(m.x,(m.z||0)+8,m.y);
@@ -446,7 +484,7 @@ window.addEventListener('resize',render);
 return api;
 }
 
-window.City3D={STYLES:STYLES,COLORS:COLORS,ZONE_STYLES:ZONE_STYLES,shade:shade,lotFill:lotFill,loadThree:loadThree,createView:createView,offsetPoly:offsetPoly};
+window.City3D={STREET:STREET,crosswalkPolys:crosswalkPolys,STYLES:STYLES,COLORS:COLORS,ZONE_STYLES:ZONE_STYLES,shade:shade,lotFill:lotFill,loadThree:loadThree,createView:createView,offsetPoly:offsetPoly};
 })();
 
 // ---- rng.mjs ----
@@ -509,6 +547,13 @@ const DEFAULTS={
     mergeBack:15,mergeAhead:7, // нужный просвет на полосе, чтобы выехать с парковки
     enterSpeed:3,           // скорость въезда от ворот
   },
+  peds:{                    // пешеходы (peds.mjs), метры
+    crossAt:1.5,            // зебра — сразу за границей перекрёстка: центр в box + crossAt от узла
+    crossLen:3,             // ширина зебры вдоль дороги: столько полосы у перекрёстка машины держат свободным
+    walkMin:120,walkMax:450,// до скольких метров житель идёт пешком, а не едет (у каждого своё, случайно)
+    keepRight:0.4,          // идёт правее середины тротуара
+    drivewayClear:4,        // машина не заезжает через тротуар, если пешеход ближе
+  },
   outside:{                 // внешний мир за каждыми воротами — запись с числами, не агенты
     jobs:40,                // рабочих мест снаружи, доступных жителям
     minutesBeyondGate:20,   // от ворот до места снаружи (на машине)
@@ -517,7 +562,7 @@ const DEFAULTS={
 };
 function withDefaults(cfg={}){
   return {...DEFAULTS,...cfg,speed:{...DEFAULTS.speed,...cfg.speed},outside:{...DEFAULTS.outside,...cfg.outside},
-    hours:{...DEFAULTS.hours,...cfg.hours},needs:{...DEFAULTS.needs,...cfg.needs},traffic:{...DEFAULTS.traffic,...cfg.traffic}};
+    hours:{...DEFAULTS.hours,...cfg.hours},needs:{...DEFAULTS.needs,...cfg.needs},traffic:{...DEFAULTS.traffic,...cfg.traffic},peds:{...DEFAULTS.peds,...cfg.peds}};
 }
 
 // ---- world.mjs ----
@@ -580,8 +625,10 @@ function buildWorld(snap,cfg){
   }
   // для парковки на свободной земле движению нужны контуры зданий и ширина дороги
   const outlines=snap.buildings.map((b)=>b.outline||[]);
+  // ширина улицы — от оси до домов, вместе с тротуаром (sidewalk; 0 — тротуара нет)
   const roadHalfWidth=(snap.render&&snap.render.roadHalfWidth)||cfg.traffic.roadHalfWidth;
-  return {name:snap.name||'',nodes,edges,dist,places,cfg,outlines,roadHalfWidth};
+  const sidewalk=(snap.render&&snap.render.sidewalk)||0;
+  return {name:snap.name||'',nodes,edges,dist,places,cfg,outlines,roadHalfWidth,sidewalk};
 }
 
 // расстояние по дорогам между местами p и q, м (без пути за воротами)
@@ -701,8 +748,8 @@ function formatCensus(w,c){
  *
  * Каждый тик (1 игровая минута) житель:
  *   1. копит потребности;
- *   2. в пути — едет до тика прибытия: на машине его ставит движение по
- *      дорогам (traffic.mjs), пешком — время по формуле;
+ *   2. в пути — до тика прибытия: его ставят движение машин (traffic.mjs)
+ *      или пешеходов (peds.mjs); без них — время по формуле;
  *   3. на месте — продолжает занятие, пока оно не кончилось:
  *        сон — до утра (своё время подъёма 5:30–7:00); еда — 30 мин; покупки — 20 мин;
  *        работа — пока есть долг и место открыто (проголодался — ест на месте);
@@ -716,6 +763,31 @@ function formatCensus(w,c){
  * Состояние — пачка массивов, индекс = номер жителя. Жители обходятся по
  * порядку, случайность — только из rng: при одном seed всё повторяется.
  */
+
+const MODE={CAR:0,WALK:1};
+/*
+ * Пешком или на машине (modeFor):
+ *   - в Город и из Города — только на машине;
+ *   - по деревне — пешком, если идти не дальше своего порога walkMax (у
+ *     каждого свой, 120–450 м), иначе на машине, но только если она здесь;
+ *     машина осталась в другом месте — пешком.
+ * В Город, а машина не здесь: сначала дойти до неё пешком (travel).
+ */
+function walkDist(w,L,from,to){return L.walkDist?L.walkDist(from,to):distance(w,from,to)}
+function modeFor(w,A,L,a,from,to){
+  const pl=w.places;
+  if(pl.kind[to]===KIND.OUTSIDE||pl.kind[from]===KIND.OUTSIDE)return MODE.CAR;
+  if(!A.car[a]||L.carAt[a]!==from)return MODE.WALK;
+  return walkDist(w,L,from,to)>L.walkMax[a]?MODE.CAR:MODE.WALK;
+}
+// время в пути для решений (когда выезжать, какой магазин ближе), с
+function tripSeconds(w,A,L,a,from,to){
+  if(from===to)return 0;
+  const pl=w.places,out=pl.kind[to]===KIND.OUTSIDE;
+  if(out&&!A.car[a]&&w.cfg.outside.carOnly)return Infinity;
+  if(out&&L.carAt[a]!==from)return walkDist(w,L,from,L.carAt[a])/w.cfg.speed.walk+travelTime(w,L.carAt[a],to,true);
+  return modeFor(w,A,L,a,from,to)===MODE.CAR?travelTime(w,from,to,true):walkDist(w,L,from,to)/w.cfg.speed.walk;
+}
 
 const ACT={IDLE:0,SLEEP:1,EAT:2,WORK:3,SHOP:4,TRAVEL:5};
 const ACT_NAME=['дома/свободен','сон','еда','работа','покупки','в пути'];
@@ -735,7 +807,11 @@ function createLife(w,A,rng){
     shoppers:new Int32Array(pl.n),workers:new Int32Array(pl.n),
     open:new Float64Array(pl.n),close:new Float64Array(pl.n),
     log:[],                       // события: [тик, житель, занятие, место]
-    trips:cfg.traffic.on?[]:null, // новые поездки на машине — их забирает движение
+    trips:cfg.traffic.on?[]:null, // новые поездки — их забирает движение (машины и пешеходы)
+    mode:new Uint8Array(n),       // как добирается сейчас: MODE.CAR / MODE.WALK
+    carAt:new Int32Array(n).fill(-1), // где стоит его машина (место)
+    walkMax:new Float64Array(n),  // до скольких метров идёт пешком
+    walkDist:null,                // длина пешего пути по тротуарам (задаёт peds.mjs)
   };
   for(let p=0;p<pl.n;p++){const h=cfg.hours[['','shop','work','outside'][pl.kind[p]]];if(h){L.open[p]=h[0];L.close[p]=h[1]}}
   // начало: полночь, все дома и спят; потребности немного разные
@@ -746,6 +822,7 @@ function createLife(w,A,rng){
     L.hunger[a]=0.2+0.2*rng.next();
     L.owed[a]=A.job[a]>=0?2+rng.next():0;
     L.food[a]=2+rng.int(5);
+    L.carAt[a]=A.home[a];L.walkMax[a]=cfg.peds.walkMin+(cfg.peds.walkMax-cfg.peds.walkMin)*rng.next();
   }
   return L;
 }
@@ -755,7 +832,8 @@ const dayOf=(L,cfg)=>Math.floor(L.tick*cfg.tickSeconds/86400);
 function isNight(h,nt){return nt[0]>nt[1]?(h>=nt[0]||h<nt[1]):(h>=nt[0]&&h<nt[1])}
 function isOpen(L,p,h){return L.close[p]>L.open[p]&&h>=L.open[p]&&h<L.close[p]}
 
-function setAct(L,a,act,p,end){L.act[a]=act;L.actEnd[a]=end;L.log.push([L.tick,a,act,p])}
+// дневник: [тик, житель, занятие, место, как добирается (только для поездок)]
+function setAct(L,a,act,p,end){L.act[a]=act;L.actEnd[a]=end;L.log.push(act===ACT.TRAVEL?[L.tick,a,act,p,L.mode[a]]:[L.tick,a,act,p])}
 
 function startAct(w,A,L,a,act){
   const p=L.at[a],nd=w.cfg.needs,mt=60/w.cfg.tickSeconds;
@@ -775,9 +853,13 @@ function endAct(w,A,L,a){
 // прибытия, когда машина встала на место); без машины или без движения —
 // время по формуле
 function travel(w,A,L,a,dest,intent){
-  L.from[a]=L.at[a];L.to[a]=dest;L.at[a]=-1;L.intent[a]=intent;L.depart[a]=L.tick;
-  if(L.trips&&A.car[a]){L.arrive[a]=2147483647;L.trips.push(a)}
-  else{const sec=travelTime(w,L.from[a],dest,A.car[a]===1);L.arrive[a]=L.tick+Math.max(1,Math.ceil(sec/w.cfg.tickSeconds))}
+  const from=L.at[a];
+  // в Город, а машина в другом месте — сначала к машине пешком (на месте решит снова)
+  if(w.places.kind[dest]===KIND.OUTSIDE&&L.carAt[a]!==from&&L.carAt[a]>=0){dest=L.carAt[a];intent=ACT.IDLE}
+  const mode=modeFor(w,A,L,a,from,dest);
+  L.from[a]=from;L.to[a]=dest;L.at[a]=-1;L.intent[a]=intent;L.depart[a]=L.tick;L.mode[a]=mode;
+  if(L.trips){L.arrive[a]=2147483647;L.trips.push(a)}
+  else{const sec=mode===MODE.CAR?travelTime(w,from,dest,true):walkDist(w,L,from,dest)/w.cfg.speed.walk;L.arrive[a]=L.tick+Math.max(1,Math.ceil(sec/w.cfg.tickSeconds))}
   setAct(L,a,ACT.TRAVEL,dest,L.arrive[a]);
 }
 // свободный житель выбирает занятие: возвращает [занятие, место]
@@ -790,23 +872,23 @@ function choose(w,A,L,a,h){
   if(hungry&&L.food[a]>0)return [ACT.EAT,here];
   if(isNight(h,[L.bed[a],L.wake[a]])&&L.fatigue[a]>=nd.sleepAtNight)return [ACT.SLEEP,home];
   // голоден, а еды нет — сначала магазин (с работы — перерыв на обед)
-  if(hungry){const s=nearestShop(w,L,here,car,h);if(s>=0)return [ACT.SHOP,s]}
+  if(hungry){const s=nearestShop(w,A,L,a,here,h);if(s>=0)return [ACT.SHOP,s]}
   // работа — на своём месте; выехать так, чтобы приехать к открытию
   const j=A.job[a];
   // на месте работы — вернуться к работе, если должен хотя бы 15 мин; ехать из другого места — если должен workMinOwed часов
   if(j>=0&&L.owed[a]>(here===j?0.25:nd.workMinOwed)){
-    const tt=here===j?0:travelTime(w,here,j,car)/3600;
+    const tt=tripSeconds(w,A,L,a,here,j)/3600;
     if(h+tt>=L.open[j]&&h+tt<L.close[j]-0.5)return [ACT.WORK,j];
   }
   // магазин — когда дома мало еды
-  if(L.food[a]<=nd.shopAt){const s=nearestShop(w,L,here,car,h);if(s>=0)return [ACT.SHOP,s]}
+  if(L.food[a]<=nd.shopAt){const s=nearestShop(w,A,L,a,here,h);if(s>=0)return [ACT.SHOP,s]}
   return [ACT.IDLE,home];
 }
 // ближайший открытый магазин со свободным местом (выбор по полезности — этап 3)
-function nearestShop(w,L,here,car,h){
+function nearestShop(w,A,L,a,here,h){
   const pl=w.places;let best=-1,bt=Infinity;
   for(let p=0;p<pl.n;p++){if(pl.visitors[p]<=0||L.shoppers[p]>=pl.visitors[p])continue;
-    const tt=p===here?0:travelTime(w,here,p,car);if(tt===Infinity||!isOpen(L,p,h+tt/3600))continue;
+    const tt=tripSeconds(w,A,L,a,here,p);if(tt===Infinity||!isOpen(L,p,h+tt/3600))continue;
     if(tt<bt){bt=tt;best=p}}
   return best;
 }
@@ -822,7 +904,7 @@ function step(w,A,L){
     // 2. в пути
     if(L.act[a]===ACT.TRAVEL){
       if(L.tick<L.arrive[a])continue;
-      L.at[a]=L.to[a];L.to[a]=-1;L.act[a]=ACT.IDLE;
+      L.at[a]=L.to[a];L.to[a]=-1;L.act[a]=ACT.IDLE;if(L.mode[a]===MODE.CAR)L.carAt[a]=L.at[a];
       const it=L.intent[a],p=L.at[a];
       if(it===ACT.SHOP&&(L.shoppers[p]>=w.places.visitors[p]||!isOpen(L,p,h))){}      // занято или закрыто — выберет снова
       else if(it===ACT.WORK&&!isOpen(L,p,h)){}
@@ -835,8 +917,10 @@ function step(w,A,L){
     else if(act===ACT.EAT||act===ACT.SHOP){if(L.tick<L.actEnd[a])continue;endAct(w,A,L,a)}
     else if(act===ACT.WORK){
       if(L.owed[a]>0&&isOpen(L,p,h)){
+        // работает в магазине — там же и покупает еду домой, если её мало
+        if(w.places.kind[p]===KIND.SHOP&&L.food[a]<=nd.shopAt){L.food[a]+=nd.buyPortions;L.log.push([L.tick,a,ACT.SHOP,p])}
         if(L.hunger[a]>=nd.eatAt){if(L.food[a]>0){endAct(w,A,L,a);startAct(w,A,L,a,ACT.EAT);continue} // обед на работе
-          if(nearestShop(w,L,p,A.car[a]===1,h)<0)continue;           // еды нет и купить негде — работает дальше
+          if(nearestShop(w,A,L,a,p,h)<0)continue;           // еды нет и купить негде — работает дальше
           endAct(w,A,L,a);}                                          // еды нет — за едой (см. выбор)
         else continue;}
       else endAct(w,A,L,a);
@@ -851,10 +935,10 @@ function step(w,A,L){
 
 // снимок: сколько жителей где и чем заняты
 function snapshot(w,A,L){
-  const pl=w.places,s={home:0,sleep:0,travel:0,workLocal:0,workOutside:0,shopLocal:0,shopOutside:0,eat:0,outsideOther:0,localOther:0};
+  const pl=w.places,s={home:0,sleep:0,travel:0,walk:0,workLocal:0,workOutside:0,shopLocal:0,shopOutside:0,eat:0,outsideOther:0,localOther:0};
   for(let a=0;a<A.n;a++){
     const act=L.act[a],p=L.at[a],out=p>=0&&pl.kind[p]===KIND.OUTSIDE;
-    if(act===ACT.TRAVEL)s.travel++;
+    if(act===ACT.TRAVEL){if(L.mode[a]===MODE.WALK)s.walk++;else s.travel++}
     else if(act===ACT.SLEEP)s.sleep++;
     else if(act===ACT.WORK)out?s.workOutside++:s.workLocal++;
     else if(act===ACT.SHOP)out?s.shopOutside++:s.shopLocal++;
@@ -945,6 +1029,12 @@ function createTraffic(w,A,L){
     lanes.from[l]=f;lanes.to[l]=t;lanes.len[l]=Math.max(1,L0-2*R);lanes.dx[l]=dx;lanes.dy[l]=dy;
     lanes.x0[l]=nx[f]+dx*R+rx*cfg.laneOffset;lanes.y0[l]=ny[f]+dy*R+ry*cfg.laneOffset;lanes.cars.push([])}
   const reverse=(l)=>l^1;
+  // зебры: у каждого конца звена, кроме ворот (туда пешком не ходят). Полоса держит свободными
+  // свои первые / последние crossLen метров: машины ждут перед зеброй, пока по ней идут
+  const CW=w.cfg.peds.crossLen,cwS=new Float64Array(LN),cwE=new Float64Array(LN);
+  for(let l=0;l<LN;l++){cwS[l]=gateNode[lanes.from[l]]?0:CW;cwE[l]=gateNode[lanes.to[l]]?0:CW}
+  // где машина ждёт перед перекрёстком (центр): до зебры, с зазором
+  const stopS=(l)=>lanes.len[l]-cwE[l]-len/2-cfg.stopGap;
   const out=[...Array(N)].map(()=>[]),inn=[...Array(N)].map(()=>[]);
   for(let l=0;l<LN;l++){out[lanes.from[l]].push(l);inn[lanes.to[l]].push(l)}
   // переходы через перекрёсток: кривая (квадратичная Безье) от конца полосы к началу следующей
@@ -964,7 +1054,7 @@ function createTraffic(w,A,L){
     b={node:v,pts,cum,len:cum[12]};boxes.set(k,b);return b;
   }
   // ---- парковочные места ----
-  const RW=w.roadHalfWidth,clr=cfg.clearance;
+  const RW=w.roadHalfWidth,CURB=RW-w.sidewalk,clr=cfg.clearance;   // RW — до домов, CURB — край проезжей части
   // прямоугольник машины (с запасом) в точке P с курсом h
   function carRect(P,h,m){const c=Math.cos(h),s=Math.sin(h),hl=len/2+m,hw=0.95+m;return [[hl,hw],[hl,-hw],[-hl,-hw],[-hl,hw]].map(([x,y])=>[P[0]+x*c-y*s,P[1]+x*s+y*c])}
   function inPoly(P,poly){let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a[1]>P[1])!==(b[1]>P[1])&&P[0]<(b[0]-a[0])*(P[1]-a[1])/(b[1]-a[1])+a[0])c=!c}return c}
@@ -988,10 +1078,10 @@ function createTraffic(w,A,L){
   const along=(P,d,k)=>[P[0]+d[0]*k,P[1]+d[1]*k];
   // kind: 0 — у бордюра, 1 — на земле. sStop — где на полосе начинается заезд, sOut — где кончается выезд.
   // in/out — кривые манёвров [P0, C, P1, длина, задним ходом]
-  const slots={n:0,kind:[],lane:[],s:[],sStop:[],sOut:[],x:[],y:[],h:[],occ:[],pin:[],pout:[]};
+  const slots={n:0,kind:[],lane:[],s:[],sStop:[],sOut:[],x:[],y:[],h:[],occ:[],pin:[],pout:[],wx:[],wy:[]};
   const lotRects=[],RA=cfg.rearAxle;
   // у бордюра — только если между стоящей и едущей машиной остаётся зазор (улица достаточно широкая)
-  const parkC=RW-0.95-cfg.curbGap,curbOK=parkC-0.95-(cfg.laneOffset+0.95)>=cfg.sideGap;
+  const parkC=CURB-0.95-cfg.curbGap,curbOK=parkC-0.95-(cfg.laneOffset+0.95)>=cfg.sideGap;
   // путь задней оси: из точки A0 с курсом d0 в A1 с курсом d1
   const axlePath=(C0,d0,C1,d1,k0,k1)=>{const A0=along(C0,d0,-RA),A1=along(C1,d1,-RA);return [A0,along(A0,d0,k0),along(A1,d1,-k1),A1]};
   // центр и курс машины в точке пути задней оси (back — задним ходом: машина смотрит против движения)
@@ -1002,13 +1092,17 @@ function createTraffic(w,A,L){
       const P=lanePt(l,s),sStop=s-5,D=[dx,dy],Rn=[rx,ry];
       // место на земле за бордюром: носом от дороги
       const off=RW+cfg.lotDepthGap+len/2-cfg.laneOffset,Q=[P[0]+rx*off,P[1]+ry*off],hq=Math.atan2(ry,rx);
-      let lot=sStop>=0.5;
+      // машина на месте и во время манёвров не заходит на зебры у концов полосы
+      const lo0=Math.min(sStop,s)-len/2,hi0=s+cfg.slotLength+len/2;
+      if(lo0<cwS[l]+0.2)continue;
+      let lot=true;
       if(lot){const rect=carRect(Q,hq,clr);lot=landFree(rect,e)&&!lotRects.some((r)=>polysHit(r,rect));
         if(lot){const m={c:axlePath(lanePt(l,sStop),D,Q,Rn,2.5,3),back:0};for(let k=1;k<=40;k++){const ps=manPose(m,k/40);
           // весь путь заезда (и выезда задним ходом — тот же путь): только своя дорога и свободная земля
           const r2=carRect([ps.x,ps.y],ps.h,0.1);if(w.outlines.some((o)=>o.length>=3&&polysHit(r2,o))){lot=false;break}}}
         if(lot)lotRects.push(rect)}
-      if(!lot&&(!curbOK||s+cfg.slotLength>lanes.len[l]-0.5))continue;   // узкая улица (или конец полосы): у бордюра не стоят
+      if(lot&&s+len/2>lanes.len[l]-cwE[l]-0.2)lot=false;
+      if(!lot&&(!curbOK||hi0>lanes.len[l]-cwE[l]-0.2))continue;   // узкая улица (или зебра): у бордюра не стоят
       const o=parkC-cfg.laneOffset,K=lot?Q:[P[0]+rx*o,P[1]+ry*o];
       let pin,pout;
       // пути манёвров: {c — кривая, len — длина, back — задним ходом}
@@ -1017,6 +1111,8 @@ function createTraffic(w,A,L){
       else{const ahead=lanePt(l,s+cfg.slotLength),A0=along(ahead,D,-RA),A1=along(K,D,-RA),ci=[A0,along(A0,D,-2.5),along(A1,D,2.5),A1],co=axlePath(K,D,ahead,D,2.5,2.5);
         pin={c:ci,len:bezLen(ci),back:1};pout={c:co,len:bezLen(co),back:0}}
       slots.kind.push(lot?1:0);slots.lane.push(l);slots.s.push(s);slots.sStop.push(lot?sStop:s+cfg.slotLength);slots.sOut.push(lot?sStop:s+cfg.slotLength);
+      // точка, где путь заезда на землю пересекает тротуар (въезд)
+      const wo=(CURB+RW)/2-cfg.laneOffset;slots.wx.push(P[0]+rx*wo);slots.wy.push(P[1]+ry*wo);
       slots.x.push(K[0]);slots.y.push(K[1]);slots.h.push(lot?hq:hd);slots.occ.push(-1);slots.pin.push(pin);slots.pout.push(pout);slots.n++}}
 
   // ---- места не мешают друг другу ----
@@ -1034,21 +1130,25 @@ function createTraffic(w,A,L){
     for(const i of order){if(keep.every((j)=>!near(i,j)||(!sweepHits(i,pk[j])&&!sweepHits(j,pk[i])&&!polysHit(pk[i],pk[j]))))keep.push(i)}
     keep.sort((i,j)=>i-j);
     const conf=keep.map((i)=>keep.map((j,jj)=>jj).filter((jj)=>keep[jj]!==i&&near(i,keep[jj])&&sw[i].some((r)=>sw[keep[jj]].some((q)=>polysHit(r,q)))));
-    for(const k of ['kind','lane','s','sStop','sOut','x','y','h','occ','pin','pout'])slots[k]=keep.map((i)=>slots[k][i]);
+    for(const k of ['kind','lane','s','sStop','sOut','x','y','h','occ','pin','pout','wx','wy'])slots[k]=keep.map((i)=>slots[k][i]);
     slots.n=keep.length;slots.conf=conf;slots.man=new Int32Array(slots.n).fill(-1);
   }
   function bboxOf(P){let b=[Infinity,Infinity,-Infinity,-Infinity];for(const p of P){b[0]=Math.min(b[0],p[0]);b[1]=Math.min(b[1],p[1]);b[2]=Math.max(b[2],p[0]);b[3]=Math.max(b[3],p[1])}return b}
   // занят ли манёвром соседний пересекающийся путь
   const manBlocked=(sl)=>slots.conf[sl].some((j)=>slots.man[j]>=0);
+  // манёвр через тротуар (место на земле) ждёт пешеходов у въезда; пешеходы задаёт peds.mjs
+  const drivewayFree=(sl)=>slots.kind[sl]!==1||!T.pedsNear||!T.pedsNear(slots.wx[sl],slots.wy[sl],w.cfg.peds.drivewayClear);
+  // зебра на звене e у узла v свободна от пешеходов
+  const crossFree=(v,e)=>!T.crossBusy||!T.crossBusy(v,e);
 
   // ---- машины: индекс = житель ----
-  const n=A.n,T={cfg,lanes,slots,boxes,box,lanePt,deg,gateNode,time:0,carRect,landFree,polysHit,
+  const n=A.n,T={cfg,lanes,slots,boxes,box,lanePt,deg,gateNode,time:0,carRect,landFree,polysHit,cwS,cwE,manPose,inn,out,
     state:new Uint8Array(n).fill(CAR.NONE),lane:new Int32Array(n).fill(-1),s:new Float64Array(n),v:new Float64Array(n),
     bk:new Array(n).fill(null),bs:new Float64Array(n),slot:new Int32Array(n).fill(-1),tslot:new Int32Array(n).fill(-1),
     route:new Array(n).fill(null),ri:new Int32Array(n),exitGate:new Uint8Array(n),outT:new Float64Array(n),outTotal:new Float64Array(n),
     outbound:new Uint8Array(n),mp:new Float64Array(n),granted:new Uint8Array(n),waitSince:new Float64Array(n).fill(-1),
     dest:new Int32Array(n).fill(-1),origin:new Int32Array(n).fill(-1),nodeOcc:new Int32Array(N).fill(-1),
-    stats:{trips:0,arrivals:0,noSpotWaits:0,intersectionWaits:0,yieldRight:0,deadlockBreaks:0,mergeWaits:0,maxTripSec:0},tripStart:new Float64Array(n)};
+    stats:{trips:0,arrivals:0,noSpotWaits:0,pedYield:0,intersectionWaits:0,yieldRight:0,deadlockBreaks:0,mergeWaits:0,maxTripSec:0},tripStart:new Float64Array(n)};
 
   // ближайшее свободное место к зданию (по прямой до его центра)
   function nearestSlot(p,except){
@@ -1117,7 +1217,7 @@ function createTraffic(w,A,L){
         if(T.route[a].length===1&&!T.exitGate[a]&&T.tslot[a]===sl){ // уже на своём месте
           T.state[a]=CAR.PARKED;T.route[a]=null;T.tslot[a]=-1;arrive(a);continue}
         // выезд: машина сразу занимает полосу (едущие сзади ждут), место освобождается после манёвра
-        if(!manBlocked(sl)&&laneRoom(l,s,cfg.mergeBack,cfg.mergeAhead)){T.state[a]=CAR.PARK_OUT;T.mp[a]=0;T.v[a]=0;slots.man[sl]=a;addToLane(a,l,s)}
+        if(!manBlocked(sl)&&drivewayFree(sl)&&laneRoom(l,s,cfg.mergeBack,cfg.mergeAhead)){T.state[a]=CAR.PARK_OUT;T.mp[a]=0;T.v[a]=0;slots.man[sl]=a;addToLane(a,l,s)}
         else T.stats.mergeWaits++;
       }else if(T.state[a]===CAR.OUT){
         T.outT[a]-=dt;if(T.outT[a]>0)continue;
@@ -1140,8 +1240,10 @@ function createTraffic(w,A,L){
       if(T.nodeOcc[v]>=0)continue;
       const appr=[];for(const l of inn[v])for(const a of lanes.cars[l]){if(!crossing(a))continue;if(lanes.len[l]-T.s[a]>cfg.approach)break;appr.push(a)}
       if(!appr.length)continue;
-      const atLine=(a)=>lanes.len[T.lane[a]]-T.s[a]<=len/2+cfg.stopGap+1.0;
-      const can=(a)=>entryRoom(T.route[a][T.ri[a]+1]);
+      const atLine=(a)=>stopS(T.lane[a])-T.s[a]<=1.0;
+      // на перекрёсток — только если есть место на выезде и обе зебры (въезда и выезда) свободны
+      const can=(a)=>{const lo=T.route[a][T.ri[a]+1];if(!entryRoom(lo))return false;
+        if(!crossFree(v,T.lane[a]>>1)||!crossFree(v,lo>>1)){T.stats.pedYield++;return false}return true};
       for(const a of appr)if(atLine(a)&&T.waitSince[a]<0)T.waitSince[a]=T.time;
       const cand=appr.filter((a)=>atLine(a)&&can(a)&&appr.indexOf(a)===appr.findIndex((b)=>T.lane[b]===T.lane[a]));  // только первая машина полосы
       if(!cand.length)continue;
@@ -1172,11 +1274,11 @@ function createTraffic(w,A,L){
         if(i>0)gap=T.s[c[i-1]]-len-cfg.minGap-T.s[a]-reversing(c[i-1]);
         const last=T.ri[a]===T.route[a].length-1;
         if(last&&!T.exitGate[a])gap=Math.min(gap,slots.sStop[T.tslot[a]]-T.s[a]);             // начало заезда на своё место
-        else if(!last&&!T.granted[a])gap=Math.min(gap,lanes.len[l]-len/2-cfg.stopGap-T.s[a]);  // стоп-линия
+        else if(!last&&!T.granted[a])gap=Math.min(gap,stopS(l)-T.s[a]);                       // стоп-линия перед зеброй
         else if(!last){const lo=T.route[a][T.ri[a]+1],b=box(l,lo),cc=lanes.cars[lo];gap=Math.min(gap,lanes.len[l]-T.s[a]+b.len+(cc.length?T.s[cc[cc.length-1]]-len-cfg.minGap:1e9))}
         T.v[a]=speed(a,gap);T.s[a]+=T.v[a]*dt;
         if(last&&!T.exitGate[a]){
-          const ts=T.tslot[a];if(slots.sStop[ts]-T.s[a]<0.3&&T.v[a]<0.5&&!manBlocked(ts)){T.state[a]=CAR.PARK_IN;T.mp[a]=0;T.v[a]=0;slots.man[ts]=a} // начинает парковаться
+          const ts=T.tslot[a];if(slots.sStop[ts]-T.s[a]<0.3&&T.v[a]<0.5&&!manBlocked(ts)&&drivewayFree(ts)){T.state[a]=CAR.PARK_IN;T.mp[a]=0;T.v[a]=0;slots.man[ts]=a} // начинает парковаться
         }else if(last&&T.exitGate[a]&&T.s[a]>=lanes.len[l]){                 // уехала за ворота
           removeFromLane(a);i--;T.state[a]=CAR.OUT;T.outbound[a]=1;T.outTotal[a]=pl.extra[T.dest[a]];T.outT[a]=pl.extra[T.dest[a]];T.lane[a]=-1;T.route[a]=null}
         else if(!last&&T.s[a]>=lanes.len[l]){                                 // въехала на перекрёсток
@@ -1184,6 +1286,18 @@ function createTraffic(w,A,L){
       }}
     for(let l=0;l<LN;l++)lanes.cars[l].sort((x,y)=>T.s[y]-T.s[x]||x-y);
   };
+  // может ли пешеход ступить на зебру звена e у узла v: в её полосе машин нет, на неё не едет
+  // машина с разрешением на перекрёсток, с перекрёстка на эту полосу никто не съезжает
+  T.crossClear=function(v,e){
+    const li=lanes.to[2*e]===v?2*e:2*e+1,lo=reverse(li);
+    for(const a of lanes.cars[li]){if(T.s[a]+len/2>lanes.len[li]-cwE[li]-0.3)return false;if(T.granted[a])return false}
+    for(const a of lanes.cars[lo])if(T.s[a]-len/2<cwS[lo]+0.3)return false;
+    const o=T.nodeOcc[v];if(o>=0&&T.route[o]&&(T.route[o][T.ri[o]+1]===lo||T.route[o][T.ri[o]]===li))return false;
+    return true;
+  };
+  // машины, задевающие сейчас точку (x, y) с запасом m: для пешеходов у въездов
+  T.carsNear=function(x,y,m){for(let a=0;a<n;a++){const st=T.state[a];if(st!==CAR.PARK_IN&&st!==CAR.PARK_OUT)continue;
+    const P=T.pose(a);if(Math.hypot(P.x-x,P.y-y)>len)continue;const r=carRect([P.x,P.y],P.h,m);if(inPoly([x,y],r))return true}return false};
   // нужно ли считать шаги: есть ли машины в движении или ждущие
   T.busy=function(){for(let a=0;a<n;a++){const s=T.state[a];if(s!==CAR.PARKED&&s!==CAR.CITY&&s!==CAR.NONE)return true}return false};
 
@@ -1206,9 +1320,151 @@ function createTraffic(w,A,L){
     const seen=new Int32Array(slots.n);for(let a=0;a<n;a++){if(T.state[a]===CAR.PARKED||T.state[a]===CAR.MERGE||T.state[a]===CAR.PARK_OUT){const sl=T.slot[a];if(sl<0)throw new Error(`машина ${a} стоит без места`);seen[sl]++}}
     for(let i=0;i<slots.n;i++)if(seen[i]>1)throw new Error(`место ${i} занято дважды`);
     for(let a=0;a<n;a++){if(!A.car[a])continue;const moving=T.state[a]!==CAR.PARKED&&T.state[a]!==CAR.CITY;
-      if(moving!==(L.act[a]===5&&L.arrive[a]===NEVER))throw new Error(`машина ${a} (${CAR_NAME[T.state[a]]}) и её хозяин расходятся`)}
+      if(moving!==(L.act[a]===5&&L.arrive[a]===NEVER&&L.mode[a]===0))throw new Error(`машина ${a} (${CAR_NAME[T.state[a]]}) и её хозяин расходятся`)}
   };
   return T;
+}
+
+// ---- peds.mjs ----
+/*
+ * Пешеходы: жители, идущие пешком, физически идут по тротуарам и переходят
+ * улицы по зебрам.
+ *
+ * Тротуары — по обе стороны каждого звена, между краем проезжей части и
+ * домами (w.sidewalk метров; середина тротуара — в O от оси). Зебры — у
+ * каждого конца звена, кроме ворот: поперёк улицы, сразу за границей
+ * перекрёстка. Сеть для пешехода:
+ *   точки — концы тротуаров у зебр (звено, конец, сторона);
+ *   тротуар — вдоль звена между его зебрами;
+ *   угол — с тротуара одной улицы на тротуар соседней, не переходя дорогу;
+ *   зебра — через улицу (только когда можно, см. ниже).
+ * Дверь дома — точка на тротуаре его улицы напротив фасада.
+ *
+ * Зебра. Пешеход ступает на неё, только если в её полосах нет машин, на неё
+ * не едет машина с разрешением на перекрёсток и с перекрёстка на эту улицу
+ * никто не съезжает. Пока по зебре идут, машины ждут перед ней и на
+ * перекрёсток через неё не въезжают (traffic.mjs).
+ * Въезды. Машина, заезжающая на место на земле или выезжающая с него,
+ * пересекает тротуар: она ждёт, пока у въезда нет пешеходов, а пешеход ждёт,
+ * пока она проедет.
+ *
+ * Пешеходы друг другу не мешают (тротуар 2 м, расходятся). Скорость —
+ * cfg.speed.walk. Всё в массивах, порядок обхода фиксирован.
+ */
+
+const PED={NONE:0,WALK:1,WAIT:2,CROSS:3,CAR_WAIT:4};
+
+function createPeds(w,A,L,T){
+  const cfg=w.cfg.peds,N=w.nodes.n,E=w.edges.n,nx=w.nodes.x,ny=w.nodes.y;
+  const RW=w.roadHalfWidth,SW=w.sidewalk,CURB=RW-SW,O=SW>0?CURB+SW/2:RW+0.6,D=w.cfg.traffic.box+cfg.crossAt;
+  const ea=w.edges.a,eb=w.edges.b,el=w.edges.len,gate=T.gateNode;
+  const dirAB=(e)=>{const l=el[e];return [(nx[eb[e]]-nx[ea[e]])/l,(ny[eb[e]]-ny[ea[e]])/l]};
+  // точка у зебры: звено e, конец end (0 — у a, 1 — у b), сторона side (+1 — справа от a→b)
+  const pid=(e,end,side)=>e*4+end*2+(side>0?0:1);
+  const P=[];for(let e=0;e<E;e++){const d=dirAB(e),n=[-d[1],d[0]];
+    for(const end of [0,1])for(const side of [1,-1]){const v=end?eb[e]:ea[e],u=end?-1:1;P[pid(e,end,side)]=[nx[v]+d[0]*u*D+n[0]*side*O,ny[v]+d[1]*u*D+n[1]*side*O]}}
+  // связи: {to, len, via (точки между), cross (номер зебры или -1)}
+  const adj=[...Array(4*E)].map(()=>[]);
+  const link=(a,b,len,via,cross)=>{adj[a].push({to:b,len,via,cross});adj[b].push({to:a,len,via:via.slice().reverse(),cross})};
+  const dist=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1]);
+  for(let e=0;e<E;e++)for(const side of [1,-1])link(pid(e,0,side),pid(e,1,side),dist(P[pid(e,0,side)],P[pid(e,1,side)]),[],-1);
+  // зебры: номер = e*2 + конец
+  for(let e=0;e<E;e++)for(const end of [0,1]){const v=end?eb[e]:ea[e];if(gate[v])continue;
+    link(pid(e,end,1),pid(e,end,-1),dist(P[pid(e,end,1)],P[pid(e,end,-1)]),[],e*2+end)}
+  // углы: между соседними (по кругу) улицами узла — по тротуару, через угловую точку
+  for(let v=0;v<N;v++){if(gate[v])continue;
+    const inc=[];for(let e=0;e<E;e++){if(ea[e]===v){const d=dirAB(e);inc.push({e,end:0,r:d})}if(eb[e]===v){const d=dirAB(e);inc.push({e,end:1,r:[-d[0],-d[1]]})}}
+    if(inc.length<2)continue;
+    inc.forEach((x)=>x.ang=Math.atan2(x.r[1],x.r[0]));inc.sort((x,y)=>x.ang-y.ang);
+    // сторона звена x, обращённая в сектор «повернуть от r на +90°» (s=+1) или «−90°» (s=−1), относительно a→b
+    const sideRel=(x,s)=>x.end===0?s:-s;
+    for(let i=0;i<inc.length;i++){const x=inc[i],y=inc[(i+1)%inc.length];let phi=y.ang-x.ang;if(phi<=1e-9)phi+=2*Math.PI;
+      const a=pid(x.e,x.end,sideRel(x,1)),b=pid(y.e,y.end,sideRel(y,-1));let via=[];
+      if(phi<Math.PI*0.95){const m=[x.r[0]+y.r[0],x.r[1]+y.r[1]],ml=Math.hypot(m[0],m[1]),k=O/Math.sin(phi/2);via=[[nx[v]+m[0]/ml*k,ny[v]+m[1]/ml*k]]}
+      const pts=[P[a],...via,P[b]];let L0=0;for(let j=1;j<pts.length;j++)L0+=dist(pts[j-1],pts[j]);link(a,b,L0,via,-1)}}
+
+  // двери: место p — на тротуаре своей улицы напротив фасада (звено, сторона, расстояние от a)
+  const door=new Array(w.places.n).fill(null);
+  for(let p=0;p<w.places.n;p++){if(w.places.edge[p]<0)continue;const e=w.places.edge[p],d=dirAB(e),n=[-d[1],d[0]];
+    const ax=nx[ea[e]]+d[0]*w.places.t[p]*el[e],ay=ny[ea[e]]+d[1]*w.places.t[p]*el[e],side=((w.places.x[p]-ax)*n[0]+(w.places.y[p]-ay)*n[1])>=0?1:-1;
+    const u=Math.max(D,Math.min(el[e]-D,w.places.t[p]*el[e]));door[p]={e,side,u,x:nx[ea[e]]+d[0]*u+n[0]*side*O,y:ny[ea[e]]+d[1]*u+n[1]*side*O}}
+
+  // маршрут от двери до двери: [{x, y, cross}] — cross ≥ 0 у отрезка, идущего по зебре
+  function route(p,q){
+    const s=door[p],t=door[q];if(!s||!t)return null;
+    if(s.e===t.e&&s.side===t.side)return {len:Math.abs(s.u-t.u),pts:[{x:s.x,y:s.y,cross:-1},{x:t.x,y:t.y,cross:-1}]};
+    const M=4*E,dd=new Float64Array(M).fill(Infinity),prev=new Int32Array(M).fill(-1),pl=new Array(M).fill(null),done=new Uint8Array(M);
+    dd[pid(s.e,0,s.side)]=s.u-D;dd[pid(s.e,1,s.side)]=el[s.e]-D-s.u;
+    const goal=new Map([[pid(t.e,0,t.side),t.u-D],[pid(t.e,1,t.side),el[t.e]-D-t.u]]);let best=Infinity,bestEnd=-1;
+    for(;;){let u=-1,du=Infinity;for(let i=0;i<M;i++)if(!done[i]&&dd[i]<du){du=dd[i];u=i}
+      if(u<0||du>=best)break;done[u]=1;if(goal.has(u)&&du+goal.get(u)<best){best=du+goal.get(u);bestEnd=u}
+      for(const k of adj[u]){const c=du+k.len;if(!done[k.to]&&c<dd[k.to]){dd[k.to]=c;prev[k.to]=u;pl[k.to]=k}}}
+    if(bestEnd<0)return null;
+    const chain=[];let x=bestEnd;while(prev[x]>=0){chain.push(pl[x]);x=prev[x]}chain.reverse();
+    const pts=[{x:s.x,y:s.y,cross:-1},{x:P[x][0],y:P[x][1],cross:-1}];
+    for(const k of chain){for(const v of k.via)pts.push({x:v[0],y:v[1],cross:-1});pts.push({x:P[k.to][0],y:P[k.to][1],cross:k.cross})}
+    pts.push({x:t.x,y:t.y,cross:-1});
+    return {len:best,pts};
+  }
+  const cache=new Map();
+  function walkDist(p,q){if(p===q)return 0;const k=p*w.places.n+q;if(!cache.has(k)){const r=route(p,q);cache.set(k,r?r.len:Infinity)}return cache.get(k)}
+
+  const n=A.n,S={door,P,adj,route,walkDist,O,D,
+    state:new Uint8Array(n),path:new Array(n).fill(null),wi:new Int32Array(n),x:new Float64Array(n),y:new Float64Array(n),hx:new Float64Array(n),hy:new Float64Array(n).fill(1),
+    crossN:new Int32Array(2*E),crossId:new Int32Array(n).fill(-1),start:new Float64Array(n),
+    stats:{walks:0,arrivals:0,crossings:0,crossWaits:0,drivewayWaits:0,maxWalkSec:0},
+    rlen:new Float64Array(n),log:[]};   // log: [житель, длина пути м, секунд в пути] — для проверок скорости
+
+  S.startWalk=function(a,from,to){
+    const r=route(from,to);if(!r)throw new Error(`пешком не дойти: житель ${a}, места ${from} → ${to}`);
+    S.path[a]=r.pts;S.wi[a]=1;S.rlen[a]=r.len;S.x[a]=r.pts[0].x;S.y[a]=r.pts[0].y;S.state[a]=PED.WALK;S.start[a]=T.time;S.stats.walks++;
+  };
+  // машины ждут пешеходов: на зебре (traffic.mjs спрашивает crossBusy) и у въездов (pedsNear)
+  T.crossBusy=(v,e)=>S.crossN[e*2+(ea[e]===v?0:1)]>0;
+  T.pedsNear=(x,y,r)=>{for(let a=0;a<n;a++)if(S.state[a]!==PED.NONE&&Math.hypot(S.x[a]-x,S.y[a]-y)<r)return true;return false};
+
+  S.step=function(dt){
+    const v0=w.cfg.speed.walk;
+    for(let a=0;a<n;a++){const st=S.state[a];if(st===PED.NONE)continue;
+      let left=v0*dt;
+      while(left>1e-9){
+        const pts=S.path[a],nxt=pts[S.wi[a]];
+        // впереди зебра: ступить, только когда можно
+        if(nxt.cross>=0&&S.state[a]!==PED.CROSS){
+          const e=nxt.cross>>1,v=nxt.cross&1?eb[e]:ea[e];
+          if(!T.crossClear(v,e)){if(S.state[a]!==PED.WAIT)S.stats.crossWaits++;S.state[a]=PED.WAIT;break}
+          S.state[a]=PED.CROSS;S.crossId[a]=nxt.cross;S.crossN[nxt.cross]++;S.stats.crossings++}
+        const dx=nxt.x-S.x[a],dy=nxt.y-S.y[a],d=Math.hypot(dx,dy);
+        if(d>1e-9){S.hx[a]=dx/d;S.hy[a]=dy/d}
+        const step=Math.min(left,d),X=S.x[a]+S.hx[a]*step,Y=S.y[a]+S.hy[a]*step;
+        // въезд: машина пересекает тротуар — подождать
+        if(S.state[a]!==PED.CROSS&&step>0&&T.carsNear(X,Y,0.6)){if(S.state[a]!==PED.CAR_WAIT)S.stats.drivewayWaits++;S.state[a]=PED.CAR_WAIT;break}
+        if(S.state[a]===PED.CAR_WAIT||S.state[a]===PED.WAIT)S.state[a]=PED.WALK;
+        S.x[a]=X;S.y[a]=Y;left-=step;
+        if(step>=d-1e-9){
+          if(S.state[a]===PED.CROSS&&nxt.cross>=0){S.crossN[nxt.cross]--;S.crossId[a]=-1;S.state[a]=PED.WALK}
+          S.wi[a]++;
+          if(S.wi[a]>=pts.length){S.state[a]=PED.NONE;S.path[a]=null;L.arrive[a]=L.tick;S.stats.arrivals++;S.stats.maxWalkSec=Math.max(S.stats.maxWalkSec,T.time-S.start[a]);S.log.push([a,S.rlen[a],T.time-S.start[a]]);break}
+        }
+      }
+    }
+  };
+  S.busy=function(){for(let a=0;a<n;a++)if(S.state[a]!==PED.NONE)return true;return false};
+  // положение для отрисовки: правее середины тротуара по ходу (на зебре — посередине)
+  S.pose=function(a){if(S.state[a]===PED.NONE)return null;const k=S.state[a]===PED.CROSS?0:cfg.keepRight;
+    return {x:S.x[a]-S.hy[a]*k,y:S.y[a]+S.hx[a]*k,h:Math.atan2(S.hy[a],S.hx[a])}};
+  // инварианты: счётчики зебр сходятся; пешеход на зебре — в её полосах нет машин; идёт ⇔ хозяин в пути пешком
+  S.check=function(){
+    const cnt=new Int32Array(2*E);
+    for(let a=0;a<n;a++){const walking=S.state[a]!==PED.NONE;
+      if(walking!==(L.act[a]===5&&L.arrive[a]===NEVER&&L.mode[a]===1))throw new Error(`пешеход ${a} и его занятие расходятся`);
+      if(S.state[a]===PED.CROSS)cnt[S.crossId[a]]++}
+    for(let c=0;c<2*E;c++){if(cnt[c]!==S.crossN[c])throw new Error(`зебра ${c}: счётчик разошёлся`);
+      if(cnt[c]>0){const e=c>>1,v=c&1?eb[e]:ea[e],li=T.lanes.to[2*e]===v?2*e:2*e+1,lo=li^1,len=w.cfg.traffic.carLength;
+        for(const b of T.lanes.cars[li])if(T.s[b]+len/2>T.lanes.len[li]-T.cwE[li]+0.05)throw new Error(`зебра ${c}: на ней машина ${b}, а по ней идут`);
+        for(const b of T.lanes.cars[lo])if(T.s[b]-len/2<T.cwS[lo]-0.05)throw new Error(`зебра ${c}: на ней машина ${b}, а по ней идут`)}}
+  };
+  return S;
 }
 
 // ---- sim.mjs ----
@@ -1220,7 +1476,9 @@ function createSim(snapshot,cfg={}){
   const agents=createPopulation(world,rng);
   const life=createLife(world,agents,rng);
   const traffic=c.traffic.on?createTraffic(world,agents,life):null;
-  return {cfg:c,rng,world,agents,life,traffic,sub:0,carry:0};
+  const peds=traffic?createPeds(world,agents,life,traffic):null;
+  if(peds)life.walkDist=peds.walkDist;
+  return {cfg:c,rng,world,agents,life,traffic,peds,sub:0,carry:0};
 }
 /*
  * Время идёт шагами движения по dt секунд (0.5 с); в начале каждой игровой
@@ -1232,11 +1490,12 @@ function subStep(sim,{check,onTick}){
   const per=subPerTick(sim),T=sim.traffic;
   if(sim.sub%per===0){
     step(sim.world,sim.agents,sim.life);
-    if(T)for(const a of sim.life.trips.splice(0))T.startTrip(a,sim.life.from[a],sim.life.to[a]);
+    if(T)for(const a of sim.life.trips.splice(0)){const L=sim.life;
+      if(L.mode[a]===MODE.CAR)T.startTrip(a,L.from[a],L.to[a]);else sim.peds.startWalk(a,L.from[a],L.to[a])}
     if(check)checkInvariants(sim.world,sim.agents,sim.life);
     if(onTick)onTick(sim);
   }
-  if(T){T.step(sim.cfg.traffic.dt);if(check)T.check()}
+  if(T){T.step(sim.cfg.traffic.dt);sim.peds.step(sim.cfg.traffic.dt);if(check){T.check();sim.peds.check()}}
   sim.sub++;
 }
 // прожить sec игровых секунд (можно дробно — остаток копится)
@@ -1244,7 +1503,7 @@ function advanceSeconds(sim,sec,opts={}){
   const dt=sim.traffic?sim.cfg.traffic.dt:sim.cfg.tickSeconds,per=subPerTick(sim);
   sim.carry+=sec;
   while(sim.carry>=dt-1e-9){
-    if(sim.traffic&&sim.sub%per!==0&&!sim.traffic.busy()&&sim.carry>=(per-sim.sub%per)*dt){ // пусто — сразу к следующей минуте
+    if(sim.traffic&&sim.sub%per!==0&&!sim.traffic.busy()&&!sim.peds.busy()&&sim.carry>=(per-sim.sub%per)*dt){ // пусто — сразу к следующей минуте
       const k=per-sim.sub%per;sim.traffic.time+=k*dt;sim.sub+=k;sim.carry-=k*dt;continue}
     subStep(sim,opts);sim.carry-=dt;
   }
@@ -1256,7 +1515,7 @@ const simSeconds=(sim)=>sim.traffic?sim.sub*sim.cfg.traffic.dt:sim.sub*sim.cfg.t
 const ticksPerDay=(sim)=>Math.round(86400/sim.cfg.tickSeconds);
 
 // ---- просмотрщик ----
-const SNAP={"format":"city-builder/world@1","units":"m","nodes":[[-96,0],[-32,0],[32,0],[96,0],[-32,-40],[-32,40],[32,-40],[32,40]],"edges":[{"a":0,"b":1,"length":64},{"a":1,"b":2,"length":64},{"a":2,"b":3,"length":64},{"a":4,"b":1,"length":40},{"a":1,"b":5,"length":40},{"a":6,"b":2,"length":40},{"a":2,"b":7,"length":40},{"a":4,"b":6,"length":64}],"buildings":[{"id":0,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.219,"center":[-82,-9],"outline":[[-84,-13],[-80,-13],[-80,-5],[-84,-5]],"style":0},{"id":1,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.469,"center":[-66,-9],"outline":[[-68,-13],[-64,-13],[-64,-5],[-68,-5]],"style":5},{"id":2,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.719,"center":[-50,-9],"outline":[[-52,-13],[-48,-13],[-48,-5],[-52,-5]],"style":7},{"id":3,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.219,"center":[-82,9],"outline":[[-84,5],[-80,5],[-80,13],[-84,13]],"style":1},{"id":4,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.469,"center":[-66,9],"outline":[[-68,5],[-64,5],[-64,13],[-68,13]],"style":2},{"id":5,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.719,"center":[-50,9],"outline":[[-52,5],[-48,5],[-48,13],[-52,13]],"style":4},{"id":6,"type":"res","floors":1,"cells":2,"capacity":1,"edge":4,"t":0.45,"center":[-41,18],"outline":[[-37,16],[-37,20],[-45,20],[-45,16]],"style":0},{"id":7,"type":"res","floors":1,"cells":2,"capacity":1,"edge":4,"t":0.75,"center":[-41,30],"outline":[[-37,28],[-37,32],[-45,32],[-45,28]],"style":5},{"id":8,"type":"res","floors":1,"cells":2,"capacity":1,"edge":6,"t":0.55,"center":[41,22],"outline":[[45,20],[45,24],[37,24],[37,20]],"style":7},{"id":9,"type":"res","floors":1,"cells":2,"capacity":1,"edge":7,"t":0.531,"center":[2,-49],"outline":[[0,-53],[4,-53],[4,-45],[0,-45]],"style":1},{"id":10,"type":"com","floors":1,"cells":4,"capacity":2,"edge":1,"t":0.5,"center":[0,-9],"outline":[[-4,-13],[4,-13],[4,-5],[-4,-5]],"style":6},{"id":11,"type":"work","floors":1,"cells":8,"capacity":2,"edge":2,"t":0.5,"center":[64,13],"outline":[[60,5],[68,5],[68,21],[60,21]],"style":3}],"gates":[{"id":0,"node":3,"name":"Город"}],"render":{"cell":4,"roadHalfWidth":5,"zoneCells":[[[-96,5],[-92,5],[-92,9],[-96,9]],[[-96,9],[-92,9],[-92,13],[-96,13]],[[-96,13],[-92,13],[-92,17],[-96,17]],[[-96,17],[-92,17],[-92,21],[-96,21]],[[-92,5],[-88,5],[-88,9],[-92,9]],[[-92,9],[-88,9],[-88,13],[-92,13]],[[-92,13],[-88,13],[-88,17],[-92,17]],[[-92,17],[-88,17],[-88,21],[-92,21]],[[-88,5],[-84,5],[-84,9],[-88,9]],[[-88,9],[-84,9],[-84,13],[-88,13]],[[-88,13],[-84,13],[-84,17],[-88,17]],[[-88,17],[-84,17],[-84,21],[-88,21]],[[-84,5],[-80,5],[-80,9],[-84,9]],[[-84,9],[-80,9],[-80,13],[-84,13]],[[-84,13],[-80,13],[-80,17],[-84,17]],[[-84,17],[-80,17],[-80,21],[-84,21]],[[-80,5],[-76,5],[-76,9],[-80,9]],[[-80,9],[-76,9],[-76,13],[-80,13]],[[-80,13],[-76,13],[-76,17],[-80,17]],[[-80,17],[-76,17],[-76,21],[-80,21]],[[-76,5],[-72,5],[-72,9],[-76,9]],[[-76,9],[-72,9],[-72,13],[-76,13]],[[-76,13],[-72,13],[-72,17],[-76,17]],[[-76,17],[-72,17],[-72,21],[-76,21]],[[-72,5],[-68,5],[-68,9],[-72,9]],[[-72,9],[-68,9],[-68,13],[-72,13]],[[-72,13],[-68,13],[-68,17],[-72,17]],[[-72,17],[-68,17],[-68,21],[-72,21]],[[-68,5],[-64,5],[-64,9],[-68,9]],[[-68,9],[-64,9],[-64,13],[-68,13]],[[-68,13],[-64,13],[-64,17],[-68,17]],[[-68,17],[-64,17],[-64,21],[-68,21]],[[-64,5],[-60,5],[-60,9],[-64,9]],[[-64,9],[-60,9],[-60,13],[-64,13]],[[-64,13],[-60,13],[-60,17],[-64,17]],[[-64,17],[-60,17],[-60,21],[-64,21]],[[-60,5],[-56,5],[-56,9],[-60,9]],[[-60,9],[-56,9],[-56,13],[-60,13]],[[-60,13],[-56,13],[-56,17],[-60,17]],[[-60,17],[-56,17],[-56,21],[-60,21]],[[-56,5],[-52,5],[-52,9],[-56,9]],[[-56,9],[-52,9],[-52,13],[-56,13]],[[-56,13],[-52,13],[-52,17],[-56,17]],[[-56,17],[-52,17],[-52,20],[-53,21],[-56,21]],[[-52,5],[-48,5],[-48,9],[-52,9]],[[-52,9],[-48,9],[-48,13],[-52,13]],[[-52,13],[-48,13],[-48,16],[-49,17],[-52,17]],[[-52,17],[-49,17],[-52,20]],[[-48,5],[-44,5],[-44,9],[-48,9]],[[-48,9],[-44,9],[-44,12],[-45,13],[-48,13]],[[-48,13],[-45,13],[-48,16]],[[-44,5],[-40,5],[-40,8],[-41,9],[-44,9]],[[-44,9],[-41,9],[-44,12]],[[-40,5],[-37,5],[-37,5],[-40,8]],[[-96,-5],[-92,-5],[-92,-9],[-96,-9]],[[-96,-9],[-92,-9],[-92,-13],[-96,-13]],[[-96,-13],[-92,-13],[-92,-17],[-96,-17]],[[-96,-17],[-92,-17],[-92,-21],[-96,-21]],[[-92,-5],[-88,-5],[-88,-9],[-92,-9]],[[-92,-9],[-88,-9],[-88,-13],[-92,-13]],[[-92,-13],[-88,-13],[-88,-17],[-92,-17]],[[-92,-17],[-88,-17],[-88,-21],[-92,-21]],[[-88,-5],[-84,-5],[-84,-9],[-88,-9]],[[-88,-9],[-84,-9],[-84,-13],[-88,-13]],[[-88,-13],[-84,-13],[-84,-17],[-88,-17]],[[-88,-17],[-84,-17],[-84,-21],[-88,-21]],[[-84,-5],[-80,-5],[-80,-9],[-84,-9]],[[-84,-9],[-80,-9],[-80,-13],[-84,-13]],[[-84,-13],[-80,-13],[-80,-17],[-84,-17]],[[-84,-17],[-80,-17],[-80,-21],[-84,-21]],[[-80,-5],[-76,-5],[-76,-9],[-80,-9]],[[-80,-9],[-76,-9],[-76,-13],[-80,-13]],[[-80,-13],[-76,-13],[-76,-17],[-80,-17]],[[-80,-17],[-76,-17],[-76,-21],[-80,-21]],[[-76,-5],[-72,-5],[-72,-9],[-76,-9]],[[-76,-9],[-72,-9],[-72,-13],[-76,-13]],[[-76,-13],[-72,-13],[-72,-17],[-76,-17]],[[-76,-17],[-72,-17],[-72,-21],[-76,-21]],[[-72,-5],[-68,-5],[-68,-9],[-72,-9]],[[-72,-9],[-68,-9],[-68,-13],[-72,-13]],[[-72,-13],[-68,-13],[-68,-17],[-72,-17]],[[-72,-17],[-68,-17],[-68,-21],[-72,-21]],[[-68,-5],[-64,-5],[-64,-9],[-68,-9]],[[-68,-9],[-64,-9],[-64,-13],[-68,-13]],[[-68,-13],[-64,-13],[-64,-17],[-68,-17]],[[-68,-17],[-64,-17],[-64,-21],[-68,-21]],[[-64,-5],[-60,-5],[-60,-9],[-64,-9]],[[-64,-9],[-60,-9],[-60,-13],[-64,-13]],[[-64,-13],[-60,-13],[-60,-17],[-64,-17]],[[-64,-17],[-60,-17],[-60,-21],[-64,-21]],[[-60,-5],[-56,-5],[-56,-9],[-60,-9]],[[-60,-9],[-56,-9],[-56,-13],[-60,-13]],[[-60,-13],[-56,-13],[-56,-17],[-60,-17]],[[-60,-17],[-56,-17],[-56,-21],[-60,-21]],[[-56,-5],[-52,-5],[-52,-9],[-56,-9]],[[-56,-9],[-52,-9],[-52,-13],[-56,-13]],[[-56,-13],[-52,-13],[-52,-17],[-56,-17]],[[-56,-17],[-52,-17],[-52,-20],[-53,-21],[-56,-21]],[[-52,-5],[-48,-5],[-48,-9],[-52,-9]],[[-52,-9],[-48,-9],[-48,-13],[-52,-13]],[[-52,-13],[-48,-13],[-48,-16],[-49,-17],[-52,-17]],[[-52,-17],[-49,-17],[-52,-20]],[[-48,-5],[-44,-5],[-44,-9],[-48,-9]],[[-48,-9],[-44,-9],[-44,-12],[-45,-13],[-48,-13]],[[-48,-13],[-45,-13],[-48,-16]],[[-44,-5],[-40,-5],[-40,-8],[-41,-9],[-44,-9]],[[-44,-9],[-41,-9],[-44,-12]],[[-40,-5],[-37,-5],[-37,-5],[-40,-8]],[[-27,5],[-24,5],[-24,8],[-27,5]],[[-24,5],[-20,5],[-20,9],[-23,9],[-24,8]],[[-23,9],[-20,9],[-20,12]],[[-20,5],[-16,5],[-16,9],[-20,9]],[[-20,9],[-16,9],[-16,13],[-19,13],[-20,12]],[[-19,13],[-16,13],[-16,16]],[[-16,5],[-12,5],[-12,9],[-16,9]],[[-16,9],[-12,9],[-12,13],[-16,13]],[[-16,13],[-12,13],[-12,17],[-15,17],[-16,16]],[[-15,17],[-12,17],[-12,20]],[[-12,5],[-8,5],[-8,9],[-12,9]],[[-12,9],[-8,9],[-8,13],[-12,13]],[[-12,13],[-8,13],[-8,17],[-12,17]],[[-12,17],[-8,17],[-8,21],[-11,21],[-12,20]],[[-8,5],[-4,5],[-4,9],[-8,9]],[[-8,9],[-4,9],[-4,13],[-8,13]],[[-8,13],[-4,13],[-4,17],[-8,17]],[[-8,17],[-4,17],[-4,21],[-8,21]],[[-4,5],[0,5],[0,9],[-4,9]],[[-4,9],[0,9],[0,13],[-4,13]],[[-4,13],[0,13],[0,17],[-4,17]],[[-4,17],[0,17],[0,21],[-4,21]],[[0,5],[4,5],[4,9],[0,9]],[[0,9],[4,9],[4,13],[0,13]],[[0,13],[4,13],[4,17],[0,17]],[[0,17],[4,17],[4,21],[0,21]],[[4,5],[8,5],[8,9],[4,9]],[[4,9],[8,9],[8,13],[4,13]],[[4,13],[8,13],[8,17],[4,17]],[[4,17],[8,17],[8,21],[4,21]],[[8,5],[12,5],[12,9],[8,9]],[[8,9],[12,9],[12,13],[8,13]],[[8,13],[12,13],[12,17],[8,17]],[[8,17],[12,17],[12,20],[11,21],[8,21]],[[12,5],[16,5],[16,9],[12,9]],[[12,9],[16,9],[16,13],[12,13]],[[12,13],[16,13],[16,16],[15,17],[12,17]],[[12,17],[15,17],[12,20]],[[16,5],[20,5],[20,9],[16,9]],[[16,9],[20,9],[20,12],[19,13],[16,13]],[[16,13],[19,13],[16,16]],[[20,5],[24,5],[24,8],[23,9],[20,9]],[[20,9],[23,9],[20,12]],[[24,5],[27,5],[27,5],[24,8]],[[-27,-5],[-24,-5],[-24,-8],[-27,-5]],[[-24,-5],[-20,-5],[-20,-9],[-23,-9],[-24,-8]],[[-23,-9],[-20,-9],[-20,-12]],[[-20,-5],[-16,-5],[-16,-9],[-20,-9]],[[-20,-9],[-16,-9],[-16,-13],[-19,-13],[-20,-12]],[[-19,-13],[-16,-13],[-16,-16]],[[-16,-5],[-12,-5],[-12,-9],[-16,-9]],[[-16,-9],[-12,-9],[-12,-13],[-16,-13]],[[-16,-13],[-12,-13],[-12,-17],[-15,-17],[-16,-16]],[[-15,-17],[-12,-17],[-12,-20]],[[-12,-5],[-8,-5],[-8,-9],[-12,-9]],[[-12,-9],[-8,-9],[-8,-13],[-12,-13]],[[-12,-13],[-8,-13],[-8,-17],[-12,-17]],[[-12,-17],[-8,-17],[-8,-21],[-11,-21],[-12,-20]],[[-8,-5],[-4,-5],[-4,-9],[-8,-9]],[[-8,-9],[-4,-9],[-4,-13],[-8,-13]],[[-8,-13],[-4,-13],[-4,-17],[-8,-17]],[[-8,-17],[-4,-17],[-4,-21],[-8,-21]],[[-4,-5],[0,-5],[0,-9],[-4,-9]],[[-4,-9],[0,-9],[0,-13],[-4,-13]],[[-4,-13],[0,-13],[0,-17],[-4,-17]],[[-4,-17],[0,-17],[0,-21],[-4,-21]],[[0,-5],[4,-5],[4,-9],[0,-9]],[[0,-9],[4,-9],[4,-13],[0,-13]],[[0,-13],[4,-13],[4,-17],[0,-17]],[[0,-17],[4,-17],[4,-21],[0,-21]],[[4,-5],[8,-5],[8,-9],[4,-9]],[[4,-9],[8,-9],[8,-13],[4,-13]],[[4,-13],[8,-13],[8,-17],[4,-17]],[[4,-17],[8,-17],[8,-21],[4,-21]],[[8,-5],[12,-5],[12,-9],[8,-9]],[[8,-9],[12,-9],[12,-13],[8,-13]],[[8,-13],[12,-13],[12,-17],[8,-17]],[[8,-17],[12,-17],[12,-20],[11,-21],[8,-21]],[[12,-5],[16,-5],[16,-9],[12,-9]],[[12,-9],[16,-9],[16,-13],[12,-13]],[[12,-13],[16,-13],[16,-16],[15,-17],[12,-17]],[[12,-17],[15,-17],[12,-20]],[[16,-5],[20,-5],[20,-9],[16,-9]],[[16,-9],[20,-9],[20,-12],[19,-13],[16,-13]],[[16,-13],[19,-13],[16,-16]],[[20,-5],[24,-5],[24,-8],[23,-9],[20,-9]],[[20,-9],[23,-9],[20,-12]],[[24,-5],[27,-5],[27,-5],[24,-8]],[[37,5],[40,5],[40,8],[37,5]],[[40,5],[44,5],[44,9],[41,9],[40,8]],[[41,9],[44,9],[44,12]],[[44,5],[48,5],[48,9],[44,9]],[[44,9],[48,9],[48,13],[45,13],[44,12]],[[45,13],[48,13],[48,16]],[[48,5],[52,5],[52,9],[48,9]],[[48,9],[52,9],[52,13],[48,13]],[[48,13],[52,13],[52,17],[49,17],[48,16]],[[49,17],[52,17],[52,20]],[[52,5],[56,5],[56,9],[52,9]],[[52,9],[56,9],[56,13],[52,13]],[[52,13],[56,13],[56,17],[52,17]],[[52,17],[56,17],[56,21],[53,21],[52,20]],[[56,5],[60,5],[60,9],[56,9]],[[56,9],[60,9],[60,13],[56,13]],[[56,13],[60,13],[60,17],[56,17]],[[56,17],[60,17],[60,21],[56,21]],[[60,5],[64,5],[64,9],[60,9]],[[60,9],[64,9],[64,13],[60,13]],[[60,13],[64,13],[64,17],[60,17]],[[60,17],[64,17],[64,21],[60,21]],[[64,5],[68,5],[68,9],[64,9]],[[64,9],[68,9],[68,13],[64,13]],[[64,13],[68,13],[68,17],[64,17]],[[64,17],[68,17],[68,21],[64,21]],[[68,5],[72,5],[72,9],[68,9]],[[68,9],[72,9],[72,13],[68,13]],[[68,13],[72,13],[72,17],[68,17]],[[68,17],[72,17],[72,21],[68,21]],[[72,5],[76,5],[76,9],[72,9]],[[72,9],[76,9],[76,13],[72,13]],[[72,13],[76,13],[76,17],[72,17]],[[72,17],[76,17],[76,21],[72,21]],[[76,5],[80,5],[80,9],[76,9]],[[76,9],[80,9],[80,13],[76,13]],[[76,13],[80,13],[80,17],[76,17]],[[76,17],[80,17],[80,21],[76,21]],[[80,5],[84,5],[84,9],[80,9]],[[80,9],[84,9],[84,13],[80,13]],[[80,13],[84,13],[84,17],[80,17]],[[80,17],[84,17],[84,21],[80,21]],[[84,5],[88,5],[88,9],[84,9]],[[84,9],[88,9],[88,13],[84,13]],[[84,13],[88,13],[88,17],[84,17]],[[84,17],[88,17],[88,21],[84,21]],[[88,5],[92,5],[92,9],[88,9]],[[88,9],[92,9],[92,13],[88,13]],[[88,13],[92,13],[92,17],[88,17]],[[88,17],[92,17],[92,21],[88,21]],[[92,5],[96,5],[96,9],[92,9]],[[92,9],[96,9],[96,13],[92,13]],[[92,13],[96,13],[96,17],[92,17]],[[92,17],[96,17],[96,21],[92,21]],[[37,-5],[40,-5],[40,-8],[37,-5]],[[40,-5],[44,-5],[44,-9],[41,-9],[40,-8]],[[41,-9],[44,-9],[44,-12]],[[44,-5],[48,-5],[48,-9],[44,-9]],[[44,-9],[48,-9],[48,-13],[45,-13],[44,-12]],[[45,-13],[48,-13],[48,-16]],[[48,-5],[52,-5],[52,-9],[48,-9]],[[48,-9],[52,-9],[52,-13],[48,-13]],[[48,-13],[52,-13],[52,-17],[49,-17],[48,-16]],[[49,-17],[52,-17],[52,-20]],[[52,-5],[56,-5],[56,-9],[52,-9]],[[52,-9],[56,-9],[56,-13],[52,-13]],[[52,-13],[56,-13],[56,-17],[52,-17]],[[52,-17],[56,-17],[56,-21],[53,-21],[52,-20]],[[56,-5],[60,-5],[60,-9],[56,-9]],[[56,-9],[60,-9],[60,-13],[56,-13]],[[56,-13],[60,-13],[60,-17],[56,-17]],[[56,-17],[60,-17],[60,-21],[56,-21]],[[60,-5],[64,-5],[64,-9],[60,-9]],[[60,-9],[64,-9],[64,-13],[60,-13]],[[60,-13],[64,-13],[64,-17],[60,-17]],[[60,-17],[64,-17],[64,-21],[60,-21]],[[64,-5],[68,-5],[68,-9],[64,-9]],[[64,-9],[68,-9],[68,-13],[64,-13]],[[64,-13],[68,-13],[68,-17],[64,-17]],[[64,-17],[68,-17],[68,-21],[64,-21]],[[68,-5],[72,-5],[72,-9],[68,-9]],[[68,-9],[72,-9],[72,-13],[68,-13]],[[68,-13],[72,-13],[72,-17],[68,-17]],[[68,-17],[72,-17],[72,-21],[68,-21]],[[72,-5],[76,-5],[76,-9],[72,-9]],[[72,-9],[76,-9],[76,-13],[72,-13]],[[72,-13],[76,-13],[76,-17],[72,-17]],[[72,-17],[76,-17],[76,-21],[72,-21]],[[76,-5],[80,-5],[80,-9],[76,-9]],[[76,-9],[80,-9],[80,-13],[76,-13]],[[76,-13],[80,-13],[80,-17],[76,-17]],[[76,-17],[80,-17],[80,-21],[76,-21]],[[80,-5],[84,-5],[84,-9],[80,-9]],[[80,-9],[84,-9],[84,-13],[80,-13]],[[80,-13],[84,-13],[84,-17],[80,-17]],[[80,-17],[84,-17],[84,-21],[80,-21]],[[84,-5],[88,-5],[88,-9],[84,-9]],[[84,-9],[88,-9],[88,-13],[84,-13]],[[84,-13],[88,-13],[88,-17],[84,-17]],[[84,-17],[88,-17],[88,-21],[84,-21]],[[88,-5],[92,-5],[92,-9],[88,-9]],[[88,-9],[92,-9],[92,-13],[88,-13]],[[88,-13],[92,-13],[92,-17],[88,-17]],[[88,-17],[92,-17],[92,-21],[88,-21]],[[92,-5],[96,-5],[96,-9],[92,-9]],[[92,-9],[96,-9],[96,-13],[92,-13]],[[92,-13],[96,-13],[96,-17],[92,-17]],[[92,-17],[96,-17],[96,-21],[92,-21]],[[-37,-40],[-37,-36],[-41,-36],[-41,-40]],[[-41,-40],[-41,-36],[-45,-36],[-45,-40]],[[-45,-40],[-45,-36],[-49,-36],[-49,-40]],[[-49,-40],[-49,-36],[-53,-36],[-53,-40]],[[-37,-36],[-37,-32],[-41,-32],[-41,-36]],[[-41,-36],[-41,-32],[-45,-32],[-45,-36]],[[-45,-36],[-45,-32],[-49,-32],[-49,-36]],[[-49,-36],[-49,-32],[-53,-32],[-53,-36]],[[-37,-32],[-37,-28],[-41,-28],[-41,-32]],[[-41,-32],[-41,-28],[-45,-28],[-45,-32]],[[-45,-32],[-45,-28],[-49,-28],[-49,-32]],[[-49,-32],[-49,-28],[-53,-28],[-53,-32]],[[-37,-28],[-37,-24],[-41,-24],[-41,-28]],[[-41,-28],[-41,-24],[-45,-24],[-45,-28]],[[-45,-28],[-45,-24],[-49,-24],[-49,-28]],[[-49,-28],[-49,-24],[-53,-24],[-53,-28]],[[-37,-24],[-37,-20],[-41,-20],[-41,-24]],[[-41,-24],[-41,-20],[-45,-20],[-45,-24]],[[-45,-24],[-45,-20],[-49,-20],[-49,-24]],[[-49,-24],[-49,-20],[-52,-20],[-53,-21],[-53,-24]],[[-37,-20],[-37,-16],[-41,-16],[-41,-20]],[[-41,-20],[-41,-16],[-45,-16],[-45,-20]],[[-45,-20],[-45,-16],[-48,-16],[-49,-17],[-49,-20]],[[-49,-20],[-49,-17],[-52,-20]],[[-37,-16],[-37,-12],[-41,-12],[-41,-16]],[[-41,-16],[-41,-12],[-44,-12],[-45,-13],[-45,-16]],[[-45,-16],[-45,-13],[-48,-16]],[[-37,-12],[-37,-8],[-40,-8],[-41,-9],[-41,-12]],[[-41,-12],[-41,-9],[-44,-12]],[[-37,-8],[-37,-5],[-37,-5],[-40,-8]],[[-27,-35],[-27,-32],[-24,-32],[-27,-35]],[[-27,-32],[-27,-28],[-23,-28],[-23,-31],[-24,-32]],[[-23,-31],[-23,-28],[-20,-28]],[[-27,-28],[-27,-24],[-23,-24],[-23,-28]],[[-23,-28],[-23,-24],[-19,-24],[-19,-27],[-20,-28]],[[-19,-27],[-19,-24],[-16,-24]],[[-27,-24],[-27,-20],[-23,-20],[-23,-24]],[[-23,-24],[-23,-20],[-19,-20],[-19,-24]],[[-19,-24],[-19,-20],[-15,-20],[-15,-23],[-16,-24]],[[-15,-23],[-15,-20],[-12,-20]],[[-27,-20],[-27,-16],[-23,-16],[-23,-20]],[[-23,-20],[-23,-16],[-19,-16],[-19,-20]],[[-19,-20],[-19,-16],[-16,-16],[-15,-17],[-15,-20]],[[-15,-20],[-15,-17],[-12,-20],[-12,-20]],[[-27,-16],[-27,-12],[-23,-12],[-23,-16]],[[-23,-16],[-23,-12],[-20,-12],[-19,-13],[-19,-16]],[[-19,-16],[-19,-13],[-16,-16]],[[-27,-12],[-27,-8],[-24,-8],[-23,-9],[-23,-12]],[[-23,-12],[-23,-9],[-20,-12]],[[-27,-8],[-27,-5],[-27,-5],[-24,-8]],[[-37,5],[-37,8],[-40,8],[-37,5]],[[-37,8],[-37,12],[-41,12],[-41,9],[-40,8]],[[-41,9],[-41,12],[-44,12]],[[-37,12],[-37,16],[-41,16],[-41,12]],[[-41,12],[-41,16],[-45,16],[-45,13],[-44,12]],[[-45,13],[-45,16],[-48,16]],[[-37,16],[-37,20],[-41,20],[-41,16]],[[-41,16],[-41,20],[-45,20],[-45,16]],[[-45,16],[-45,20],[-49,20],[-49,17],[-48,16]],[[-49,17],[-49,20],[-52,20]],[[-37,20],[-37,24],[-41,24],[-41,20]],[[-41,20],[-41,24],[-45,24],[-45,20]],[[-45,20],[-45,24],[-49,24],[-49,20]],[[-49,20],[-49,24],[-53,24],[-53,21],[-52,20]],[[-37,24],[-37,28],[-41,28],[-41,24]],[[-41,24],[-41,28],[-45,28],[-45,24]],[[-45,24],[-45,28],[-49,28],[-49,24]],[[-49,24],[-49,28],[-53,28],[-53,24]],[[-37,28],[-37,32],[-41,32],[-41,28]],[[-41,28],[-41,32],[-45,32],[-45,28]],[[-45,28],[-45,32],[-49,32],[-49,28]],[[-49,28],[-49,32],[-53,32],[-53,28]],[[-37,32],[-37,36],[-41,36],[-41,32]],[[-41,32],[-41,36],[-45,36],[-45,32]],[[-45,32],[-45,36],[-49,36],[-49,32]],[[-49,32],[-49,36],[-53,36],[-53,32]],[[-37,36],[-37,40],[-41,40],[-41,36]],[[-41,36],[-41,40],[-45,40],[-45,36]],[[-45,36],[-45,40],[-49,40],[-49,36]],[[-49,36],[-49,40],[-53,40],[-53,36]],[[-27,5],[-27,8],[-24,8],[-27,5]],[[-27,8],[-27,12],[-23,12],[-23,9],[-24,8]],[[-23,9],[-23,12],[-20,12]],[[-27,12],[-27,16],[-23,16],[-23,12]],[[-23,12],[-23,16],[-19,16],[-19,13],[-20,12]],[[-19,13],[-19,16],[-16,16]],[[-27,16],[-27,20],[-23,20],[-23,16]],[[-23,16],[-23,20],[-19,20],[-19,16]],[[-19,16],[-19,20],[-15,20],[-15,17],[-16,16]],[[-15,17],[-15,20],[-12,20]],[[-27,20],[-27,24],[-23,24],[-23,20]],[[-23,20],[-23,24],[-19,24],[-19,20]],[[-19,20],[-19,24],[-15,24],[-15,20]],[[-15,20],[-15,24],[-11,24],[-11,21],[-12,20]],[[-27,24],[-27,28],[-23,28],[-23,24]],[[-23,24],[-23,28],[-19,28],[-19,24]],[[-19,24],[-19,28],[-15,28],[-15,24]],[[-15,24],[-15,28],[-11,28],[-11,24]],[[-27,28],[-27,32],[-23,32],[-23,28]],[[-23,28],[-23,32],[-19,32],[-19,28]],[[-19,28],[-19,32],[-15,32],[-15,28]],[[-15,28],[-15,32],[-11,32],[-11,28]],[[-27,32],[-27,36],[-23,36],[-23,32]],[[-23,32],[-23,36],[-19,36],[-19,32]],[[-19,32],[-19,36],[-15,36],[-15,32]],[[-15,32],[-15,36],[-11,36],[-11,32]],[[-27,36],[-27,40],[-23,40],[-23,36]],[[-23,36],[-23,40],[-19,40],[-19,36]],[[-19,36],[-19,40],[-15,40],[-15,36]],[[-15,36],[-15,40],[-11,40],[-11,36]],[[27,-35],[27,-32],[24,-32],[27,-35]],[[27,-32],[27,-28],[23,-28],[23,-31],[24,-32]],[[23,-31],[23,-28],[20,-28]],[[27,-28],[27,-24],[23,-24],[23,-28]],[[23,-28],[23,-24],[19,-24],[19,-27],[20,-28]],[[19,-27],[19,-24],[16,-24]],[[27,-24],[27,-20],[23,-20],[23,-24]],[[23,-24],[23,-20],[19,-20],[19,-24]],[[19,-24],[19,-20],[15,-20],[15,-23],[16,-24]],[[15,-23],[15,-20],[12,-20]],[[27,-20],[27,-16],[23,-16],[23,-20]],[[23,-20],[23,-16],[19,-16],[19,-20]],[[19,-20],[19,-16],[16,-16],[15,-17],[15,-20]],[[15,-20],[15,-17],[12,-20],[12,-20]],[[27,-16],[27,-12],[23,-12],[23,-16]],[[23,-16],[23,-12],[20,-12],[19,-13],[19,-16]],[[19,-16],[19,-13],[16,-16]],[[27,-12],[27,-8],[24,-8],[23,-9],[23,-12]],[[23,-12],[23,-9],[20,-12]],[[27,-8],[27,-5],[27,-5],[24,-8]],[[37,-40],[37,-36],[41,-36],[41,-40]],[[41,-40],[41,-36],[45,-36],[45,-40]],[[45,-40],[45,-36],[49,-36],[49,-40]],[[49,-40],[49,-36],[53,-36],[53,-40]],[[37,-36],[37,-32],[41,-32],[41,-36]],[[41,-36],[41,-32],[45,-32],[45,-36]],[[45,-36],[45,-32],[49,-32],[49,-36]],[[49,-36],[49,-32],[53,-32],[53,-36]],[[37,-32],[37,-28],[41,-28],[41,-32]],[[41,-32],[41,-28],[45,-28],[45,-32]],[[45,-32],[45,-28],[49,-28],[49,-32]],[[49,-32],[49,-28],[53,-28],[53,-32]],[[37,-28],[37,-24],[41,-24],[41,-28]],[[41,-28],[41,-24],[45,-24],[45,-28]],[[45,-28],[45,-24],[49,-24],[49,-28]],[[49,-28],[49,-24],[53,-24],[53,-28]],[[37,-24],[37,-20],[41,-20],[41,-24]],[[41,-24],[41,-20],[45,-20],[45,-24]],[[45,-24],[45,-20],[49,-20],[49,-24]],[[49,-24],[49,-20],[52,-20],[53,-21],[53,-24]],[[37,-20],[37,-16],[41,-16],[41,-20]],[[41,-20],[41,-16],[45,-16],[45,-20]],[[45,-20],[45,-16],[48,-16],[49,-17],[49,-20]],[[49,-20],[49,-17],[52,-20]],[[37,-16],[37,-12],[41,-12],[41,-16]],[[41,-16],[41,-12],[44,-12],[45,-13],[45,-16]],[[45,-16],[45,-13],[48,-16]],[[37,-12],[37,-8],[40,-8],[41,-9],[41,-12]],[[41,-12],[41,-9],[44,-12]],[[37,-8],[37,-5],[37,-5],[40,-8]],[[27,5],[27,8],[24,8],[27,5]],[[27,8],[27,12],[23,12],[23,9],[24,8]],[[23,9],[23,12],[20,12]],[[27,12],[27,16],[23,16],[23,12]],[[23,12],[23,16],[19,16],[19,13],[20,12]],[[19,13],[19,16],[16,16]],[[27,16],[27,20],[23,20],[23,16]],[[23,16],[23,20],[19,20],[19,16]],[[19,16],[19,20],[15,20],[15,17],[16,16]],[[15,17],[15,20],[12,20]],[[27,20],[27,24],[23,24],[23,20]],[[23,20],[23,24],[19,24],[19,20]],[[19,20],[19,24],[15,24],[15,20]],[[15,20],[15,24],[11,24],[11,21],[12,20]],[[27,24],[27,28],[23,28],[23,24]],[[23,24],[23,28],[19,28],[19,24]],[[19,24],[19,28],[15,28],[15,24]],[[15,24],[15,28],[11,28],[11,24]],[[27,28],[27,32],[23,32],[23,28]],[[23,28],[23,32],[19,32],[19,28]],[[19,28],[19,32],[15,32],[15,28]],[[15,28],[15,32],[11,32],[11,28]],[[27,32],[27,36],[23,36],[23,32]],[[23,32],[23,36],[19,36],[19,32]],[[19,32],[19,36],[15,36],[15,32]],[[15,32],[15,36],[11,36],[11,32]],[[27,36],[27,40],[23,40],[23,36]],[[23,36],[23,40],[19,40],[19,36]],[[19,36],[19,40],[15,40],[15,36]],[[15,36],[15,40],[11,40],[11,36]],[[37,5],[37,8],[40,8],[37,5]],[[37,8],[37,12],[41,12],[41,9],[40,8]],[[41,9],[41,12],[44,12]],[[37,12],[37,16],[41,16],[41,12]],[[41,12],[41,16],[45,16],[45,13],[44,12]],[[45,13],[45,16],[48,16]],[[37,16],[37,20],[41,20],[41,16]],[[41,16],[41,20],[45,20],[45,16]],[[45,16],[45,20],[49,20],[49,17],[48,16]],[[49,17],[49,20],[52,20]],[[37,20],[37,24],[41,24],[41,20]],[[41,20],[41,24],[45,24],[45,20]],[[45,20],[45,24],[49,24],[49,20]],[[49,20],[49,24],[53,24],[53,21],[52,20]],[[37,24],[37,28],[41,28],[41,24]],[[41,24],[41,28],[45,28],[45,24]],[[45,24],[45,28],[49,28],[49,24]],[[49,24],[49,28],[53,28],[53,24]],[[37,28],[37,32],[41,32],[41,28]],[[41,28],[41,32],[45,32],[45,28]],[[45,28],[45,32],[49,32],[49,28]],[[49,28],[49,32],[53,32],[53,28]],[[37,32],[37,36],[41,36],[41,32]],[[41,32],[41,36],[45,36],[45,32]],[[45,32],[45,36],[49,36],[49,32]],[[49,32],[49,36],[53,36],[53,32]],[[37,36],[37,40],[41,40],[41,36]],[[41,36],[41,40],[45,40],[45,36]],[[45,36],[45,40],[49,40],[49,36]],[[49,36],[49,40],[53,40],[53,36]],[[-27,-35],[-24,-35],[-24,-32],[-27,-35]],[[-24,-35],[-20,-35],[-20,-31],[-23,-31],[-24,-32]],[[-23,-31],[-20,-31],[-20,-28]],[[-20,-35],[-16,-35],[-16,-31],[-20,-31]],[[-20,-31],[-16,-31],[-16,-27],[-19,-27],[-20,-28]],[[-19,-27],[-16,-27],[-16,-24]],[[-16,-35],[-12,-35],[-12,-31],[-16,-31]],[[-16,-31],[-12,-31],[-12,-27],[-16,-27]],[[-16,-27],[-12,-27],[-12,-23],[-15,-23],[-16,-24]],[[-15,-23],[-12,-23],[-12,-20]],[[-12,-35],[-8,-35],[-8,-31],[-12,-31]],[[-12,-31],[-8,-31],[-8,-27],[-12,-27]],[[-12,-27],[-8,-27],[-8,-23],[-12,-23]],[[-12,-23],[-8,-23],[-8,-19],[-11,-19],[-12,-20]],[[-8,-35],[-4,-35],[-4,-31],[-8,-31]],[[-8,-31],[-4,-31],[-4,-27],[-8,-27]],[[-8,-27],[-4,-27],[-4,-23],[-8,-23]],[[-8,-23],[-4,-23],[-4,-19],[-8,-19]],[[-4,-35],[0,-35],[0,-31],[-4,-31]],[[-4,-31],[0,-31],[0,-27],[-4,-27]],[[-4,-27],[0,-27],[0,-23],[-4,-23]],[[-4,-23],[0,-23],[0,-19],[-4,-19]],[[0,-35],[4,-35],[4,-31],[0,-31]],[[0,-31],[4,-31],[4,-27],[0,-27]],[[0,-27],[4,-27],[4,-23],[0,-23]],[[0,-23],[4,-23],[4,-19],[0,-19]],[[4,-35],[8,-35],[8,-31],[4,-31]],[[4,-31],[8,-31],[8,-27],[4,-27]],[[4,-27],[8,-27],[8,-23],[4,-23]],[[4,-23],[8,-23],[8,-19],[4,-19]],[[8,-35],[12,-35],[12,-31],[8,-31]],[[8,-31],[12,-31],[12,-27],[8,-27]],[[8,-27],[12,-27],[12,-23],[8,-23]],[[8,-23],[12,-23],[12,-20],[11,-19],[8,-19]],[[12,-35],[16,-35],[16,-31],[12,-31]],[[12,-31],[16,-31],[16,-27],[12,-27]],[[12,-27],[16,-27],[16,-24],[15,-23],[12,-23]],[[12,-23],[15,-23],[12,-20]],[[16,-35],[20,-35],[20,-31],[16,-31]],[[16,-31],[20,-31],[20,-28],[19,-27],[16,-27]],[[16,-27],[19,-27],[16,-24]],[[20,-35],[24,-35],[24,-32],[23,-31],[20,-31]],[[20,-31],[23,-31],[20,-28]],[[24,-35],[27,-35],[27,-35],[24,-32]],[[-32,-45],[-28,-45],[-28,-49],[-32,-49]],[[-32,-49],[-28,-49],[-28,-53],[-32,-53]],[[-32,-53],[-28,-53],[-28,-57],[-32,-57]],[[-28,-45],[-24,-45],[-24,-49],[-28,-49]],[[-28,-49],[-24,-49],[-24,-53],[-28,-53]],[[-28,-53],[-24,-53],[-24,-57],[-28,-57]],[[-28,-57],[-24,-57],[-24,-61],[-28,-61]],[[-24,-45],[-20,-45],[-20,-49],[-24,-49]],[[-24,-49],[-20,-49],[-20,-53],[-24,-53]],[[-24,-53],[-20,-53],[-20,-57],[-24,-57]],[[-24,-57],[-20,-57],[-20,-61],[-24,-61]],[[-20,-45],[-16,-45],[-16,-49],[-20,-49]],[[-20,-49],[-16,-49],[-16,-53],[-20,-53]],[[-20,-53],[-16,-53],[-16,-57],[-20,-57]],[[-20,-57],[-16,-57],[-16,-61],[-20,-61]],[[-16,-45],[-12,-45],[-12,-49],[-16,-49]],[[-16,-49],[-12,-49],[-12,-53],[-16,-53]],[[-16,-53],[-12,-53],[-12,-57],[-16,-57]],[[-16,-57],[-12,-57],[-12,-61],[-16,-61]],[[-12,-45],[-8,-45],[-8,-49],[-12,-49]],[[-12,-49],[-8,-49],[-8,-53],[-12,-53]],[[-12,-53],[-8,-53],[-8,-57],[-12,-57]],[[-12,-57],[-8,-57],[-8,-61],[-12,-61]],[[-8,-45],[-4,-45],[-4,-49],[-8,-49]],[[-8,-49],[-4,-49],[-4,-53],[-8,-53]],[[-8,-53],[-4,-53],[-4,-57],[-8,-57]],[[-8,-57],[-4,-57],[-4,-61],[-8,-61]],[[-4,-45],[0,-45],[0,-49],[-4,-49]],[[-4,-49],[0,-49],[0,-53],[-4,-53]],[[-4,-53],[0,-53],[0,-57],[-4,-57]],[[-4,-57],[0,-57],[0,-61],[-4,-61]],[[0,-45],[4,-45],[4,-49],[0,-49]],[[0,-49],[4,-49],[4,-53],[0,-53]],[[0,-53],[4,-53],[4,-57],[0,-57]],[[0,-57],[4,-57],[4,-61],[0,-61]],[[4,-45],[8,-45],[8,-49],[4,-49]],[[4,-49],[8,-49],[8,-53],[4,-53]],[[4,-53],[8,-53],[8,-57],[4,-57]],[[4,-57],[8,-57],[8,-61],[4,-61]],[[8,-45],[12,-45],[12,-49],[8,-49]],[[8,-49],[12,-49],[12,-53],[8,-53]],[[8,-53],[12,-53],[12,-57],[8,-57]],[[8,-57],[12,-57],[12,-61],[8,-61]],[[12,-45],[16,-45],[16,-49],[12,-49]],[[12,-49],[16,-49],[16,-53],[12,-53]],[[12,-53],[16,-53],[16,-57],[12,-57]],[[12,-57],[16,-57],[16,-61],[12,-61]],[[16,-45],[20,-45],[20,-49],[16,-49]],[[16,-49],[20,-49],[20,-53],[16,-53]],[[16,-53],[20,-53],[20,-57],[16,-57]],[[16,-57],[20,-57],[20,-61],[16,-61]],[[20,-45],[24,-45],[24,-49],[20,-49]],[[20,-49],[24,-49],[24,-53],[20,-53]],[[20,-53],[24,-53],[24,-57],[20,-57]],[[20,-57],[24,-57],[24,-61],[20,-61]],[[24,-45],[28,-45],[28,-49],[24,-49]],[[24,-49],[28,-49],[28,-53],[24,-53]],[[24,-53],[28,-53],[28,-57],[24,-57]],[[24,-57],[28,-57],[28,-61],[24,-61]],[[28,-45],[32,-45],[32,-49],[28,-49]],[[28,-49],[32,-49],[32,-53],[28,-53]],[[28,-53],[32,-53],[32,-57],[28,-57]]]},"name":"Деревня 10"};
+const SNAP={"format":"city-builder/world@1","units":"m","nodes":[[-96,0],[-32,0],[32,0],[96,0],[-32,-40],[-32,40],[32,-40],[32,40]],"edges":[{"a":0,"b":1,"length":64},{"a":1,"b":2,"length":64},{"a":2,"b":3,"length":64},{"a":4,"b":1,"length":40},{"a":1,"b":5,"length":40},{"a":6,"b":2,"length":40},{"a":2,"b":7,"length":40},{"a":4,"b":6,"length":64}],"buildings":[{"id":0,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.219,"center":[-82,-11],"outline":[[-84,-15],[-80,-15],[-80,-7],[-84,-7]],"style":0},{"id":1,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.469,"center":[-66,-11],"outline":[[-68,-15],[-64,-15],[-64,-7],[-68,-7]],"style":5},{"id":2,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.719,"center":[-50,-11],"outline":[[-52,-15],[-48,-15],[-48,-7],[-52,-7]],"style":7},{"id":3,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.219,"center":[-82,11],"outline":[[-84,7],[-80,7],[-80,15],[-84,15]],"style":1},{"id":4,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.469,"center":[-66,11],"outline":[[-68,7],[-64,7],[-64,15],[-68,15]],"style":2},{"id":5,"type":"res","floors":1,"cells":2,"capacity":1,"edge":0,"t":0.719,"center":[-50,11],"outline":[[-52,7],[-48,7],[-48,15],[-52,15]],"style":4},{"id":6,"type":"res","floors":1,"cells":2,"capacity":1,"edge":4,"t":0.45,"center":[-43,18],"outline":[[-39,16],[-39,20],[-47,20],[-47,16]],"style":0},{"id":7,"type":"res","floors":1,"cells":2,"capacity":1,"edge":4,"t":0.75,"center":[-43,30],"outline":[[-39,28],[-39,32],[-47,32],[-47,28]],"style":5},{"id":8,"type":"res","floors":1,"cells":2,"capacity":1,"edge":6,"t":0.55,"center":[43,22],"outline":[[47,20],[47,24],[39,24],[39,20]],"style":7},{"id":9,"type":"res","floors":1,"cells":2,"capacity":1,"edge":7,"t":0.531,"center":[2,-51],"outline":[[0,-55],[4,-55],[4,-47],[0,-47]],"style":1},{"id":10,"type":"com","floors":1,"cells":4,"capacity":2,"edge":1,"t":0.5,"center":[0,-11],"outline":[[-4,-15],[4,-15],[4,-7],[-4,-7]],"style":6},{"id":11,"type":"work","floors":1,"cells":8,"capacity":2,"edge":2,"t":0.5,"center":[64,15],"outline":[[60,7],[68,7],[68,23],[60,23]],"style":3}],"gates":[{"id":0,"node":3,"name":"Город"}],"render":{"cell":4,"roadHalfWidth":7,"sidewalk":2,"zoneCells":[[[-96,7],[-92,7],[-92,11],[-96,11]],[[-96,11],[-92,11],[-92,15],[-96,15]],[[-96,15],[-92,15],[-92,19],[-96,19]],[[-96,19],[-92,19],[-92,23],[-96,23]],[[-92,7],[-88,7],[-88,11],[-92,11]],[[-92,11],[-88,11],[-88,15],[-92,15]],[[-92,15],[-88,15],[-88,19],[-92,19]],[[-92,19],[-88,19],[-88,23],[-92,23]],[[-88,7],[-84,7],[-84,11],[-88,11]],[[-88,11],[-84,11],[-84,15],[-88,15]],[[-88,15],[-84,15],[-84,19],[-88,19]],[[-88,19],[-84,19],[-84,23],[-88,23]],[[-84,7],[-80,7],[-80,11],[-84,11]],[[-84,11],[-80,11],[-80,15],[-84,15]],[[-84,15],[-80,15],[-80,19],[-84,19]],[[-84,19],[-80,19],[-80,23],[-84,23]],[[-80,7],[-76,7],[-76,11],[-80,11]],[[-80,11],[-76,11],[-76,15],[-80,15]],[[-80,15],[-76,15],[-76,19],[-80,19]],[[-80,19],[-76,19],[-76,23],[-80,23]],[[-76,7],[-72,7],[-72,11],[-76,11]],[[-76,11],[-72,11],[-72,15],[-76,15]],[[-76,15],[-72,15],[-72,19],[-76,19]],[[-76,19],[-72,19],[-72,23],[-76,23]],[[-72,7],[-68,7],[-68,11],[-72,11]],[[-72,11],[-68,11],[-68,15],[-72,15]],[[-72,15],[-68,15],[-68,19],[-72,19]],[[-72,19],[-68,19],[-68,23],[-72,23]],[[-68,7],[-64,7],[-64,11],[-68,11]],[[-68,11],[-64,11],[-64,15],[-68,15]],[[-68,15],[-64,15],[-64,19],[-68,19]],[[-68,19],[-64,19],[-64,23],[-68,23]],[[-64,7],[-60,7],[-60,11],[-64,11]],[[-64,11],[-60,11],[-60,15],[-64,15]],[[-64,15],[-60,15],[-60,19],[-64,19]],[[-64,19],[-60,19],[-60,23],[-64,23]],[[-60,7],[-56,7],[-56,11],[-60,11]],[[-60,11],[-56,11],[-56,15],[-60,15]],[[-60,15],[-56,15],[-56,19],[-60,19]],[[-60,19],[-56,19],[-56,23],[-60,23]],[[-56,7],[-52,7],[-52,11],[-56,11]],[[-56,11],[-52,11],[-52,15],[-56,15]],[[-56,15],[-52,15],[-52,19],[-56,19]],[[-56,19],[-52,19],[-52,20],[-55,23],[-56,23]],[[-52,7],[-48,7],[-48,11],[-52,11]],[[-52,11],[-48,11],[-48,15],[-52,15]],[[-52,15],[-48,15],[-48,16],[-51,19],[-52,19]],[[-52,19],[-51,19],[-52,20]],[[-48,7],[-44,7],[-44,11],[-48,11]],[[-48,11],[-44,11],[-44,12],[-47,15],[-48,15]],[[-48,15],[-47,15],[-48,16]],[[-44,7],[-40,7],[-40,8],[-43,11],[-44,11]],[[-44,11],[-43,11],[-44,12]],[[-40,7],[-39,7],[-40,8]],[[-96,-7],[-92,-7],[-92,-11],[-96,-11]],[[-96,-11],[-92,-11],[-92,-15],[-96,-15]],[[-96,-15],[-92,-15],[-92,-19],[-96,-19]],[[-96,-19],[-92,-19],[-92,-23],[-96,-23]],[[-92,-7],[-88,-7],[-88,-11],[-92,-11]],[[-92,-11],[-88,-11],[-88,-15],[-92,-15]],[[-92,-15],[-88,-15],[-88,-19],[-92,-19]],[[-92,-19],[-88,-19],[-88,-23],[-92,-23]],[[-88,-7],[-84,-7],[-84,-11],[-88,-11]],[[-88,-11],[-84,-11],[-84,-15],[-88,-15]],[[-88,-15],[-84,-15],[-84,-19],[-88,-19]],[[-88,-19],[-84,-19],[-84,-23],[-88,-23]],[[-84,-7],[-80,-7],[-80,-11],[-84,-11]],[[-84,-11],[-80,-11],[-80,-15],[-84,-15]],[[-84,-15],[-80,-15],[-80,-19],[-84,-19]],[[-84,-19],[-80,-19],[-80,-23],[-84,-23]],[[-80,-7],[-76,-7],[-76,-11],[-80,-11]],[[-80,-11],[-76,-11],[-76,-15],[-80,-15]],[[-80,-15],[-76,-15],[-76,-19],[-80,-19]],[[-80,-19],[-76,-19],[-76,-23],[-80,-23]],[[-76,-7],[-72,-7],[-72,-11],[-76,-11]],[[-76,-11],[-72,-11],[-72,-15],[-76,-15]],[[-76,-15],[-72,-15],[-72,-19],[-76,-19]],[[-76,-19],[-72,-19],[-72,-23],[-76,-23]],[[-72,-7],[-68,-7],[-68,-11],[-72,-11]],[[-72,-11],[-68,-11],[-68,-15],[-72,-15]],[[-72,-15],[-68,-15],[-68,-19],[-72,-19]],[[-72,-19],[-68,-19],[-68,-23],[-72,-23]],[[-68,-7],[-64,-7],[-64,-11],[-68,-11]],[[-68,-11],[-64,-11],[-64,-15],[-68,-15]],[[-68,-15],[-64,-15],[-64,-19],[-68,-19]],[[-68,-19],[-64,-19],[-64,-23],[-68,-23]],[[-64,-7],[-60,-7],[-60,-11],[-64,-11]],[[-64,-11],[-60,-11],[-60,-15],[-64,-15]],[[-64,-15],[-60,-15],[-60,-19],[-64,-19]],[[-64,-19],[-60,-19],[-60,-23],[-64,-23]],[[-60,-7],[-56,-7],[-56,-11],[-60,-11]],[[-60,-11],[-56,-11],[-56,-15],[-60,-15]],[[-60,-15],[-56,-15],[-56,-19],[-60,-19]],[[-60,-19],[-56,-19],[-56,-23],[-60,-23]],[[-56,-7],[-52,-7],[-52,-11],[-56,-11]],[[-56,-11],[-52,-11],[-52,-15],[-56,-15]],[[-56,-15],[-52,-15],[-52,-19],[-56,-19]],[[-56,-19],[-52,-19],[-52,-20],[-55,-23],[-56,-23]],[[-52,-7],[-48,-7],[-48,-11],[-52,-11]],[[-52,-11],[-48,-11],[-48,-15],[-52,-15]],[[-52,-15],[-48,-15],[-48,-16],[-51,-19],[-52,-19]],[[-52,-19],[-51,-19],[-52,-20]],[[-48,-7],[-44,-7],[-44,-11],[-48,-11]],[[-48,-11],[-44,-11],[-44,-12],[-47,-15],[-48,-15]],[[-48,-15],[-47,-15],[-48,-16]],[[-44,-7],[-40,-7],[-40,-8],[-43,-11],[-44,-11]],[[-44,-11],[-43,-11],[-44,-12]],[[-40,-7],[-39,-7],[-40,-8]],[[-25,7],[-24,7],[-24,8],[-25,7]],[[-24,7],[-20,7],[-20,11],[-21,11],[-24,8]],[[-21,11],[-20,11],[-20,12]],[[-20,7],[-16,7],[-16,11],[-20,11]],[[-20,11],[-16,11],[-16,15],[-17,15],[-20,12]],[[-17,15],[-16,15],[-16,16]],[[-16,7],[-12,7],[-12,11],[-16,11]],[[-16,11],[-12,11],[-12,15],[-16,15]],[[-16,15],[-12,15],[-12,19],[-13,19],[-16,16]],[[-13,19],[-12,19],[-12,20]],[[-12,7],[-8,7],[-8,11],[-12,11]],[[-12,11],[-8,11],[-8,15],[-12,15]],[[-12,15],[-8,15],[-8,19],[-12,19]],[[-12,19],[-8,19],[-8,23],[-9,23],[-12,20]],[[-8,7],[-4,7],[-4,11],[-8,11]],[[-8,11],[-4,11],[-4,15],[-8,15]],[[-8,15],[-4,15],[-4,19],[-8,19]],[[-8,19],[-4,19],[-4,23],[-8,23]],[[-4,7],[0,7],[0,11],[-4,11]],[[-4,11],[0,11],[0,15],[-4,15]],[[-4,15],[0,15],[0,19],[-4,19]],[[-4,19],[0,19],[0,23],[-4,23]],[[0,7],[4,7],[4,11],[0,11]],[[0,11],[4,11],[4,15],[0,15]],[[0,15],[4,15],[4,19],[0,19]],[[0,19],[4,19],[4,23],[0,23]],[[4,7],[8,7],[8,11],[4,11]],[[4,11],[8,11],[8,15],[4,15]],[[4,15],[8,15],[8,19],[4,19]],[[4,19],[8,19],[8,23],[4,23]],[[8,7],[12,7],[12,11],[8,11]],[[8,11],[12,11],[12,15],[8,15]],[[8,15],[12,15],[12,19],[8,19]],[[8,19],[12,19],[12,20],[9,23],[8,23]],[[12,7],[16,7],[16,11],[12,11]],[[12,11],[16,11],[16,15],[12,15]],[[12,15],[16,15],[16,16],[13,19],[12,19]],[[12,19],[13,19],[12,20]],[[16,7],[20,7],[20,11],[16,11]],[[16,11],[20,11],[20,12],[17,15],[16,15]],[[16,15],[17,15],[16,16]],[[20,7],[24,7],[24,8],[21,11],[20,11]],[[20,11],[21,11],[20,12]],[[24,7],[25,7],[25,7],[24,8]],[[-25,-7],[-24,-7],[-24,-8],[-25,-7]],[[-24,-7],[-20,-7],[-20,-11],[-21,-11],[-24,-8]],[[-21,-11],[-20,-11],[-20,-12]],[[-20,-7],[-16,-7],[-16,-11],[-20,-11]],[[-20,-11],[-16,-11],[-16,-15],[-17,-15],[-20,-12]],[[-17,-15],[-16,-15],[-16,-16]],[[-16,-7],[-12,-7],[-12,-11],[-16,-11]],[[-16,-11],[-12,-11],[-12,-15],[-16,-15]],[[-16,-15],[-12,-15],[-12,-19],[-13,-19],[-16,-16]],[[-13,-19],[-12,-19],[-12,-20]],[[-12,-7],[-8,-7],[-8,-11],[-12,-11]],[[-12,-11],[-8,-11],[-8,-15],[-12,-15]],[[-12,-15],[-8,-15],[-8,-19],[-12,-19]],[[-8,-7],[-4,-7],[-4,-11],[-8,-11]],[[-8,-11],[-4,-11],[-4,-15],[-8,-15]],[[-8,-15],[-4,-15],[-4,-19],[-8,-19]],[[-4,-7],[0,-7],[0,-11],[-4,-11]],[[-4,-11],[0,-11],[0,-15],[-4,-15]],[[-4,-15],[0,-15],[0,-19],[-4,-19]],[[0,-7],[4,-7],[4,-11],[0,-11]],[[0,-11],[4,-11],[4,-15],[0,-15]],[[0,-15],[4,-15],[4,-19],[0,-19]],[[4,-7],[8,-7],[8,-11],[4,-11]],[[4,-11],[8,-11],[8,-15],[4,-15]],[[4,-15],[8,-15],[8,-19],[4,-19]],[[8,-7],[12,-7],[12,-11],[8,-11]],[[8,-11],[12,-11],[12,-15],[8,-15]],[[8,-15],[12,-15],[12,-19],[8,-19]],[[12,-7],[16,-7],[16,-11],[12,-11]],[[12,-11],[16,-11],[16,-15],[12,-15]],[[12,-15],[16,-15],[16,-16],[13,-19],[12,-19]],[[12,-19],[13,-19],[12,-20]],[[16,-7],[20,-7],[20,-11],[16,-11]],[[16,-11],[20,-11],[20,-12],[17,-15],[16,-15]],[[16,-15],[17,-15],[16,-16]],[[20,-7],[24,-7],[24,-8],[21,-11],[20,-11]],[[20,-11],[21,-11],[20,-12]],[[24,-7],[25,-7],[25,-7],[24,-8]],[[39,7],[40,7],[40,8],[39,7]],[[40,7],[44,7],[44,11],[43,11],[40,8]],[[43,11],[44,11],[44,12]],[[44,7],[48,7],[48,11],[44,11]],[[44,11],[48,11],[48,15],[47,15],[44,12]],[[47,15],[48,15],[48,16]],[[48,7],[52,7],[52,11],[48,11]],[[48,11],[52,11],[52,15],[48,15]],[[48,15],[52,15],[52,19],[51,19],[48,16]],[[51,19],[52,19],[52,20]],[[52,7],[56,7],[56,11],[52,11]],[[52,11],[56,11],[56,15],[52,15]],[[52,15],[56,15],[56,19],[52,19]],[[52,19],[56,19],[56,23],[55,23],[52,20]],[[56,7],[60,7],[60,11],[56,11]],[[56,11],[60,11],[60,15],[56,15]],[[56,15],[60,15],[60,19],[56,19]],[[56,19],[60,19],[60,23],[56,23]],[[60,7],[64,7],[64,11],[60,11]],[[60,11],[64,11],[64,15],[60,15]],[[60,15],[64,15],[64,19],[60,19]],[[60,19],[64,19],[64,23],[60,23]],[[64,7],[68,7],[68,11],[64,11]],[[64,11],[68,11],[68,15],[64,15]],[[64,15],[68,15],[68,19],[64,19]],[[64,19],[68,19],[68,23],[64,23]],[[68,7],[72,7],[72,11],[68,11]],[[68,11],[72,11],[72,15],[68,15]],[[68,15],[72,15],[72,19],[68,19]],[[68,19],[72,19],[72,23],[68,23]],[[72,7],[76,7],[76,11],[72,11]],[[72,11],[76,11],[76,15],[72,15]],[[72,15],[76,15],[76,19],[72,19]],[[72,19],[76,19],[76,23],[72,23]],[[76,7],[80,7],[80,11],[76,11]],[[76,11],[80,11],[80,15],[76,15]],[[76,15],[80,15],[80,19],[76,19]],[[76,19],[80,19],[80,23],[76,23]],[[80,7],[84,7],[84,11],[80,11]],[[80,11],[84,11],[84,15],[80,15]],[[80,15],[84,15],[84,19],[80,19]],[[80,19],[84,19],[84,23],[80,23]],[[84,7],[88,7],[88,11],[84,11]],[[84,11],[88,11],[88,15],[84,15]],[[84,15],[88,15],[88,19],[84,19]],[[84,19],[88,19],[88,23],[84,23]],[[88,7],[92,7],[92,11],[88,11]],[[88,11],[92,11],[92,15],[88,15]],[[88,15],[92,15],[92,19],[88,19]],[[88,19],[92,19],[92,23],[88,23]],[[92,7],[96,7],[96,11],[92,11]],[[92,11],[96,11],[96,15],[92,15]],[[92,15],[96,15],[96,19],[92,19]],[[92,19],[96,19],[96,23],[92,23]],[[39,-7],[40,-7],[40,-8],[39,-7]],[[40,-7],[44,-7],[44,-11],[43,-11],[40,-8]],[[43,-11],[44,-11],[44,-12]],[[44,-7],[48,-7],[48,-11],[44,-11]],[[44,-11],[48,-11],[48,-15],[47,-15],[44,-12]],[[47,-15],[48,-15],[48,-16]],[[48,-7],[52,-7],[52,-11],[48,-11]],[[48,-11],[52,-11],[52,-15],[48,-15]],[[48,-15],[52,-15],[52,-19],[51,-19],[48,-16]],[[51,-19],[52,-19],[52,-20]],[[52,-7],[56,-7],[56,-11],[52,-11]],[[52,-11],[56,-11],[56,-15],[52,-15]],[[52,-15],[56,-15],[56,-19],[52,-19]],[[52,-19],[56,-19],[56,-23],[55,-23],[52,-20]],[[56,-7],[60,-7],[60,-11],[56,-11]],[[56,-11],[60,-11],[60,-15],[56,-15]],[[56,-15],[60,-15],[60,-19],[56,-19]],[[56,-19],[60,-19],[60,-23],[56,-23]],[[60,-7],[64,-7],[64,-11],[60,-11]],[[60,-11],[64,-11],[64,-15],[60,-15]],[[60,-15],[64,-15],[64,-19],[60,-19]],[[60,-19],[64,-19],[64,-23],[60,-23]],[[64,-7],[68,-7],[68,-11],[64,-11]],[[64,-11],[68,-11],[68,-15],[64,-15]],[[64,-15],[68,-15],[68,-19],[64,-19]],[[64,-19],[68,-19],[68,-23],[64,-23]],[[68,-7],[72,-7],[72,-11],[68,-11]],[[68,-11],[72,-11],[72,-15],[68,-15]],[[68,-15],[72,-15],[72,-19],[68,-19]],[[68,-19],[72,-19],[72,-23],[68,-23]],[[72,-7],[76,-7],[76,-11],[72,-11]],[[72,-11],[76,-11],[76,-15],[72,-15]],[[72,-15],[76,-15],[76,-19],[72,-19]],[[72,-19],[76,-19],[76,-23],[72,-23]],[[76,-7],[80,-7],[80,-11],[76,-11]],[[76,-11],[80,-11],[80,-15],[76,-15]],[[76,-15],[80,-15],[80,-19],[76,-19]],[[76,-19],[80,-19],[80,-23],[76,-23]],[[80,-7],[84,-7],[84,-11],[80,-11]],[[80,-11],[84,-11],[84,-15],[80,-15]],[[80,-15],[84,-15],[84,-19],[80,-19]],[[80,-19],[84,-19],[84,-23],[80,-23]],[[84,-7],[88,-7],[88,-11],[84,-11]],[[84,-11],[88,-11],[88,-15],[84,-15]],[[84,-15],[88,-15],[88,-19],[84,-19]],[[84,-19],[88,-19],[88,-23],[84,-23]],[[88,-7],[92,-7],[92,-11],[88,-11]],[[88,-11],[92,-11],[92,-15],[88,-15]],[[88,-15],[92,-15],[92,-19],[88,-19]],[[88,-19],[92,-19],[92,-23],[88,-23]],[[92,-7],[96,-7],[96,-11],[92,-11]],[[92,-11],[96,-11],[96,-15],[92,-15]],[[92,-15],[96,-15],[96,-19],[92,-19]],[[92,-19],[96,-19],[96,-23],[92,-23]],[[-39,-40],[-39,-36],[-43,-36],[-43,-40]],[[-43,-40],[-43,-36],[-47,-36],[-47,-40]],[[-47,-40],[-47,-36],[-51,-36],[-51,-40]],[[-51,-40],[-51,-36],[-55,-36],[-55,-40]],[[-39,-36],[-39,-32],[-43,-32],[-43,-36]],[[-43,-36],[-43,-32],[-47,-32],[-47,-36]],[[-47,-36],[-47,-32],[-51,-32],[-51,-36]],[[-51,-36],[-51,-32],[-55,-32],[-55,-36]],[[-39,-32],[-39,-28],[-43,-28],[-43,-32]],[[-43,-32],[-43,-28],[-47,-28],[-47,-32]],[[-47,-32],[-47,-28],[-51,-28],[-51,-32]],[[-51,-32],[-51,-28],[-55,-28],[-55,-32]],[[-39,-28],[-39,-24],[-43,-24],[-43,-28]],[[-43,-28],[-43,-24],[-47,-24],[-47,-28]],[[-47,-28],[-47,-24],[-51,-24],[-51,-28]],[[-51,-28],[-51,-24],[-55,-24],[-55,-28]],[[-39,-24],[-39,-20],[-43,-20],[-43,-24]],[[-43,-24],[-43,-20],[-47,-20],[-47,-24]],[[-47,-24],[-47,-20],[-51,-20],[-51,-24]],[[-51,-24],[-51,-20],[-52,-20],[-55,-23],[-55,-24]],[[-39,-20],[-39,-16],[-43,-16],[-43,-20]],[[-43,-20],[-43,-16],[-47,-16],[-47,-20]],[[-47,-20],[-47,-16],[-48,-16],[-51,-19],[-51,-20]],[[-51,-20],[-51,-19],[-52,-20]],[[-39,-16],[-39,-12],[-43,-12],[-43,-16]],[[-43,-16],[-43,-12],[-44,-12],[-47,-15],[-47,-16]],[[-47,-16],[-47,-15],[-48,-16]],[[-39,-12],[-39,-8],[-40,-8],[-43,-11],[-43,-12]],[[-43,-12],[-43,-11],[-44,-12]],[[-39,-8],[-39,-7],[-39,-7],[-40,-8]],[[-25,-33],[-25,-32],[-24,-32],[-25,-33]],[[-25,-32],[-25,-28],[-21,-28],[-21,-29],[-24,-32]],[[-21,-29],[-21,-28],[-20,-28]],[[-25,-28],[-25,-24],[-21,-24],[-21,-28]],[[-21,-28],[-21,-24],[-17,-24],[-17,-25],[-20,-28]],[[-17,-25],[-17,-24],[-16,-24]],[[-25,-24],[-25,-20],[-21,-20],[-21,-24]],[[-21,-24],[-21,-20],[-17,-20],[-17,-24]],[[-17,-24],[-17,-20],[-13,-20],[-13,-21],[-16,-24]],[[-13,-21],[-13,-20],[-12,-20]],[[-25,-20],[-25,-16],[-21,-16],[-21,-20]],[[-21,-20],[-21,-16],[-17,-16],[-17,-20]],[[-17,-20],[-17,-16],[-16,-16],[-13,-19],[-13,-20]],[[-13,-20],[-13,-19],[-12,-20],[-12,-20]],[[-25,-16],[-25,-12],[-21,-12],[-21,-16]],[[-21,-16],[-21,-12],[-20,-12],[-17,-15],[-17,-16]],[[-17,-16],[-17,-15],[-16,-16]],[[-25,-12],[-25,-8],[-24,-8],[-21,-11],[-21,-12]],[[-21,-12],[-21,-11],[-20,-12]],[[-25,-8],[-25,-7],[-25,-7],[-24,-8]],[[-39,7],[-39,8],[-40,8],[-39,7]],[[-39,8],[-39,12],[-43,12],[-43,11],[-40,8]],[[-43,11],[-43,12],[-44,12]],[[-39,12],[-39,16],[-43,16],[-43,12]],[[-43,12],[-43,16],[-47,16],[-47,15],[-44,12]],[[-47,15],[-47,16],[-48,16]],[[-39,16],[-39,20],[-43,20],[-43,16]],[[-43,16],[-43,20],[-47,20],[-47,16]],[[-47,16],[-47,20],[-51,20],[-51,19],[-48,16]],[[-51,19],[-51,20],[-52,20]],[[-39,20],[-39,24],[-43,24],[-43,20]],[[-43,20],[-43,24],[-47,24],[-47,20]],[[-47,20],[-47,24],[-51,24],[-51,20]],[[-51,20],[-51,24],[-55,24],[-55,23],[-52,20]],[[-39,24],[-39,28],[-43,28],[-43,24]],[[-43,24],[-43,28],[-47,28],[-47,24]],[[-47,24],[-47,28],[-51,28],[-51,24]],[[-51,24],[-51,28],[-55,28],[-55,24]],[[-39,28],[-39,32],[-43,32],[-43,28]],[[-43,28],[-43,32],[-47,32],[-47,28]],[[-47,28],[-47,32],[-51,32],[-51,28]],[[-51,28],[-51,32],[-55,32],[-55,28]],[[-39,32],[-39,36],[-43,36],[-43,32]],[[-43,32],[-43,36],[-47,36],[-47,32]],[[-47,32],[-47,36],[-51,36],[-51,32]],[[-51,32],[-51,36],[-55,36],[-55,32]],[[-39,36],[-39,40],[-43,40],[-43,36]],[[-43,36],[-43,40],[-47,40],[-47,36]],[[-47,36],[-47,40],[-51,40],[-51,36]],[[-51,36],[-51,40],[-55,40],[-55,36]],[[-25,7],[-25,8],[-24,8],[-25,7]],[[-25,8],[-25,12],[-21,12],[-21,11],[-24,8]],[[-21,11],[-21,12],[-20,12]],[[-25,12],[-25,16],[-21,16],[-21,12]],[[-21,12],[-21,16],[-17,16],[-17,15],[-20,12]],[[-17,15],[-17,16],[-16,16]],[[-25,16],[-25,20],[-21,20],[-21,16]],[[-21,16],[-21,20],[-17,20],[-17,16]],[[-17,16],[-17,20],[-13,20],[-13,19],[-16,16]],[[-13,19],[-13,20],[-12,20]],[[-25,20],[-25,24],[-21,24],[-21,20]],[[-21,20],[-21,24],[-17,24],[-17,20]],[[-17,20],[-17,24],[-13,24],[-13,20]],[[-13,20],[-13,24],[-9,24],[-9,23],[-12,20]],[[-25,24],[-25,28],[-21,28],[-21,24]],[[-21,24],[-21,28],[-17,28],[-17,24]],[[-17,24],[-17,28],[-13,28],[-13,24]],[[-13,24],[-13,28],[-9,28],[-9,24]],[[-25,28],[-25,32],[-21,32],[-21,28]],[[-21,28],[-21,32],[-17,32],[-17,28]],[[-17,28],[-17,32],[-13,32],[-13,28]],[[-13,28],[-13,32],[-9,32],[-9,28]],[[-25,32],[-25,36],[-21,36],[-21,32]],[[-21,32],[-21,36],[-17,36],[-17,32]],[[-17,32],[-17,36],[-13,36],[-13,32]],[[-13,32],[-13,36],[-9,36],[-9,32]],[[-25,36],[-25,40],[-21,40],[-21,36]],[[-21,36],[-21,40],[-17,40],[-17,36]],[[-17,36],[-17,40],[-13,40],[-13,36]],[[-13,36],[-13,40],[-9,40],[-9,36]],[[25,-33],[25,-32],[24,-32],[25,-33]],[[25,-32],[25,-28],[21,-28],[21,-29],[24,-32]],[[21,-29],[21,-28],[20,-28]],[[25,-28],[25,-24],[21,-24],[21,-28]],[[21,-28],[21,-24],[17,-24],[17,-25],[20,-28]],[[17,-25],[17,-24],[16,-24]],[[25,-24],[25,-20],[21,-20],[21,-24]],[[21,-24],[21,-20],[17,-20],[17,-24]],[[17,-24],[17,-20],[13,-20],[13,-21],[16,-24]],[[13,-21],[13,-20],[12,-20]],[[25,-20],[25,-16],[21,-16],[21,-20]],[[21,-20],[21,-16],[17,-16],[17,-20]],[[17,-20],[17,-16],[16,-16],[13,-19],[13,-20]],[[13,-20],[13,-19],[12,-20],[12,-20]],[[25,-16],[25,-12],[21,-12],[21,-16]],[[21,-16],[21,-12],[20,-12],[17,-15],[17,-16]],[[17,-16],[17,-15],[16,-16]],[[25,-12],[25,-8],[24,-8],[21,-11],[21,-12]],[[21,-12],[21,-11],[20,-12]],[[25,-8],[25,-7],[25,-7],[24,-8]],[[39,-40],[39,-36],[43,-36],[43,-40]],[[43,-40],[43,-36],[47,-36],[47,-40]],[[47,-40],[47,-36],[51,-36],[51,-40]],[[51,-40],[51,-36],[55,-36],[55,-40]],[[39,-36],[39,-32],[43,-32],[43,-36]],[[43,-36],[43,-32],[47,-32],[47,-36]],[[47,-36],[47,-32],[51,-32],[51,-36]],[[51,-36],[51,-32],[55,-32],[55,-36]],[[39,-32],[39,-28],[43,-28],[43,-32]],[[43,-32],[43,-28],[47,-28],[47,-32]],[[47,-32],[47,-28],[51,-28],[51,-32]],[[51,-32],[51,-28],[55,-28],[55,-32]],[[39,-28],[39,-24],[43,-24],[43,-28]],[[43,-28],[43,-24],[47,-24],[47,-28]],[[47,-28],[47,-24],[51,-24],[51,-28]],[[51,-28],[51,-24],[55,-24],[55,-28]],[[39,-24],[39,-20],[43,-20],[43,-24]],[[43,-24],[43,-20],[47,-20],[47,-24]],[[47,-24],[47,-20],[51,-20],[51,-24]],[[51,-24],[51,-20],[52,-20],[55,-23],[55,-24]],[[39,-20],[39,-16],[43,-16],[43,-20]],[[43,-20],[43,-16],[47,-16],[47,-20]],[[47,-20],[47,-16],[48,-16],[51,-19],[51,-20]],[[51,-20],[51,-19],[52,-20]],[[39,-16],[39,-12],[43,-12],[43,-16]],[[43,-16],[43,-12],[44,-12],[47,-15],[47,-16]],[[47,-16],[47,-15],[48,-16]],[[39,-12],[39,-8],[40,-8],[43,-11],[43,-12]],[[43,-12],[43,-11],[44,-12]],[[39,-8],[39,-7],[39,-7],[40,-8]],[[25,7],[25,8],[24,8],[25,7]],[[25,8],[25,12],[21,12],[21,11],[24,8]],[[21,11],[21,12],[20,12]],[[25,12],[25,16],[21,16],[21,12]],[[21,12],[21,16],[17,16],[17,15],[20,12]],[[17,15],[17,16],[16,16]],[[25,16],[25,20],[21,20],[21,16]],[[21,16],[21,20],[17,20],[17,16]],[[17,16],[17,20],[13,20],[13,19],[16,16]],[[13,19],[13,20],[12,20]],[[25,20],[25,24],[21,24],[21,20]],[[21,20],[21,24],[17,24],[17,20]],[[17,20],[17,24],[13,24],[13,20]],[[13,20],[13,24],[9,24],[9,23],[12,20]],[[25,24],[25,28],[21,28],[21,24]],[[21,24],[21,28],[17,28],[17,24]],[[17,24],[17,28],[13,28],[13,24]],[[13,24],[13,28],[9,28],[9,24]],[[25,28],[25,32],[21,32],[21,28]],[[21,28],[21,32],[17,32],[17,28]],[[17,28],[17,32],[13,32],[13,28]],[[13,28],[13,32],[9,32],[9,28]],[[25,32],[25,36],[21,36],[21,32]],[[21,32],[21,36],[17,36],[17,32]],[[17,32],[17,36],[13,36],[13,32]],[[13,32],[13,36],[9,36],[9,32]],[[25,36],[25,40],[21,40],[21,36]],[[21,36],[21,40],[17,40],[17,36]],[[17,36],[17,40],[13,40],[13,36]],[[13,36],[13,40],[9,40],[9,36]],[[39,7],[39,8],[40,8],[39,7]],[[39,8],[39,12],[43,12],[43,11],[40,8]],[[43,11],[43,12],[44,12]],[[39,12],[39,16],[43,16],[43,12]],[[43,12],[43,16],[47,16],[47,15],[44,12]],[[47,15],[47,16],[48,16]],[[39,16],[39,20],[43,20],[43,16]],[[43,16],[43,20],[47,20],[47,16]],[[47,16],[47,20],[51,20],[51,19],[48,16]],[[51,19],[51,20],[52,20]],[[39,20],[39,24],[43,24],[43,20]],[[43,20],[43,24],[47,24],[47,20]],[[47,20],[47,24],[51,24],[51,20]],[[51,20],[51,24],[55,24],[55,23],[52,20]],[[39,24],[39,28],[43,28],[43,24]],[[43,24],[43,28],[47,28],[47,24]],[[47,24],[47,28],[51,28],[51,24]],[[51,24],[51,28],[55,28],[55,24]],[[39,28],[39,32],[43,32],[43,28]],[[43,28],[43,32],[47,32],[47,28]],[[47,28],[47,32],[51,32],[51,28]],[[51,28],[51,32],[55,32],[55,28]],[[39,32],[39,36],[43,36],[43,32]],[[43,32],[43,36],[47,36],[47,32]],[[47,32],[47,36],[51,36],[51,32]],[[51,32],[51,36],[55,36],[55,32]],[[39,36],[39,40],[43,40],[43,36]],[[43,36],[43,40],[47,40],[47,36]],[[47,36],[47,40],[51,40],[51,36]],[[51,36],[51,40],[55,40],[55,36]],[[-25,-33],[-24,-33],[-24,-32],[-25,-33]],[[-24,-33],[-20,-33],[-20,-29],[-21,-29],[-24,-32]],[[-21,-29],[-20,-29],[-20,-28]],[[-20,-33],[-16,-33],[-16,-29],[-20,-29]],[[-20,-29],[-16,-29],[-16,-25],[-17,-25],[-20,-28]],[[-17,-25],[-16,-25],[-16,-24]],[[-16,-33],[-12,-33],[-12,-29],[-16,-29]],[[-16,-29],[-12,-29],[-12,-25],[-16,-25]],[[-16,-25],[-12,-25],[-12,-21],[-13,-21],[-16,-24]],[[-13,-21],[-12,-21],[-12,-20]],[[-12,-33],[-8,-33],[-8,-29],[-12,-29]],[[-12,-29],[-8,-29],[-8,-25],[-12,-25]],[[-12,-25],[-8,-25],[-8,-21],[-12,-21]],[[-8,-33],[-4,-33],[-4,-29],[-8,-29]],[[-8,-29],[-4,-29],[-4,-25],[-8,-25]],[[-8,-25],[-4,-25],[-4,-21],[-8,-21]],[[-4,-33],[0,-33],[0,-29],[-4,-29]],[[-4,-29],[0,-29],[0,-25],[-4,-25]],[[-4,-25],[0,-25],[0,-21],[-4,-21]],[[0,-33],[4,-33],[4,-29],[0,-29]],[[0,-29],[4,-29],[4,-25],[0,-25]],[[0,-25],[4,-25],[4,-21],[0,-21]],[[4,-33],[8,-33],[8,-29],[4,-29]],[[4,-29],[8,-29],[8,-25],[4,-25]],[[4,-25],[8,-25],[8,-21],[4,-21]],[[8,-33],[12,-33],[12,-29],[8,-29]],[[8,-29],[12,-29],[12,-25],[8,-25]],[[8,-25],[12,-25],[12,-21],[8,-21]],[[12,-33],[16,-33],[16,-29],[12,-29]],[[12,-29],[16,-29],[16,-25],[12,-25]],[[12,-25],[16,-25],[16,-24],[13,-21],[12,-21]],[[12,-21],[13,-21],[12,-20]],[[16,-33],[20,-33],[20,-29],[16,-29]],[[16,-29],[20,-29],[20,-28],[17,-25],[16,-25]],[[16,-25],[17,-25],[16,-24]],[[20,-33],[24,-33],[24,-32],[21,-29],[20,-29]],[[20,-29],[21,-29],[20,-28]],[[24,-33],[25,-33],[25,-33],[24,-32]],[[-32,-47],[-28,-47],[-28,-51],[-32,-51]],[[-32,-51],[-28,-51],[-28,-55],[-32,-55]],[[-28,-47],[-24,-47],[-24,-51],[-28,-51]],[[-28,-51],[-24,-51],[-24,-55],[-28,-55]],[[-28,-55],[-24,-55],[-24,-59],[-28,-59]],[[-28,-59],[-24,-59],[-24,-63],[-28,-63]],[[-24,-47],[-20,-47],[-20,-51],[-24,-51]],[[-24,-51],[-20,-51],[-20,-55],[-24,-55]],[[-24,-55],[-20,-55],[-20,-59],[-24,-59]],[[-24,-59],[-20,-59],[-20,-63],[-24,-63]],[[-20,-47],[-16,-47],[-16,-51],[-20,-51]],[[-20,-51],[-16,-51],[-16,-55],[-20,-55]],[[-20,-55],[-16,-55],[-16,-59],[-20,-59]],[[-20,-59],[-16,-59],[-16,-63],[-20,-63]],[[-16,-47],[-12,-47],[-12,-51],[-16,-51]],[[-16,-51],[-12,-51],[-12,-55],[-16,-55]],[[-16,-55],[-12,-55],[-12,-59],[-16,-59]],[[-16,-59],[-12,-59],[-12,-63],[-16,-63]],[[-12,-47],[-8,-47],[-8,-51],[-12,-51]],[[-12,-51],[-8,-51],[-8,-55],[-12,-55]],[[-12,-55],[-8,-55],[-8,-59],[-12,-59]],[[-12,-59],[-8,-59],[-8,-63],[-12,-63]],[[-8,-47],[-4,-47],[-4,-51],[-8,-51]],[[-8,-51],[-4,-51],[-4,-55],[-8,-55]],[[-8,-55],[-4,-55],[-4,-59],[-8,-59]],[[-8,-59],[-4,-59],[-4,-63],[-8,-63]],[[-4,-47],[0,-47],[0,-51],[-4,-51]],[[-4,-51],[0,-51],[0,-55],[-4,-55]],[[-4,-55],[0,-55],[0,-59],[-4,-59]],[[-4,-59],[0,-59],[0,-63],[-4,-63]],[[0,-47],[4,-47],[4,-51],[0,-51]],[[0,-51],[4,-51],[4,-55],[0,-55]],[[0,-55],[4,-55],[4,-59],[0,-59]],[[0,-59],[4,-59],[4,-63],[0,-63]],[[4,-47],[8,-47],[8,-51],[4,-51]],[[4,-51],[8,-51],[8,-55],[4,-55]],[[4,-55],[8,-55],[8,-59],[4,-59]],[[4,-59],[8,-59],[8,-63],[4,-63]],[[8,-47],[12,-47],[12,-51],[8,-51]],[[8,-51],[12,-51],[12,-55],[8,-55]],[[8,-55],[12,-55],[12,-59],[8,-59]],[[8,-59],[12,-59],[12,-63],[8,-63]],[[12,-47],[16,-47],[16,-51],[12,-51]],[[12,-51],[16,-51],[16,-55],[12,-55]],[[12,-55],[16,-55],[16,-59],[12,-59]],[[12,-59],[16,-59],[16,-63],[12,-63]],[[16,-47],[20,-47],[20,-51],[16,-51]],[[16,-51],[20,-51],[20,-55],[16,-55]],[[16,-55],[20,-55],[20,-59],[16,-59]],[[16,-59],[20,-59],[20,-63],[16,-63]],[[20,-47],[24,-47],[24,-51],[20,-51]],[[20,-51],[24,-51],[24,-55],[20,-55]],[[20,-55],[24,-55],[24,-59],[20,-59]],[[20,-59],[24,-59],[24,-63],[20,-63]],[[24,-47],[28,-47],[28,-51],[24,-51]],[[24,-51],[28,-51],[28,-55],[24,-55]],[[24,-55],[28,-55],[28,-59],[24,-59]],[[24,-59],[28,-59],[28,-63],[24,-63]],[[28,-47],[32,-47],[32,-51],[28,-51]],[[28,-51],[32,-51],[32,-55],[28,-55]]]},"name":"Деревня 10"};
 const $=(id)=>document.getElementById(id);
 const css=(n)=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const ACT_COL=['--a-home','--a-sleep','--a-eat','--a-work','--a-shop','--a-travel'];
@@ -1266,7 +1525,10 @@ let sim,W,A,L,geo,sel=0,playing=!matchMedia('(prefers-reduced-motion: reduce)').
 
 function placeLabel(p){const k=W.places.kind[p];return k===KIND.OUTSIDE?'Город':k===KIND.SHOP?'лавка':k===KIND.WORK?'мастерская':'дом'}
 function placeFull(a,p){return p===A.home[a]?'дома':placeLabel(p)}
-function goingTo(a,p){return p===A.home[a]?'едет домой':'едет: '+placeLabel(p)}
+// идёт или едет: mode — MODE.WALK / MODE.CAR (по умолчанию — как сейчас добирается житель)
+function goingTo(a,p,mode){const v=(mode==null?L.mode[a]:mode)===MODE.WALK?'идёт':'едет';return p===A.home[a]?v+' домой':v+': '+placeLabel(p)}
+// цвет одежды пешехода — свой у каждого
+const SHIRTS=['#C2463D','#3E6DB5','#E0A43A','#4F8F5B','#7E57A8','#D9734E','#2F7F86','#B7A23A','#8B5A3C','#5A6B7D'];
 const hhmm=(min)=>{min=((Math.round(min)%1440)+1440)%1440;return String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0')};
 const hhmmss=(min)=>{let s=Math.floor(min*60)%86400;s=(s+86400)%86400;return hhmm(Math.floor(s/60))+':'+String(s%60).padStart(2,'0')};
 // игровое время на экране, в минутах: шаг тика t описывает минуту [t, t+1), поэтому -1
@@ -1336,7 +1598,8 @@ const S=(p)=>[p[0]*view.k+view.ox,p[1]*view.k+view.oy];
 const dirs=[];
 function agentPositions(now){
   const pos=new Array(A.n),here=new Map();
-  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL){const c=carPose(a);if(c){pos[a]=c.p;continue}const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
+  for(let a=0;a<A.n;a++){if(L.act[a]===ACT.TRAVEL&&L.mode[a]===MODE.WALK&&sim.peds){const P=sim.peds.pose(a);if(P){pos[a]=[P.x,P.y];dirs[a]=[Math.cos(P.h),Math.sin(P.h)];continue}}
+    if(L.act[a]===ACT.TRAVEL){const c=carPose(a);if(c){pos[a]=c.p;continue}const tp=travelPos(a,now);pos[a]=tp.p;dirs[a]=tp.dir;continue}const p=L.at[a];(here.get(p)||here.set(p,[]).get(p)).push(a)}
   for(const [p,list] of here){const c=center(p),out=W.places.kind[p]===KIND.OUTSIDE;
     list.forEach((a,i)=>{if(list.length===1&&!out){pos[a]=c;return}
       if(out){const cols=4,row=Math.floor(i/cols),col=i%cols;pos[a]=[c[0]+(col-1.5)*6.5,c[1]-4+row*6.5];return}
@@ -1375,7 +1638,11 @@ function draw2D(now){
   for(const c of (SNAP.render&&SNAP.render.zoneCells)||[]){poly(c);ctx.fill();ctx.stroke()}
   // дороги, дорога к «Городу» и разметка
   const line=(a,b)=>{const p=S(a),q=S(b);ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.stroke()};
-  ctx.strokeStyle=K.road;ctx.lineWidth=2*RW*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));
+  const SW=(SNAP.render&&SNAP.render.sidewalk)||0;
+  if(SW>0){ctx.strokeStyle=K.sidewalk;ctx.lineWidth=2*RW*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)))}   // тротуары
+  ctx.strokeStyle=K.road;ctx.lineWidth=2*(RW-SW)*k;SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));
+  // зебры — общий расчёт с 3D и редактором
+  ctx.fillStyle=K.crosswalk;for(const z of City3D.crosswalkPolys({roadHalfWidth:RW,sidewalk:SW,segments:SNAP.edges.map((e)=>({a:nodeXY(e.a),b:nodeXY(e.b)})),crosswalks:{unit:1,skip:geo.gates.map((g)=>nodeXY(g.node))}})){poly(z);ctx.fill()}
   ctx.strokeStyle=K.roadLine;ctx.lineWidth=1.5;ctx.setLineDash([8,7]);SNAP.edges.forEach((e)=>line(nodeXY(e.a),nodeXY(e.b)));geo.gates.forEach((g)=>line(nodeXY(g.node),g.stub));ctx.setLineDash([]);
   // дома: цвет типа, оттенок свой у каждого
   for(const b of SNAP.buildings){const f=City3D.lotFill(b.type,b.id);poly(b.outline);ctx.fillStyle=f;ctx.fill();ctx.strokeStyle=City3D.shade(f,-0.45);ctx.lineWidth=1.5;ctx.stroke();
@@ -1410,7 +1677,8 @@ const toU=(p)=>[p[0]*U,p[1]*U];
 function sceneDesc(){
   const RW=(SNAP.render&&SNAP.render.roadHalfWidth)||4;
   const boxPoly=(g)=>[[g.box[0]-15,g.box[1]-11],[g.box[0]+15,g.box[1]-11],[g.box[0]+15,g.box[1]+11],[g.box[0]-15,g.box[1]+11]].map(toU);
-  return {cell:16,roadHalfWidth:RW*U,
+  const SW=(SNAP.render&&SNAP.render.sidewalk)||0;
+  return {cell:16,roadHalfWidth:RW*U,sidewalk:SW*U,crosswalks:{unit:U,skip:geo.gates.flatMap((g)=>[toU(nodeXY(g.node)),toU(g.stub)])},
     segments:SNAP.edges.map((e)=>({a:toU(nodeXY(e.a)),b:toU(nodeXY(e.b))})).concat(geo.gates.map((g)=>({a:toU(nodeXY(g.node)),b:toU(g.stub)}))),
     nodes:SNAP.nodes.map(toU),
     zoneCells:((SNAP.render&&SNAP.render.zoneCells)||[]).map((c)=>c.map(toU)),
@@ -1423,11 +1691,13 @@ function draw3D(now){
   const pos=agentPositions(now);lastPos=pos;
   const cars=carPoses();
   V3.view.setMarkers(pos.map((p,a)=>{const act=L.act[a],at=L.at[a],tr=act===ACT.TRAVEL;
-    // кружок — над крышей своего места; в пути — над своей машиной
-    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[at].floors||1)*16+10:12;
-    const c=cars[a];
+    // кружок — над крышей своего места; в пути — над своей машиной или над головой пешехода
+    const walk=tr&&L.mode[a]===MODE.WALK;
+    const z=!tr&&at>=0&&W.places.kind[at]!==KIND.OUTSIDE?(SNAP.buildings[at].floors||1)*16+10:walk?9:12;
+    const c=cars[a],d=dirs[a]||[1,0];
     return {x:p[0]*U,y:p[1]*U,z,color:css(ACT_COL[act]),label:String(a+1),selected:a===sel,
-      car:c?{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}:null}}));
+      car:c?{x:c.p[0]*U,y:c.p[1]*U,heading:c.h,color:CAR_COLORS[a%CAR_COLORS.length]}:null,
+      person:walk?{x:p[0]*U,y:p[1]*U,heading:Math.atan2(d[1],d[0]),color:SHIRTS[a%SHIRTS.length]}:null}}));
   V3.view.render();
 }
 function draw(now){if(V3.on&&V3.view)draw3D(now);else if(!V3.on)draw2D(now)}
@@ -1461,7 +1731,7 @@ function updatePanels(){
   const nw=$('now');if(nw)nw.style.left=`calc(${(min%1440)/1440*100}% - 1px)`;
   const s=snapshot(W,A,L);
   const chip=(col,label,n)=>`<span><i class="dot" style="background:var(${col})"></i>${label} <b>${n}</b></span>`;
-  $('counts').innerHTML=chip('--a-sleep','спят',s.sleep)+chip('--a-home','дома',s.home)+chip('--a-travel','в пути',s.travel)+
+  $('counts').innerHTML=chip('--a-sleep','спят',s.sleep)+chip('--a-home','дома',s.home)+chip('--a-travel','едут',s.travel)+chip('--a-travel','идут',s.walk)+
     chip('--a-work','работают в деревне',s.workLocal)+chip('--a-work','в Городе',s.workOutside)+chip('--a-shop','в лавке',s.shopLocal)+chip('--a-shop','покупки в Городе',s.shopOutside)+chip('--a-eat','едят',s.eat);
   for(let a=0;a<A.n;a++){const act=L.act[a],p=act===ACT.TRAVEL?L.to[a]:L.at[a];
     $('n'+a).style.background=`var(${ACT_COL[act]})`;
@@ -1471,7 +1741,7 @@ function updatePanels(){
   // дневник выбранного жителя: сегодняшние события
   const today=Math.floor(min/1440)*1440,ev=L.log.filter(([t,a])=>a===sel&&t*W.cfg.tickSeconds/60>=today-60);
   $('dh').textContent=`Дневник жителя ${sel+1} — ${A.job[sel]>=0?'работает: '+placeLabel(A.job[sel]):'без работы'}`;
-  $('diary').innerHTML=ev.slice(-16).map(([t,a,act,p])=>`<li><time>${hhmm(t*W.cfg.tickSeconds/60)}</time><span>${act===ACT.TRAVEL?goingTo(a,p):act===ACT.SLEEP?'ложится спать':act===ACT.IDLE?(p===A.home[a]?'дома, свободен':'свободен — '+placeLabel(p)):ACT_LABEL[act]+' — '+placeFull(a,p)}</span></li>`).join('')||'<li><span>Сегодня пока ничего — спит.</span></li>';
+  $('diary').innerHTML=ev.slice(-16).map(([t,a,act,p,mode])=>`<li><time>${hhmm(t*W.cfg.tickSeconds/60)}</time><span>${act===ACT.TRAVEL?goingTo(a,p,mode):act===ACT.SLEEP?'ложится спать':act===ACT.IDLE?(p===A.home[a]?'дома, свободен':'свободен — '+placeLabel(p)):ACT_LABEL[act]+' — '+placeFull(a,p)}</span></li>`).join('')||'<li><span>Сегодня пока ничего — спит.</span></li>';
   document.querySelectorAll('#ppl li').forEach((li)=>li.setAttribute('aria-selected',String(+li.dataset.a===sel)));
 }
 
