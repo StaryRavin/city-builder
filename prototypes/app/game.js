@@ -512,7 +512,11 @@ window.addEventListener('load',function(){
   document.querySelectorAll('[data-ovl]').forEach(function(b){b.addEventListener('click',function(){overlay=b.dataset.ovl;document.querySelectorAll('[data-ovl]').forEach(function(x){x.setAttribute('aria-pressed',String(x===b))});E.drawLots()})});
   $('b-budget').addEventListener('click',function(){$('budget').hidden=!$('budget').hidden;if(!$('budget').hidden)budget()});
   $('bud-x').addEventListener('click',function(){$('budget').hidden=true});
-  $('b-new').addEventListener('click',function(){if(!confirm('Начать новый город? Текущий будет потерян.'))return;localStorage.removeItem(KEY);newGame();E.drawStatic();hourly();simBuild();E.build3D&&E.V3.on&&E.build3D()});
+  // подтверждение — вторым нажатием (окна confirm() в просмотрщике артефактов нет)
+  var armT=null;$('b-new').addEventListener('click',function(){var b=this;
+    if(!b.dataset.armed){b.dataset.armed='1';b.textContent='Точно? Нажмите ещё раз';clearTimeout(armT);armT=setTimeout(function(){delete b.dataset.armed;b.textContent='Новый город'},3000);return}
+    delete b.dataset.armed;b.textContent='Новый город';try{localStorage.removeItem(KEY)}catch(e){}
+    newGame();colIx=null;E.drawStatic();hourly();simBuild();if(E.V3.on){E.fit3();E.build3D()}welcome()});
   $('b-life').addEventListener('click',function(){SIM.on=!SIM.on;this.setAttribute('aria-pressed',String(SIM.on));if(SIM.on)simBuild();else SIM.sim=null});
   document.addEventListener('keydown',function(e){if(e.target.tagName==='INPUT')return;if(e.key===' '){e.preventDefault();setSpeed(S.speed?0:1)}if(e.key>='1'&&e.key<='3')setSpeed(+e.key);if(e.key==='Escape')setTool('look')});
 });
