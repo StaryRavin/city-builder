@@ -39,8 +39,13 @@
  * на дорогу или на другой участок.
  */
 (function(){
+// приложение-игра (app/) задаёт window.CITY_APP — крючки: стоимость и запреты дорог,
+// вода на карте, свои инструменты, вид домов; без него — обычный редактор
+var H=window.CITY_APP||null,DUMMY=document.createElement('div');
+function el(id){return document.getElementById(id)||DUMMY}
 var SW=0;   // ширина тротуара (единицы); у деревень — 2 м
 var s=16,W=16,W0=16,D=4,EPS=0.5,OVL=0.01,MINANG=20*Math.PI/180,VW=680,VH=460;
+function vbox(){var b=el('sv').viewBox&&el('sv').viewBox.baseVal;if(b&&b.width){VW=b.width;VH=b.height}}
 function add(a,b){return [a[0]+b[0],a[1]+b[1]]}
 function sub(a,b){return [a[0]-b[0],a[1]-b[1]]}
 function mul(a,k){return [a[0]*k,a[1]*k]}
@@ -299,6 +304,7 @@ var S=shape(l);if(S.bad)return S.bad;
 for(var r=0;r<G.bands.length;r++){if(!bbHit(S.bb,G.bands[r].bb))continue;for(var p=0;p<S.parts.length;p++)if(overlaps(S.parts[p],G.bands[r].poly,OVL))return 'road';}
 for(var i=0;i<lots.length;i++){if(lots[i]===skip)continue;var O=shape(lots[i]);if(!bbHit(S.bb,O.bb))continue;
 for(var a=0;a<S.parts.length;a++)for(var b=0;b<O.parts.length;b++)if(overlaps(S.parts[a],O.parts[b],OVL))return 'lot';}
+if(H&&H.lotCheck)return H.lotCheck(l,S)||null;
 return null;
 }
 function inLot(P,l){return shape(l).parts.some(function(pp){return inside(P,pp)})}
@@ -394,6 +400,7 @@ var WHY={short:'звено короче 2 клеток',dup:'такое звен
 angle:'угол между дорогами меньше 20°',odd:'расстояние до узла не кратно клетке',nogrid:'на этой дороге рядом нет линии сетки на целом расстоянии',cross:'пересекает дорогу не в узле',near:'слишком близко к другой дороге'};
 function validate(S,E){
 var A=S.P,B=E.P,L=len(sub(B,A));
+if(H&&H.roadWhy){var hw=H.roadWhy(A,B,S,E);if(hw)return hw}
 if(L<2*s-1e-6)return 'short';
 if(E.bad)return E.bad;
 if(!isWhole(L/s))return 'odd';
@@ -514,7 +521,7 @@ work:{name:'Рабочий',short:'Р',unit:'раб.',color:City3D.COLORS.zone.w
 var ZORDER=['res','com','work'];
 function typeOf(l){return ZONES[l.type]?l.type:'res'}
 function cellsOf(l){var S=shape(l);return S.bad?0:Math.round(partsArea(S.parts)/(s*s)*100)/100}
-function capOf(l){if(l.pois)return lotCaps(l).res;var c=cellsOf(l);return c?Math.max(1,Math.round(c*(l.floors||1)*ZONES[typeOf(l)].dens)):0}
+function capOf(l){if(l.cap!=null)return l.cap;if(l.pois)return lotCaps(l).res;var c=cellsOf(l);return c?Math.max(1,Math.round(c*(l.floors||1)*ZONES[typeOf(l)].dens)):0}
 // дом со смешанным назначением (Дорчол): жители — на жилых этажах, рабочие места — у заведений
 function lotCaps(l){var c=cellsOf(l),r={res:0,com:0,work:0};
   if(!l.pois){r[typeOf(l)==='res'?'res':typeOf(l)]=capOf(l);return r}
@@ -535,7 +542,7 @@ S.cells.forEach(function(c){out+='<polygon class="ns" points="'+pts(c)+'" fill="
 var P0=S.parts[0],cx=0,cy=0;P0.forEach(function(p){cx+=p[0];cy+=p[1]});cx/=P0.length;cy/=P0.length;
 // подпись — только если помещается в дом на экране (иначе при отдалении каша)
 var z=ZONES[typeOf(l)],cap=capOf(l),bw=S.bb?Math.max(S.bb[2]-S.bb[0],S.bb[3]-S.bb[1])*view.k:0;
-var lab=S.w+'×'+S.h+(l.floors?' · '+l.floors+' эт.':'')+(cap?' · '+cap+' '+z.unit:'');
+var lab=S.w+'×'+S.h+(l.floors?' · '+l.floors+' эт.':'')+(cap?' · '+cap+' '+z.unit:'');if(H&&H.lotLabel)lab=H.lotLabel(l,lab);if(!lab)return out+'</g>';
 if(bw<lab.length*6.2)lab=z.short+(cap?' '+cap:''); // не помещается — коротко: тип и вместимость
 if(S.bb&&Math.min(S.bb[2]-S.bb[0],S.bb[3]-S.bb[1])*view.k<14||bw<lab.length*6.2)return out+'</g>';
 out+='<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" font-size="'+(11/view.k).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" fill="#fff" style="pointer-events:none;font-weight:600;paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:2.5px">'+lab+'</text>';
@@ -552,8 +559,11 @@ if(c.length<3)continue;var ar=area(c);if(ar<1)continue;if(ar<S.cw*s-0.5)kind='co
 var cbb=bbox(c);if(G.bands.some(function(b){return bbHit(cbb,b.bb)&&overlaps(c,b.poly,EPS)}))continue;
 var ce=[0,0];c.forEach(function(p){ce[0]+=p[0]/c.length;ce[1]+=p[1]/c.length});
 if(closerElsewhere(ce,S.seg,dot(sub(ce,S.ends.a.K),S.n)))continue;
-G.drawn.push({key:k,i:i,j:j,ce:ce,poly:c});
-cells+='<polygon class="ns" points="'+pts(c)+'" fill="'+(kind==='full'?'#9ED38F':'#F2B866')+'" stroke="'+(kind==='full'?'#6FA862':'#B27A24')+'" stroke-width="0.6"/>';
+if(H&&H.cellSkip&&H.cellSkip(c,ce))continue;
+var cd={key:k,i:i,j:j,ce:ce,poly:c,kind:kind};G.drawn.push(cd);
+var cs=H&&H.cellStyle?H.cellStyle(cd):null;if(cs===false)continue;
+if(cs)cells+='<polygon class="ns" points="'+pts(c)+'" fill="'+cs.fill+'" stroke="'+cs.stroke+'" stroke-width="0.6"'+(cs.op!=null?' fill-opacity="'+cs.op+'"':'')+'/>';
+else cells+='<polygon class="ns" points="'+pts(c)+'" fill="'+(kind==='full'?'#9ED38F':'#F2B866')+'" stroke="'+(kind==='full'?'#6FA862':'#B27A24')+'" stroke-width="0.6"/>';
 }});
 Object.keys(segs).forEach(function(id){var E=segEnds(segs[id]);
 if(SW>0)walks+='<line x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="'+City3D.COLORS.sidewalk+'" stroke-width="'+(2*W)+'" stroke-linecap="round"/>';
@@ -561,30 +571,31 @@ roads+='<line x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="
 dash+='<line class="ns" x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="#F2F2F2" stroke-width="1.5" stroke-dasharray="8 7"/>';
 });
 if(mode==='road')Object.keys(nodes).forEach(function(n){nd+='<circle class="ns" cx="'+nodes[n].x+'" cy="'+nodes[n].y+'" r="'+(W*0.45)+'" fill="#fff" stroke="#2f6f8f" stroke-width="1.5"/>'});
-document.getElementById('cells').innerHTML=cells;
+el('cells').innerHTML=cells;
 // зебры — общий расчёт с 3D (City3D.crosswalkPolys)
 var zebra=SW>0?City3D.crosswalkPolys(streetDesc()).map(function(p){return '<polygon points="'+pts(p)+'" fill="'+City3D.COLORS.crosswalk+'"/>'}).join(''):'';
-document.getElementById('roads').innerHTML=walks+roads+zebra+dash;
-document.getElementById('nodes').innerHTML=nd;
-document.getElementById('ghost').innerHTML=ghost.map(function(g){return '<polygon class="ns" points="'+pts(g.p)+'" fill="#000" fill-opacity="0.06" stroke="#5c4a3a" stroke-opacity="0.45" stroke-width="0.6"/>'}).join('');
+el('roads').innerHTML=walks+roads+zebra+dash;
+el('nodes').innerHTML=nd;
+el('ghost').innerHTML=ghost.map(function(g){return '<polygon class="ns" points="'+pts(g.p)+'" fill="#000" fill-opacity="0.06" stroke="#5c4a3a" stroke-opacity="0.45" stroke-width="0.6"/>'}).join('');
 drawLots();
 }
 function drawLots(){
 var out='';
 var cut=exitLinks().unlinkedLots; // без связи с внешним миром — бледные
-lots.forEach(function(l){var c=lotFill(l);out+=check(l,l)?lotSvg(l,'#D9363E','#8E1B21',0.75,1):lotSvg(l,c,shade(c,-0.45),cut.indexOf(l)>=0?0.4:1,1)});
-document.getElementById('lots').innerHTML=out;
+lots.forEach(function(l){var lk=H&&H.lotLook?H.lotLook(l):null;if(lk){out+=lotSvg(l,lk.fill,lk.stroke,lk.op,1)+(lk.extra||'');return}var c=lotFill(l);out+=check(l,l)?lotSvg(l,'#D9363E','#8E1B21',0.75,1):lotSvg(l,c,shade(c,-0.45),cut.indexOf(l)>=0?0.4:1,1)});
+el('lots').innerHTML=out;if(H&&H.afterDraw)H.afterDraw();
 drawExits();
 }
-function applyView(){document.getElementById('world').setAttribute('transform','translate('+view.tx.toFixed(1)+' '+view.ty.toFixed(1)+') scale('+view.k.toFixed(3)+')');}
+function applyView(){el('world').setAttribute('transform','translate('+view.tx.toFixed(1)+' '+view.ty.toFixed(1)+') scale('+view.k.toFixed(3)+')');}
 
-var stEl=document.getElementById('st'),hintEl=document.getElementById('hint');
+var stEl=el('st'),hintEl=el('hint');
 var HINT={road:'Тяните от точки до точки — получится звено дороги. Начинайте и заканчивайте на узлах или на дороге, чтобы соединить. Тап по дороге удаляет звено.',
 lot:'Зажмите клетку у дороги и тяните — выделится участок, затем укажите число этажей. В тупом углу тяните за угол, на перекрёсток. Тап по дому — изменить этажи или удалить.',
 exit:'Нажмите на конец дороги (тупик) — там появится выезд во внешний мир: дорога, по которой жители ездят за пределы города. Нажмите на выезд, чтобы переименовать или удалить его.',
 pan:'Тяните поле, чтобы сдвинуть вид. Колесо мыши или кнопки −/+ меняют масштаб.'};
 var LWHY={road:'нельзя — задевает дорогу',lot:'нельзя — пересекается с другим участком',range:'нельзя — выходит за свою часть улицы',gone:'улица удалена'};
 function idle(){
+if(H&&H.idle){H.idle();return}
 var bad=lots.filter(function(l){return check(l,l)}).length;
 stEl.textContent='Звеньев: '+Object.keys(segs).length+', узлов: '+Object.keys(nodes).length+', участков: '+lots.length+(bad?', из них невалидных: '+bad:'')+'.';
 drawStats();
@@ -594,12 +605,12 @@ function totals(){var t={res:0,com:0,work:0,n:{res:0,com:0,work:0}};lots.forEach
   if(l.pois){var c=lotCaps(l);t.res+=c.res;t.com+=c.com;t.work+=c.work}else t[k]+=capOf(l);t.n[k]++});return t}
 function drawStats(){var t=totals(),nx=exits.filter(exitValid).length,u=exitLinks().unlinked,hs=lots.length;
 var ext=!nx?' · Выездов во внешний мир нет — город отрезан':' · Выездов во внешний мир: '+nx+(u.n?' — без связи с ними домов: '+u.n+' (жителей '+u.res+', рабочих мест '+u.jobs+')':(hs?' — все дома связаны':''));
-document.getElementById('stats').textContent='Жителей: '+t.res+' (домов '+t.n.res+') · Рабочих мест: '+(t.com+t.work)+' — коммерческих '+t.com+' (домов '+t.n.com+'), рабочих '+t.work+' (домов '+t.n.work+')'+ext;}
-function setMode(m){mode=m;['road','lot','exit','pan'].forEach(function(x){document.getElementById('m-'+x).setAttribute('aria-pressed',x===m?'true':'false')});
-hintEl.textContent=HINT[m];document.getElementById('prev').innerHTML='';drawStatic();idle();}
+el('stats').textContent='Жителей: '+t.res+' (домов '+t.n.res+') · Рабочих мест: '+(t.com+t.work)+' — коммерческих '+t.com+' (домов '+t.n.com+'), рабочих '+t.work+' (домов '+t.n.work+')'+ext;}
+function setMode(m){mode=m;['road','lot','exit','pan'].forEach(function(x){el('m-'+x).setAttribute('aria-pressed',x===m?'true':'false')});
+hintEl.textContent=HINT[m]||(H&&H.hint?H.hint(m):'');el('prev').innerHTML='';drawStatic();idle();}
 
 // ---------- ввод ----------
-var sv=document.getElementById('sv');
+var sv=el('sv');
 function svgPt(e){var pt=sv.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;var p=pt.matrixTransform(sv.getScreenCTM().inverse());return [p.x,p.y]}
 function worldPt(e){var p=svgPt(e);return [(p[0]-view.tx)/view.k,(p[1]-view.ty)/view.k]}
 function selLot(){return drag.sel}
@@ -607,21 +618,22 @@ function previewRoad(){
 var S=drag.S,E=drag.E,why=validate(S,E),col=why?'#D9363E':'#3E9B5B';
 var out='<line x1="'+S.P[0]+'" y1="'+S.P[1]+'" x2="'+E.P[0].toFixed(1)+'" y2="'+E.P[1].toFixed(1)+'" stroke="'+col+'" stroke-opacity="0.6" stroke-width="'+(2*W)+'" stroke-linecap="round"/>';
 [S,E].forEach(function(X){out+='<circle class="ns" cx="'+X.P[0].toFixed(1)+'" cy="'+X.P[1].toFixed(1)+'" r="'+(W*0.5)+'" fill="'+(X.type==='free'?'#fff':'#2f6f8f')+'" stroke="#1d1d1b" stroke-width="1.5"/>'});
-document.getElementById('prev').innerHTML=out;
+el('prev').innerHTML=out;
 var L=len(sub(E.P,S.P))/s;
 var odd=Math.abs(L-Math.round(L))>0.02;
-stEl.textContent='Звено '+(odd?L.toFixed(1):Math.round(L))+' кл.: '+(why?'нельзя — '+WHY[why]:'можно построить')+(E.type==='split'||S.type==='split'?' (появится перекрёсток)':'');
+stEl.textContent='Звено '+(odd?L.toFixed(1):Math.round(L))+' кл.: '+(why?'нельзя — '+(WHY[why]||why):'можно построить'+(H&&H.roadInfo?H.roadInfo(S,E):''))+(E.type==='split'||S.type==='split'?' (появится перекрёсток)':'');
 }
 function previewLot(){
 var l=selLot(),why=check(l,null),S=shape(l);
-document.getElementById('prev').innerHTML=why?lotSvg(l,'#D9363E','#8E1B21',0.55,1.6):lotSvg(l,'#3E9B5B','#1F6B38',0.55,1.6);
+el('prev').innerHTML=why?lotSvg(l,'#D9363E','#8E1B21',0.55,1.6):lotSvg(l,'#3E9B5B','#1F6B38',0.55,1.6);
 stEl.textContent=(S.corner?'Угловой участок ':'Участок ')+(S.w||'')+(S.h?'×'+S.h:'')+': '+(why?LWHY[why]:'можно построить');
 }
 sv.addEventListener('pointerdown',function(e){
 var P=worldPt(e);
 try{sv.setPointerCapture(e.pointerId)}catch(_){}
 e.preventDefault();
-if(mode==='pan'){var p=svgPt(e);drag={pan:true,x:p[0],y:p[1],tx:view.tx,ty:view.ty};return}
+if(mode==='pan'||(H&&(e.button===2||e.button===1))){var p=svgPt(e);drag={pan:true,x:p[0],y:p[1],tx:view.tx,ty:view.ty};return}
+if(H&&H.modes&&H.modes[mode]){drag={app:true};if(H.modes[mode].down(P,e)===false)drag=null;return}
 if(mode==='exit'){drag=null;exitTap(P);return}
 if(mode==='road'){var S=snap(P,null);drag={road:true,S:S,E:S,P0:P,moved:false};return}
 var onLot=-1;for(var i=lots.length-1;i>=0;i--)if(inLot(P,lots[i])){onLot=i;break}
@@ -631,9 +643,10 @@ drag=h?{lot:true,key:h.key,k:h.k,j:h.j,moved:false,onLot:onLot,sel:{key:h.key,k0
 if(!drag.none)previewLot();
 });
 sv.addEventListener('pointermove',function(e){
-if(!drag)return;
+if(!drag){if(H&&H.modes&&H.modes[mode]&&H.modes[mode].hover)H.modes[mode].hover(worldPt(e),e);else if(H&&H.hover)H.hover(worldPt(e),e,mode);return}
 if(drag.pan){var p=svgPt(e);view.tx=drag.tx+p[0]-drag.x;view.ty=drag.ty+p[1]-drag.y;applyView();return}
 var P=worldPt(e);
+if(drag.app){H.modes[mode].move&&H.modes[mode].move(P,e);return}
 if(drag.road){if(len(sub(P,drag.P0))>s*0.6)drag.moved=true;if(!drag.moved)return;drag.E=endFor(drag.S,P);previewRoad();return}
 if(drag.none)return;
 var nl=selFrom(drag,P);
@@ -641,10 +654,11 @@ if(JSON.stringify(nl)!==JSON.stringify(drag.sel)){drag.sel=nl;drag.moved=true;pr
 });
 function finish(e){
 if(!drag)return;
-var d=drag;drag=null;document.getElementById('prev').innerHTML='';
+var d=drag;drag=null;el('prev').innerHTML='';
+if(d.app){H.modes[mode].up&&H.modes[mode].up(e?worldPt(e):null,e);idle();return}
 if(d.road){
-if(!d.moved){var g=segUnder(d.P0);if(g!==null){removeSeg(g);drawStatic()}}
-else if(!validate(d.S,d.E)){addRoad(d.S,d.E);drawStatic()}
+if(!d.moved){var g=segUnder(d.P0);if(g!==null&&(!H||!H.beforeRemoveSeg||H.beforeRemoveSeg(g))){removeSeg(g);drawStatic();if(H&&H.afterRoad)H.afterRoad()}}
+else if(!validate(d.S,d.E)&&(!H||!H.beforeRoad||H.beforeRoad(d.S,d.E))){addRoad(d.S,d.E);drawStatic();if(H&&H.afterRoad)H.afterRoad()}
 }else if(d.lot){
 if(!d.moved&&d.onLot>=0)openDlg(lots[d.onLot],false);
 else if(!d.none){drag=d;var l=selLot();drag=null;if(!check(l,null)){l.type=lastType;l.color=nextColor(lastType);openDlg(l,true);}}
@@ -653,14 +667,14 @@ drawLots();
 idle();
 }
 sv.addEventListener('pointerup',finish);
-sv.addEventListener('pointercancel',function(){drag=null;document.getElementById('prev').innerHTML='';idle()});
+sv.addEventListener('pointercancel',function(){drag=null;el('prev').innerHTML='';idle()});
 function zoomAt(f,cx,cy){var k=Math.max(0.06,Math.min(4,view.k*f));f=k/view.k;view.tx=cx-(cx-view.tx)*f;view.ty=cy-(cy-view.ty)*f;view.k=k;applyView();drawLots();}
 sv.addEventListener('wheel',function(e){e.preventDefault();var p=svgPt(e);zoomAt(e.deltaY<0?1.15:1/1.15,p[0],p[1])},{passive:false});
-document.getElementById('z-in').addEventListener('click',function(){if(V3.on){if(V3.view)V3.view.zoom(1.25);return}zoomAt(1.25,VW/2,VH/2)});
-document.getElementById('z-out').addEventListener('click',function(){if(V3.on){if(V3.view)V3.view.zoom(0.8);return}zoomAt(0.8,VW/2,VH/2)});
-['road','lot','exit','pan'].forEach(function(m){document.getElementById('m-'+m).addEventListener('click',function(){setMode(m)})});
-document.getElementById('b-clr').addEventListener('click',function(){nodes={};segs={};lots=[];exits=[];W=W0;SW=0;ghost=[];drawStatic();idle();if(V3.on){fit3();build3D()}});
-document.getElementById('b-demo').addEventListener('click',function(){
+el('z-in').addEventListener('click',function(){if(V3.on){if(V3.view)V3.view.zoom(1.25);return}vbox();zoomAt(1.25,VW/2,VH/2)});
+el('z-out').addEventListener('click',function(){if(V3.on){if(V3.view)V3.view.zoom(0.8);return}vbox();zoomAt(0.8,VW/2,VH/2)});
+['road','lot','exit','pan'].forEach(function(m){el('m-'+m).addEventListener('click',function(){setMode(m)})});
+el('b-clr').addEventListener('click',function(){nodes={};segs={};lots=[];exits=[];W=W0;SW=0;ghost=[];drawStatic();idle();if(V3.on){fit3();build3D()}});
+el('b-demo').addEventListener('click',function(){
 nodes={};segs={};lots=[];exits=[];nid=1;sid=1;W=W0;SW=0;ghost=[];
 function nd(x,y){var n=nid++;nodes[n]={x:x,y:y};return n}
 function sg(a,b){segs[sid++]={a:a,b:b}}
@@ -688,7 +702,7 @@ function fitView(){
 var xs=[],ys=[];Object.keys(nodes).forEach(function(n){xs.push(nodes[n].x);ys.push(nodes[n].y)});if(!xs.length)return;
 exits.forEach(function(x){if(!nodes[x.node])return;var q=add([nodes[x.node].x,nodes[x.node].y],mul(exitDir(x),W*6));xs.push(q[0]);ys.push(q[1])}); // место под знак и подпись выезда
 var x0=Math.min.apply(null,xs),x1=Math.max.apply(null,xs),y0=Math.min.apply(null,ys),y1=Math.max.apply(null,ys);
-view.k=Math.min(VW/(x1-x0+160),VH/(y1-y0+160));view.tx=VW/2-(x0+x1)/2*view.k;view.ty=VH/2-(y0+y1)/2*view.k;applyView();
+vbox();view.k=Math.min(VW/(x1-x0+160),VH/(y1-y0+160));view.tx=VW/2-(x0+x1)/2*view.k;view.ty=VH/2-(y0+y1)/2*view.k;applyView();
 }
 function importBuildings(list){
 var placed=0,skipped=0,courtyard=0;
@@ -774,7 +788,7 @@ remapLots();derive();
 DISTRICT.exits.forEach(function(x){addExit(x.node,x.name)});
 // заведения из OpenStreetMap (кафе, магазины, банки, офисы...): каждое — в здание, где оно
 // стоит; здание без фасада на улицу (во дворе) — ближайший дом с фасадом (до 25 м)
-var P=JSON.parse(document.getElementById('pois-dorcol').textContent).pois,k={res:0,com:0,work:0,pois:0,lost:0};
+var P=JSON.parse(el('pois-dorcol').textContent).pois,k={res:0,com:0,work:0,pois:0,lost:0};
 lots.forEach(function(l){l.pois=[]});
 var inP=function(q,poly){var c=false;for(var i=0,j=poly.length-1;i<poly.length;j=i++){var a=poly[i],b=poly[j];if((a[1]>q[1])!==(b[1]>q[1])&&q[0]<(b[0]-a[0])*(q[1]-a[1])/(b[1]-a[1])+a[0])c=!c}return c};
 P.forEach(function(p){var q=[p.x,p.y],host=null;
@@ -789,7 +803,7 @@ lots.forEach(function(l){var fl=l.floors||1,whole=l.pois.some(function(p){return
 drawStatic();drawStats();
 return k;
 }
-document.getElementById('b-bg').addEventListener('click',function(){loadScene(JSON.parse(document.getElementById('scene-dorcol').textContent))});
+el('b-bg').addEventListener('click',function(){loadScene(JSON.parse(el('scene-dorcol').textContent))});
 
 // ---------- деревня ----------
 /*
@@ -847,7 +861,7 @@ fitView();drawStatic();idle();
 stEl.textContent='Деревня: '+lots.length+' домов в один этаж, жителей '+totals().res+'.';
 if(V3.on){fit3();build3D()}
 }
-document.getElementById('b-vil').addEventListener('click',buildVillage);
+el('b-vil').addEventListener('click',buildVillage);
 
 /*
  * Маленькая деревня на 10 жителей для симуляции жизни: у каждого свой домик
@@ -886,7 +900,7 @@ fitView();drawStatic();idle();
 stEl.textContent='Деревня 10: '+lots.length+' домов, жителей '+totals().res+', рабочих мест '+(totals().com+totals().work)+'.';
 if(V3.on){fit3();build3D()}
 }
-document.getElementById('b-vil10').addEventListener('click',buildHamlet);
+el('b-vil10').addEventListener('click',buildHamlet);
 
 // ---------- выезды во внешний мир ----------
 /*
@@ -938,21 +952,21 @@ out+='<polygon points="'+pts([tip,b1,b2])+'" fill="#fff"/>';
 if(!many||view.k>0.9){var L=add(M,mul(d,r+4/view.k)),anc=Math.abs(d[0])>0.5?(d[0]>0?'start':'end'):'middle',dy=Math.abs(d[0])>0.5?0:(d[1]>0?0.9:-0.3);
 out+='<text x="'+L[0].toFixed(1)+'" y="'+L[1].toFixed(1)+'" dy="'+dy+'em" font-size="'+(12/view.k).toFixed(1)+'" text-anchor="'+anc+'" dominant-baseline="central" fill="'+col+'" style="font-weight:600;paint-order:stroke;stroke:#fff;stroke-width:3px">'+x.name.replace(/[<&]/g,'')+'</text>';}
 out+='</g>';});
-document.getElementById('exits').innerHTML=out;
+el('exits').innerHTML=out;
 }
-var xdlg=document.getElementById('xdlg'),xdlgN=document.getElementById('xdlg-n'),xdlgX=null;
+var xdlg=el('xdlg'),xdlgN=el('xdlg-n'),xdlgX=null;
 function openXdlg(x){
 xdlgX=x;xdlgN.value=x.name;
 var L=exitLinks().byExit[x.id],info=!exitValid(x)?'Выезд должен стоять в тупике — к этому узлу подходит больше одной дороги.':
 (L&&L.n?'Связано по дорогам: домов '+L.n+', жителей '+L.res+', рабочих мест '+L.jobs+'.':'С этим выездом не связан ни один дом.');
-document.getElementById('xdlg-info').textContent=info;
+el('xdlg-info').textContent=info;
 xdlg.hidden=false;setTimeout(function(){xdlgN.focus();xdlgN.select()},0);
 }
 function closeXdlg(){xdlg.hidden=true;xdlgX=null;drawExits();idle();if(V3.on)build3D();}
-document.getElementById('xdlg-ok').addEventListener('click',function(){xdlgX.name=xdlgN.value.trim()||'Внешний мир';closeXdlg()});
-document.getElementById('xdlg-no').addEventListener('click',closeXdlg);
-document.getElementById('xdlg-del').addEventListener('click',function(){exits=exits.filter(function(x){return x!==xdlgX});closeXdlg()});
-xdlgN.addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('xdlg-ok').click();if(e.key==='Escape')closeXdlg();});
+el('xdlg-ok').addEventListener('click',function(){xdlgX.name=xdlgN.value.trim()||'Внешний мир';closeXdlg()});
+el('xdlg-no').addEventListener('click',closeXdlg);
+el('xdlg-del').addEventListener('click',function(){exits=exits.filter(function(x){return x!==xdlgX});closeXdlg()});
+xdlgN.addEventListener('keydown',function(e){if(e.key==='Enter')el('xdlg-ok').click();if(e.key==='Escape')closeXdlg();});
 xdlg.addEventListener('pointerdown',function(e){if(e.target===xdlg)closeXdlg();});
 // тап в режиме «Выезд»: по выезду — открыть, по тупику — поставить новый
 function exitTap(P){
@@ -990,8 +1004,9 @@ if(l.key!=='fixed'&&G.hs[l.key]){var S=G.hs[l.key],u0=Math.max(0,S.a0+l.k0*S.cw)
 else F=partsCenter(shape(l).parts);
 var tt=Math.max(0,Math.min(1,dot(sub(F,A),AB)/dot(AB,AB))),C=partsCenter(shape(l).parts);
 var uo=unionOutline(shape(l).parts),ol=(uo.loop&&uo.loop.length>=3?uo.loop:shape(l).parts[0]).map(function(q){return [r2(q[0]*M),r2(q[1]*M)]});
-var rec={id:bl.length,type:typeOf(l),floors:l.floors||1,cells:cellsOf(l),capacity:capOf(l),edge:ei[g],t:Math.round(tt*1000)/1000,center:[r2(C[0]*M),r2(C[1]*M)],outline:ol,style:styleOf(l)};
+var rec={id:bl.length,uid:l.uid,type:typeOf(l),floors:l.floors||1,cells:cellsOf(l),capacity:capOf(l),edge:ei[g],t:Math.round(tt*1000)/1000,center:[r2(C[0]*M),r2(C[1]*M)],outline:ol,style:styleOf(l)};
 // смешанное назначение: жильё + заведения (вид, подпись, название, работники, посетители, часы)
+if(H&&H.exportLot&&H.exportLot(l,rec)===false)return;
 if(l.pois)rec.uses={beds:lotCaps(l).res,places:l.pois.map(function(p){return {kind:p.kind,cat:p.cat,name:p.name,jobs:p.jobs,visitors:p.visitors,hours:p.hours}})};
 bl.push(rec);
 });
@@ -1000,40 +1015,40 @@ var gl=exits.filter(exitValid).map(function(x,i){return {id:i,node:ni[x.node],na
 var zc=G.drawn.map(function(c){return c.poly.map(function(q){return [r2(q[0]*M),r2(q[1]*M)]})});
 return {format:'city-builder/world@1',units:'m',nodes:nl,edges:el,buildings:bl,gates:gl,render:{cell:4,roadHalfWidth:r2(W*M),sidewalk:r2(SW*M),zoneCells:zc}};
 }
-document.getElementById('b-exp').addEventListener('click',function(){
+el('b-exp').addEventListener('click',function(){
 var a=document.createElement('a'),bl=new Blob([JSON.stringify(exportSim(),null,1)],{type:'application/json'});
 a.href=URL.createObjectURL(bl);a.download='world.snapshot.json';document.body.appendChild(a);a.click();a.remove();
 stEl.textContent='Снимок мира для симуляции сохранён: world.snapshot.json.';
 });
 
 // ---------- окно этажей ----------
-var dlg=document.getElementById('dlg'),dlgF=document.getElementById('dlg-f'),dlgLot=null,dlgNew=false,lastFloors=1,lastType='res',dlgType='res';
+var dlg=el('dlg'),dlgF=el('dlg-f'),dlgLot=null,dlgNew=false,lastFloors=1,lastType='res',dlgType='res';
 // тип и вместимость в окне: вместимость пересчитывается при смене типа и этажей
 function dlgFloors(){return Math.max(1,Math.min(99,Math.round(+dlgF.value||1)))}
 function dlgShow(){
-ZORDER.forEach(function(k){document.getElementById('ty-'+k).setAttribute('aria-pressed',k===dlgType?'true':'false')});
+ZORDER.forEach(function(k){el('ty-'+k).setAttribute('aria-pressed',k===dlgType?'true':'false')});
 var tmp=Object.assign({},dlgLot,{type:dlgType,floors:dlgFloors()}),c=capOf(tmp),z=ZONES[dlgType];
-document.getElementById('dlg-sw').style.background=z.color;
-document.getElementById('dlg-cap').textContent='Площадь '+cellsOf(tmp)+' кл. → '+(dlgType==='res'?'жителей: ':'рабочих мест: ')+c;
+el('dlg-sw').style.background=z.color;
+el('dlg-cap').textContent='Площадь '+cellsOf(tmp)+' кл. → '+(dlgType==='res'?'жителей: ':'рабочих мест: ')+c;
 }
-ZORDER.forEach(function(k){document.getElementById('ty-'+k).addEventListener('click',function(){dlgType=k;dlgShow()})});
+ZORDER.forEach(function(k){el('ty-'+k).addEventListener('click',function(){dlgType=k;dlgShow()})});
 dlgF.addEventListener('input',dlgShow);
 function openDlg(l,isNew){
 dlgLot=l;dlgNew=isNew;dlgType=isNew?lastType:typeOf(l);
-document.getElementById('dlg-tt').textContent=isNew?'Новый дом':'Дом';
-document.getElementById('dlg-ok').textContent=isNew?'Построить':'Сохранить';
-document.getElementById('dlg-del').hidden=isNew;
+el('dlg-tt').textContent=isNew?'Новый дом':'Дом';
+el('dlg-ok').textContent=isNew?'Построить':'Сохранить';
+el('dlg-del').hidden=isNew;
 dlgF.value=isNew?lastFloors:(l.floors||1);
 dlgShow();dlg.hidden=false;setTimeout(function(){dlgF.focus();dlgF.select()},0);
 }
 function closeDlg(){dlg.hidden=true;dlgLot=null;drawLots();idle();if(V3.on)build3D();}
-document.getElementById('dlg-ok').addEventListener('click',function(){
+el('dlg-ok').addEventListener('click',function(){
 var f=dlgFloors();lastFloors=f;lastType=dlgType;
 if(typeOf(dlgLot)!==dlgType||!dlgLot.type){dlgLot.type=dlgType;dlgLot.color=nextColor(dlgType)}
 dlgLot.floors=f;if(dlgNew&&lots.indexOf(dlgLot)<0&&!check(dlgLot,null))lots.push(dlgLot);closeDlg();});
-document.getElementById('dlg-no').addEventListener('click',closeDlg);
-document.getElementById('dlg-del').addEventListener('click',function(){var i=lots.indexOf(dlgLot);if(i>=0)lots.splice(i,1);closeDlg();});
-dlgF.addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('dlg-ok').click();if(e.key==='Escape')closeDlg();});
+el('dlg-no').addEventListener('click',closeDlg);
+el('dlg-del').addEventListener('click',function(){var i=lots.indexOf(dlgLot);if(i>=0)lots.splice(i,1);closeDlg();});
+dlgF.addEventListener('keydown',function(e){if(e.key==='Enter')el('dlg-ok').click();if(e.key==='Escape')closeDlg();});
 dlg.addEventListener('pointerdown',function(e){if(e.target===dlg)closeDlg();});
 
 // ---------- 3D-вид ----------
@@ -1045,19 +1060,19 @@ dlg.addEventListener('pointerdown',function(e){if(e.target===dlg)closeDlg();});
  * three.js подгружается при первом входе в 3D.
  */
 var V3={on:false,view:null};
-var v3el=document.getElementById('v3d');
+var v3el=el('v3d');
 function seeded(seed){var x=seed*9301+49297;return function(){x=(x*9301+49297)%233280;return x/233280}}
 // улица для общего модуля: оси, узлы, ширина, тротуар, зебры (кроме выездов)
 function streetDesc(){return {roadHalfWidth:W,sidewalk:SW,segments:Object.keys(segs).map(function(id){var E=segEnds(segs[id]);return {a:E[0],b:E[1]}}),
 crosswalks:{unit:s/4,skip:exits.filter(function(x){return nodes[x.node]}).map(function(x){return [nodes[x.node].x,nodes[x.node].y]})}}}
 function sceneDesc(){
 var bl=lots.map(function(l){var S=shape(l),o=S.parts.length?unionOutline(S.parts):{};
-return {outline:o.loop&&o.loop.length>=3?o.loop:null,parts:S.parts,floors:l.floors||1,style:styleOf(l),type:typeOf(l),bad:!!check(l,l),color:l.color}});
+var b={outline:o.loop&&o.loop.length>=3?o.loop:null,parts:S.parts,floors:l.floors||1,style:styleOf(l),type:typeOf(l),bad:!!check(l,l),color:l.color};if(H&&H.building3D)H.building3D(l,b);return b});
 var sd=streetDesc();
 return {cell:s,roadHalfWidth:W,sidewalk:SW,crosswalks:sd.crosswalks,
 segments:Object.keys(segs).map(function(id){var E=segEnds(segs[id]);return {a:E[0],b:E[1]}}),
 nodes:Object.keys(nodes).filter(function(n){return degree(+n)>0}).map(function(n){return [nodes[n].x,nodes[n].y]}),
-zoneCells:G.drawn.map(function(c){return c.poly}),buildings:bl,
+zoneCells:H&&H.zoneCells3D?H.zoneCells3D():G.drawn.map(function(c){return c.poly}),buildings:bl,areas:H&&H.areas3D?H.areas3D():[],
 gates:exits.filter(function(x){return nodes[x.node]}).map(function(x){return {at:[nodes[x.node].x,nodes[x.node].y],dir:exitDir(x),ok:exitValid(x)}})};
 }
 function build3D(){if(!V3.view)return;V3.view.setScene(sceneDesc());V3.view.render()}
@@ -1120,19 +1135,19 @@ return {segs:res,corners:corners,loop:loop};
 }
 function set3D(on){
 V3.on=on;
-document.getElementById('b-3d').setAttribute('aria-pressed',on?'true':'false');
-document.getElementById('g3d').hidden=!on;
+el('b-3d').setAttribute('aria-pressed',on?'true':'false');
+el('g3d').hidden=!on;
 sv.style.display=on?'none':'';v3el.hidden=!on;
-['m-road','m-lot','m-exit','m-pan'].forEach(function(id){document.getElementById(id).disabled=on});
+['m-road','m-lot','m-exit','m-pan'].forEach(function(id){el(id).disabled=on});
 if(!on){setMode(mode);return}
 hintEl.textContent='3D-вид: тяните, чтобы двигать карту; двумя пальцами, правой кнопкой или с Shift — вращать; колесо и −/+ — масштаб. Строить — в 2D.';
 City3D.loadThree(function(){if(!V3.view)V3.view=City3D.createView(v3el);fit3();build3D();},
 function(){stEl.textContent='Не удалось загрузить 3D-библиотеку (three.js).';set3D(false)});
 }
-document.getElementById('b-3d').addEventListener('click',function(){set3D(!V3.on)});
-document.getElementById('r-l').addEventListener('click',function(){if(V3.view)V3.view.rotate(Math.PI/12)});
-document.getElementById('r-r').addEventListener('click',function(){if(V3.view)V3.view.rotate(-Math.PI/12)});
-document.getElementById('t-tilt').addEventListener('click',function(){if(V3.view)this.textContent='Наклон '+V3.view.toggleTilt()+'°'});
+el('b-3d').addEventListener('click',function(){set3D(!V3.on)});
+el('r-l').addEventListener('click',function(){if(V3.view)V3.view.rotate(Math.PI/12)});
+el('r-r').addEventListener('click',function(){if(V3.view)V3.view.rotate(-Math.PI/12)});
+el('t-tilt').addEventListener('click',function(){if(V3.view)this.textContent='Наклон '+V3.view.toggleTilt()+'°'});
 
 // отладка для тестов
 window.__dbg={
@@ -1140,7 +1155,7 @@ toScreen:function(P){var pt=sv.createSVGPoint();pt.x=P[0]*view.k+view.tx;pt.y=P[
 clearLots:function(){lots=[];drawLots()},
 lotsRaw:function(){return lots},
 // внутренние функции для стресс-тестов
-api:{loadScene:loadScene,loadDorcol:function(){return loadScene(JSON.parse(document.getElementById('scene-dorcol').textContent))},G:function(){return G},overlaps:overlaps,unionOutline:unionOutline,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
+api:{loadScene:loadScene,loadDorcol:function(){return loadScene(JSON.parse(el('scene-dorcol').textContent))},G:function(){return G},overlaps:overlaps,unionOutline:unionOutline,otherFrame:otherFrame,hitCell:hitCell,selFrom:selFrom,check:check,shape:shape,sideUV:sideUV,frame:frame,cellF:cellF,
 snap:snap,endFor:endFor,capOf:capOf,totals:totals,exportSim:exportSim,exitLinks:exitLinks,exits:function(){return exits},buildVillage:buildVillage,buildHamlet:buildHamlet,validate:validate,addRoad:addRoad,redraw:function(){drawStatic()},
 reset:function(){nodes={};segs={};lots=[];exits=[];nid=1;sid=1;W=W0;SW=0;drawStatic()},setWidth:function(w,sw){W=w;SW=sw||0;drawStatic()},addLot:function(l){l.floors=l.floors||1+Math.floor(Math.random()*8);l.color=l.color||nextColor();lots.push(l)}},
 // инвариант: каждый узел стоит на линии сетки каждой своей дороги
@@ -1150,6 +1165,21 @@ if(!on(0)||!on(L))bad.push([+id,+(L/s).toFixed(3),+cw.toFixed(3),+ph.toFixed(3)]
 uvToWorld:function(key,u,v){var S=G.hs[key];return add(S.ends.a.K,add(mul(S.d,u),mul(S.n,v)))},
 state:function(){return {nodes:nodes,segs:segs,lots:lots.map(function(l){var S=shape(l);return Object.assign({bad:check(l,l),corner:!!S.corner},l)}),sides:Object.keys(G.hs).map(function(k){var h=G.hs[k];function ca(e){var c=h.ends[e].corner;return c?Math.round(c.alpha*180/Math.PI):(h.ends[e].corner===null?'-':'-')}return {key:k,E:+h.E.toFixed(1),a0:+h.a0.toFixed(1),nC:h.nC,anchor:h.anchor,a:ca('a'),b:ca('b')}})}}
 };
-setMode('road');
-buildHamlet();
+// API для приложения-игры
+window.CityEditor={
+get nodes(){return nodes},get segs(){return segs},get lots(){return lots},set lots(v){lots=v},get exits(){return exits},get G(){return G},get mode(){return mode},
+get W(){return W},get SW(){return SW},s:s,D:D,view:view,V3:V3,WHY:WHY,LWHY:LWHY,
+geom:{add:add,sub:sub,mul:mul,dot:dot,len:len,nrm:nrm,cr:cr,area:area,pts:pts,bbox:bbox,bbHit:bbHit,overlaps:overlaps,inside:inside,segDist:segDist,partsArea:partsArea,partsCenter:partsCenter},
+derive:derive,shape:shape,check:check,hitCell:hitCell,inLot:inLot,frame:frame,cellsOf:cellsOf,capOf:capOf,typeOf:typeOf,lotSvg:lotSvg,lotFill:lotFill,nextColor:nextColor,
+segUnder:segUnder,removeSeg:removeSeg,addRoad:addRoad,validate:validate,snap:snap,endFor:endFor,segEnds:segEnds,lotSeg:lotSeg,components:components,degree:degree,
+addExit:addExit,exitValid:exitValid,exitLinks:exitLinks,exportSim:exportSim,unionOutline:unionOutline,
+drawStatic:drawStatic,drawLots:drawLots,idle:idle,setMode:setMode,applyView:applyView,zoomAt:zoomAt,set3D:set3D,build3D:build3D,fit3:fit3,worldPt:worldPt,svgPt:svgPt,
+setWidth:function(w,sw){W=w;SW=sw||0},
+newNode:function(x,y){var n=nid++;nodes[n]={x:x,y:y};return n},newSeg:function(a,b){segs[sid++]={a:a,b:b}},
+reset:function(){nodes={};segs={};lots=[];exits=[];nid=1;sid=1;W=W0;SW=0},
+load:function(st){nodes=st.nodes;segs=st.segs;lots=st.lots;exits=st.exits;nid=st.nid;sid=st.sid;exitId=st.exitId||1;lotUid=st.lotUid||1},
+dump:function(){return {nodes:nodes,segs:segs,lots:lots.map(function(l){var o={};for(var k in l)if(k!=='fixed'||l.key==='fixed')o[k]=l[k];return o}),exits:exits,nid:nid,sid:sid,exitId:exitId,lotUid:lotUid}}
+};
+if(H&&H.init)H.init(window.CityEditor);
+else{setMode('road');buildHamlet();}
 })();

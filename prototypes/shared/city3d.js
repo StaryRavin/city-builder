@@ -13,13 +13,14 @@
  *                    «пятачки» узлов строятся здесь же;
  *   nodes          — [[x,y]] узлы (пятачки);
  *   zoneCells      — [многоугольник] клетки зонирования (необязательно);
- *   buildings      — [{outline, parts?, floors, style, type, bad?, color?}]:
+ *   buildings      — [{outline, parts?, floors, style, type, bad?, plain?, color?}]:
+ *                    plain — простая призма цвета color (стройка, заброшенный дом, ТЭС);
  *                    outline — контур дома (если нет — простые призмы по parts);
  *                    style — индекс в City3D.STYLES; type — res / com / work;
  *   sidewalk       — ширина тротуара (0 — нет): проезжая часть — roadHalfWidth − sidewalk;
  *   crosswalks     — {unit, skip:[[x,y]]}: рисовать зебры у концов звеньев (кроме skip);
  *   gates          — [{at:[x,y], dir:[dx,dy], ok}] выезды во внешний мир;
- *   areas          — [{poly, color, label}] плоские площадки (например, «Город»).
+ *   areas          — [{poly | polys, color, label, y}] плоские площадки (например, «Город», река, зоны).
  * Жители — setMarkers([{x, y, z, color, label, selected, car, person}]): кружок с номером
  * (если label задан), машина {x, y, heading, color}, пешеход {x, y, heading, color};
  * машины и пешеходы рисуются пачками (InstancedMesh) — тысячи сразу.
@@ -173,7 +174,7 @@ return false})}
 var simple=[];
 outs.forEach(function(o){
 var b=o.b,N=b.floors||1,H=N*FH;
-if(b.bad||!o.loop){simple.push(o);return}
+if(b.bad||b.plain||!o.loop){simple.push(o);return}
 var P=o.loop,si=b.style||0,st=STYLES[si],sg=signedArea(P)>0?1:-1;
 for(var i=0;i<P.length;i++){var a=P[i],c=P[(i+1)%P.length],L=len(sub(c,a));if(L<0.3)continue;
 var d=mul(sub(c,a),1/L),n=mul([d[1],-d[0]],sg),m=mul(add(a,c),0.5),bays=Math.max(1,Math.round(L/FH));
@@ -270,7 +271,7 @@ var side=T.DoubleSide,SW=desc.sidewalk||0,bands=roadBands(desc,desc.roadHalfWidt
 if(SW>0){var wb=roadBands(desc,desc.roadHalfWidth);sc.add(new T.Mesh(flatGeo(wb.map(function(b){return b.poly}),1.45),new T.MeshBasicMaterial({color:C(COLORS.sidewalk),side:side})));}
 var zp=crosswalkPolys(desc);if(zp.length)sc.add(new T.Mesh(flatGeo(zp,1.7),new T.MeshBasicMaterial({color:C(COLORS.crosswalk),side:side})));
 if(desc.zoneCells&&desc.zoneCells.length)sc.add(new T.Mesh(flatGeo(desc.zoneCells,0.8),new T.MeshBasicMaterial({color:C(COLORS.zoneCell3D),side:side})));
-(desc.areas||[]).forEach(function(a){sc.add(new T.Mesh(flatGeo([a.poly],1.2),new T.MeshBasicMaterial({color:C(a.color||COLORS.area),side:side})));
+(desc.areas||[]).forEach(function(a){sc.add(new T.Mesh(flatGeo(a.polys||[a.poly],a.y||1.2),new T.MeshBasicMaterial({color:C(a.color||COLORS.area),side:side})));
 if(a.label){var sp=textSprite(a.label),c=a.poly.reduce(function(s,q){return [s[0]+q[0]/a.poly.length,s[1]+q[1]/a.poly.length]},[0,0]),top=Math.min.apply(null,a.poly.map(function(q){return q[1]}));sp.position.set(c[0],24,top-8);sc.add(sp)}});
 if(bands.length)sc.add(new T.Mesh(flatGeo(bands.map(function(b){return b.poly}),1.6),new T.MeshBasicMaterial({color:C(COLORS.road),side:side})));
 buildHouses(sc,C,desc,SW>0?roadBands(desc,desc.roadHalfWidth):bands,R);

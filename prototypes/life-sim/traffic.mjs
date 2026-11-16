@@ -214,14 +214,17 @@ export function createTraffic(w,A,L){
   for(let a=0;a<n;a++){if(!A.car[a])continue;const sl=nearestSlot(A.home[a]);T.state[a]=CAR.PARKED;T.slot[a]=sl;slots.occ[sl]=a}
 
   // ---- маршрут по полосам (Дейкстра; в деревне полос — десятки) ----
-  function plan(l0,s0,target){
+  // разворот у ворот — только с полосы, где поездка началась; если так пути нет (машина
+  // стоит у дороги к воротам мордой к ним — снаружи развернуться больше негде), можно и дальше
+  function plan(l0,s0,target){return planR(l0,s0,target,l0)||planR(l0,s0,target,undefined)}
+  function planR(l0,s0,target,start){
     if(target.lane===l0&&target.s>=s0-1e-6)return [l0];
     if(target.gate!=null&&lanes.to[l0]===target.gate)return [l0];
     const dist=new Float64Array(LN).fill(Infinity),prev=new Int32Array(LN).fill(-1),done=new Uint8Array(LN),H=minHeap();
     dist[l0]=lanes.len[l0]-s0;H.push(dist[l0],l0);let best=Infinity,last=-1,lastPrev=-1;   // последняя полоса маршрута и откуда на неё въехали
     while(H.size){const [du,u]=H.pop();if(done[u]||du>dist[u])continue;
       if(du>=best)break;done[u]=1;
-      for(const lo of out[lanes.to[u]]){if(!allowed(u,lo,l0))continue;const bl=box(u,lo).len;
+      for(const lo of out[lanes.to[u]]){if(!allowed(u,lo,start))continue;const bl=box(u,lo).len;
         if(target.lane===lo&&du+bl+target.s<best){best=du+bl+target.s;last=lo;lastPrev=u}
         if(target.gate!=null&&lanes.to[lo]===target.gate&&du+bl+lanes.len[lo]<best){best=du+bl+lanes.len[lo];last=lo;lastPrev=u}
         const c=du+bl+lanes.len[lo];if(!done[lo]&&c<dist[lo]){dist[lo]=c;prev[lo]=u;H.push(c,lo)}}}
