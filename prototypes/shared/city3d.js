@@ -14,7 +14,9 @@
  *   nodes          — [[x,y]] узлы (пятачки);
  *   zoneCells      — [многоугольник] клетки зонирования (необязательно);
  *   buildings      — [{outline, parts?, floors, style, type, bad?, plain?, color?}]:
- *                    plain — простая призма цвета color (стройка, заброшенный дом, ТЭС);
+ *                    plain — простая призма цвета color (стройка, заброшенный дом);
+ *                    model — модель станции или услуги (wind, tower, pump, outlet, coal, park, clinic,
+ *                    police, fire, school); pipeTo — точка в воде для трубы водозабора и сброса;
  *                    outline — контур дома (если нет — простые призмы по parts);
  *                    style — индекс в City3D.STYLES; type — res / com / work;
  *   sidewalk       — ширина тротуара (0 — нет): проезжая часть — roadHalfWidth − sidewalk;
@@ -171,9 +173,10 @@ for(var i=0;i<o.loop.length;i++){var p=o.loop[i],q=o.loop[(i+1)%o.loop.length],e
 if(Math.abs(cr(d,mul(e,1/le)))>0.03||Math.abs(cr(mul(e,1/le),sub(m,p)))>0.7)continue;
 var t0=dot(sub(a,p),e)/le,t1=dot(sub(b,p),e)/le,ov=Math.min(Math.max(t0,t1),le)-Math.max(Math.min(t0,t1),0);if(ov>L*0.5)return true;}
 return false})}
-var simple=[];
+var simple=[],models=[];
 outs.forEach(function(o){
 var b=o.b,N=b.floors||1,H=N*FH;
+if(b.model&&!b.bad&&o.loop){models.push(o);return}
 if(b.bad||b.plain||!o.loop){simple.push(o);return}
 var P=o.loop,si=b.style||0,st=STYLES[si],sg=signedArea(P)>0?1:-1;
 for(var i=0;i<P.length;i++){var a=P[i],c=P[(i+1)%P.length],L=len(sub(c,a));if(L<0.3)continue;
@@ -202,9 +205,62 @@ else if(kind==='party')m=new T.MeshLambertMaterial({color:C(shade(st.wall,-0.08)
 else if(kind==='trim')m=new T.MeshLambertMaterial({color:C(st.trim),side:T.DoubleSide});
 else m=new T.MeshLambertMaterial({color:C(st.roof),side:T.DoubleSide});
 sc.add(new T.Mesh(g,m));});
+models.forEach(function(o){buildModel(sc,C,o.b,o.loop,FH)});
 // невалидные и без собранного контура — простые призмы
 simple.forEach(function(o){var b=o.b,h=(b.floors||1)*FH,bad=!!b.bad,mat=new T.MeshLambertMaterial({color:C(bad?COLORS.bad:(b.color||STYLES[b.style||0].wall)),transparent:bad,opacity:bad?0.7:1});
 (o.loop?[o.loop]:(o.parts||[])).forEach(function(P){var g=new T.ExtrudeGeometry(new T.Shape(P.map(function(q){return new T.Vector2(q[0],-q[1])})),{depth:h,bevelEnabled:false});g.rotateX(-Math.PI/2);sc.add(new T.Mesh(g,mat))});});
+}
+
+// ---------- модели зданий города (b.model): станции и услуги ----------
+// Единицы: клетка FH = 4 м, значит 1 м = FH/4. Контур P — в плане (x, y), в 3D это (x, высота, y).
+// b.pipeTo — точка в воде, куда тянется труба водозабора или сброса.
+// Ротор ветряка помечен userData.spin — вид крутит его при каждой отрисовке.
+function buildModel(sc,C,b,P,FH){
+var T=THREE,m=FH/4,c=[0,0];P.forEach(function(q){c[0]+=q[0]/P.length;c[1]+=q[1]/P.length});
+var best=0,ang=0;for(var i=0;i<P.length;i++){var q=P[(i+1)%P.length],d=sub(q,P[i]),L=len(d);if(L>best){best=L;ang=Math.atan2(d[1],d[0])}}
+var bb=bbox(P),wx=bb[2]-bb[0],wy=bb[3]-bb[1],R=Math.min(wx,wy)/2;
+var g=new T.Group();g.position.set(c[0],0,c[1]);sc.add(g);
+var mats={};function mat(col){return mats[col]||(mats[col]=new T.MeshLambertMaterial({color:C(col)}))}
+function add(geo,col,x,y,z,parent){var me=new T.Mesh(geo,mat(col));me.position.set(x||0,y||0,z||0);(parent||g).add(me);return me}
+// площадка: контур дома плоско над землёй
+function pad(col,h){var gg=new T.ExtrudeGeometry(new T.Shape(P.map(function(q){return new T.Vector2(q[0]-c[0],-(q[1]-c[1]))})),{depth:h||0.6,bevelEnabled:false});gg.rotateX(-Math.PI/2);add(gg,col)}
+function pipe(col,y,r){if(!b.pipeTo)return;var d=[b.pipeTo[0]-c[0],b.pipeTo[1]-c[1]],L=len(d);if(L<1)return;
+  var cy=new T.CylinderGeometry(r,r,L,10);cy.rotateZ(Math.PI/2);var me=add(cy,col,d[0]/2,y,d[1]/2);me.rotation.y=-Math.atan2(d[1],d[0]);return d}
+var k=b.model;
+if(k==='wind'){pad('#BDB8AC',0.8);
+  var H=34*m,tw=add(new T.CylinderGeometry(1.1*m,2.1*m,H,16),'#F2F3F1',0,H/2,0);
+  var head=new T.Group();head.position.set(0,H,0);head.rotation.y=-ang;g.add(head);
+  add(new T.BoxGeometry(6*m,2.4*m,2.4*m),'#E9EBE8',-1*m,0,0,head);
+  var rot=new T.Group();rot.position.set(2.6*m,0,0);rot.userData.spin=0.9;head.add(rot);
+  add(new T.SphereGeometry(1.2*m,12,10),'#DADDDA',0,0,0,rot);
+  for(var j=0;j<3;j++){var bl=new T.Group();bl.rotation.x=j*2*Math.PI/3;rot.add(bl);add(new T.BoxGeometry(0.5*m,15*m,1.1*m),'#F7F7F5',0,7.8*m,0,bl)}
+  sc.userData.spin=(sc.userData.spin||[]).concat([rot]);return}
+if(k==='tower'){pad('#C9C4B8',0.6);var H2=17*m;
+  add(new T.CylinderGeometry(1.4*m,2*m,H2,14),'#B9C3C9',0,H2/2,0);
+  var tr=Math.min(R*0.95,5*m);add(new T.CylinderGeometry(tr,tr*0.75,5*m,20),'#8FB4CC',0,H2+2.5*m,0);
+  add(new T.ConeGeometry(tr*1.02,2.2*m,20),'#6F8EA3',0,H2+6.1*m,0);return}
+if(k==='pump'||k==='outlet'){var pump=k==='pump';pad('#C9C4B8',0.6);
+  var bw=Math.min(wx,wy)*0.7,hh=(pump?4.5:3.2)*m,hb=new T.Mesh(new T.BoxGeometry(bw,hh,bw),mat(pump?'#5E93BE':'#8C7A5B'));hb.position.set(0,hh/2,0);hb.rotation.y=-ang;g.add(hb);
+  add(new T.BoxGeometry(bw*1.08,0.6*m,bw*1.08),pump?'#3F6F96':'#5F5240',0,hh+0.3*m,0).rotation.y=-ang;
+  var d=pipe('#7D8790',1.2*m,0.7*m);
+  if(d){add(new T.CylinderGeometry(1.4*m,1.4*m,2.6*m,12),'#6B747C',d[0],1.3*m,d[1]);
+    if(!pump){var pl=new T.Mesh(new T.CircleGeometry(7*m,24),new T.MeshBasicMaterial({color:C('#8A7A55'),transparent:true,opacity:0.75}));pl.rotation.x=-Math.PI/2;pl.position.set(d[0],0.9,d[1]);g.add(pl)}}
+  return}
+if(k==='coal'){pad('#9C968C',0.6);
+  var hall=new T.Mesh(new T.BoxGeometry(wx*0.55,10*m,wy*0.75),mat('#6B6461'));hall.position.set(-wx*0.18,5*m,0);g.add(hall);
+  [[-0.05,-0.25],[0.12,-0.25]].forEach(function(f){add(new T.CylinderGeometry(0.9*m,1.4*m,38*m,12),'#8A817B',wx*f[0],19*m,wy*f[1]);add(new T.CylinderGeometry(1*m,1*m,2*m,12),'#B8423A',wx*f[0],36*m,wy*f[1])});
+  var pts=[];for(var t=0;t<=10;t++){var y=t/10;pts.push(new T.Vector2((Math.min(wx*0.2,wy*0.38))*(0.62+0.38*Math.pow(2*y-1.2,2)),y*22*m))}
+  var ct=new T.Mesh(new T.LatheGeometry(pts,24),new T.MeshLambertMaterial({color:C('#C9C4BC'),side:T.DoubleSide}));ct.position.set(wx*0.28,0,wy*0.12);g.add(ct);return}
+if(k==='park'){pad('#7CC46A',0.9);var n=Math.max(3,Math.round(wx*wy/(9*m*9*m)*3)),rr=0.3;
+  for(var i2=0;i2<n;i2++){var a=i2*2.39996,r2=Math.sqrt((i2+0.5)/n)*R*0.75,x=Math.cos(a)*r2,z=Math.sin(a)*r2,th=(2.5+((i2*7)%3)*0.6)*m;
+    add(new T.CylinderGeometry(0.25*m,0.35*m,th,6),'#6E5238',x,th/2,z);add(new T.SphereGeometry((1.6+((i2*5)%3)*0.4)*m,10,8),i2%2?'#3E8E4A':'#4FA25A',x,th+1.2*m,z)}
+  return}
+// услуги: дом цвета службы и знак на крыше
+var hS=(b.floors||2)*FH,body=new T.Mesh(new T.BoxGeometry(wx*0.82,hS,wy*0.82),mat(b.color||'#EEE'));body.position.set(0,hS/2,0);g.add(body);
+add(new T.BoxGeometry(wx*0.86,0.8*m,wy*0.86),'#5C6066',0,hS+0.4*m,0);
+if(k==='clinic'){add(new T.BoxGeometry(6*m,0.6*m,1.8*m),'#D7353B',0,hS+1.1*m,0);add(new T.BoxGeometry(1.8*m,0.6*m,6*m),'#D7353B',0,hS+1.1*m,0)}
+if(k==='police'||k==='fire'){add(new T.BoxGeometry(wx*0.84,1.2*m,wy*0.84),k==='police'?'#F2F2F2':'#F2C230',0,hS*0.55,0)}
+if(k==='school'){add(new T.CylinderGeometry(0.15*m,0.15*m,8*m,6),'#DDD',wx*0.3,hS+4*m,wy*0.3);add(new T.BoxGeometry(2.6*m,1.6*m,0.1*m),'#3D7DC8',wx*0.3+1.3*m,hS+7.2*m,wy*0.3)}
 }
 
 // ---------- метки жителей: кружок с номером (как в 2D) и машина в пути ----------
@@ -258,7 +314,9 @@ function C(h){return new T.Color(h).convertSRGBToLinear()}
 function camUpdate(){var e=V.elev*Math.PI/180,b=V.bearing;
 cam.position.set(V.tgt[0]+V.dist*Math.cos(e)*Math.sin(b),V.dist*Math.sin(e),V.tgt[1]+V.dist*Math.cos(e)*Math.cos(b));cam.lookAt(V.tgt[0],0,V.tgt[1]);}
 function size(){var w=el.clientWidth||680,h=el.clientHeight||Math.round(w*460/680);R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();}
-function render(){if(!V.scene||!el.offsetParent&&el.offsetWidth===0)return;size();camUpdate();R.render(V.scene,cam);if(opts.onRender)opts.onRender()}
+function render(){if(!V.scene||!el.offsetParent&&el.offsetWidth===0)return;size();camUpdate();
+var sp=V.scene.userData.spin;if(sp){var tt=performance.now()/1000;sp.forEach(function(r){r.rotation.x=tt*r.userData.spin})}
+R.render(V.scene,cam);if(opts.onRender)opts.onRender()}
 var api={
 setScene:function(desc){
 var sc=new T.Scene();sc.background=C(COLORS.sky);

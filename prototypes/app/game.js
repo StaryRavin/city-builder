@@ -40,8 +40,8 @@ var BLD={
   wind:  {name:'Ветряк',group:'power',w:2,d:2,fl:6,cost:1800,up:35,jobs:1,power:3,color:'#E8ECEF',unlock:0,note:'3 МВт, без загрязнения'},
   coal:  {name:'Угольная ТЭС',group:'power',w:6,d:4,fl:3,cost:16000,up:260,jobs:30,power:40,color:'#6B6461',pollute:180,unlock:400,note:'40 МВт, загрязняет округу'},
   tower: {name:'Водонапорная башня',group:'water',w:2,d:2,fl:5,cost:2200,up:45,jobs:1,water:250,color:'#9DB7C9',use:0.2,unlock:0,note:'250 м³/сут, где угодно'},
-  pump:  {name:'Водозабор',group:'water',w:2,d:3,fl:1,cost:5000,up:110,jobs:4,water:1500,color:'#5E93BE',use:0.5,bank:true,unlock:0,note:'1500 м³/сут, у реки выше сброса'},
-  outlet:{name:'Сброс стоков',group:'water',w:2,d:2,fl:1,cost:3000,up:70,jobs:2,sewage:1500,color:'#8C7A5B',use:0.2,bank:true,unlock:0,note:'1500 м³/сут, у реки'},
+  pump:  {name:'Водозабор',group:'water',w:2,d:3,fl:1,cost:5000,up:110,jobs:4,water:1500,color:'#5E93BE',use:0.5,bank:true,unlock:0,note:'1500 м³/сут, на берегу или прямо на реке, выше сброса'},
+  outlet:{name:'Сброс стоков',group:'water',w:2,d:2,fl:1,cost:3000,up:70,jobs:2,sewage:1500,color:'#8C7A5B',use:0.2,bank:true,unlock:0,note:'1500 м³/сут, на берегу или прямо на реке'},
   park:  {name:'Сквер',group:'svc',w:2,d:2,fl:0,cost:900,up:15,jobs:0,radius:220,svc:'park',color:'#6DBE5F',unlock:0,note:'радиус 220 м, счастье жильцов'},
   clinic:{name:'Поликлиника',group:'svc',w:3,d:3,fl:2,cost:7000,up:140,jobs:15,radius:600,svc:'health',color:'#F0F0F0',use:0.4,unlock:150,note:'радиус 600 м'},
   police:{name:'Полиция',group:'svc',w:3,d:2,fl:2,cost:5500,up:120,jobs:12,radius:550,svc:'police',color:'#3B5BA5',use:0.3,unlock:150,note:'радиус 550 м'},
@@ -85,6 +85,9 @@ function waterLen(A,B){var L=Math.hypot(B[0]-A[0],B[1]-A[1]),n=Math.max(2,Math.c
 function polyNearWater(parts,m){return parts.some(function(P){return P.some(function(q){return riverAt(q).d<m})})}
 function polyInWater(parts){return parts.some(function(P){var c=[0,0];P.forEach(function(q){c[0]+=q[0]/P.length;c[1]+=q[1]/P.length});return inWater(c)||P.some(function(q){return riverAt(q).d<-2})})}
 
+// ближайшая к p точка в воде (на треть ширины от берега внутрь) — куда тянуть трубу
+function waterPoint(p){var P=RIVER.pts,best=Infinity,q=null;for(var i=0;i<P.length-1;i++){var a=P[i],b=P[i+1],ab=[b[0]-a[0],b[1]-a[1]],l2=ab[0]*ab[0]+ab[1]*ab[1],t=Math.max(0,Math.min(1,((p[0]-a[0])*ab[0]+(p[1]-a[1])*ab[1])/l2)),x=[a[0]+ab[0]*t,a[1]+ab[1]*t],d=Math.hypot(p[0]-x[0],p[1]-x[1]);if(d<best){best=d;q=x}}
+  var k=Math.max(0,(best-RIVER.hw*0.55)/best);return [p[0]+(q[0]-p[0])*k,p[1]+(q[1]-p[1])*k]}
 // ---------- деньги ----------
 function fmt(v){v=Math.round(v);return (v<0?'−':'')+String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g,' ')}
 function spend(v,what){if(S.money<v){toast('Не хватает денег: нужно '+fmt(v)+' $','bad');return false}S.money-=v;S.ledger.exp[what]=(S.ledger.exp[what]||0)+v;return true}
@@ -315,10 +318,16 @@ var MODES={
       paint=null;$('prev').innerHTML='';if(n){E.drawStatic();dirty3D=true}}},
   place:{down:function(P){placeAt(P,true);return false},hover:function(P){placeAt(P,false)}}
 };
-function placeLot(P){var D=BLD[place],h=E.hitCell(P);if(!h)return null;var Sd=E.G.hs[h.key],k0=Math.max(0,Math.min(h.k,Sd.nC-D.w));
-  if(Sd.nC<D.w)return null;return mkLot(h.key,k0,k0+D.w-1,D.d-1)}
+function placeLot(P){var D=BLD[place],h=E.hitCell(P);
+  // водозабор и сброс можно ставить, указав прямо на реку: ищем ближайшую клетку улицы по пути к дороге
+  if(!h&&D.bank){var sg=null,bd=Infinity,F=null;Object.keys(E.segs).forEach(function(id){var e=E.segEnds(E.segs[id]),d=segD(P,e[0],e[1]);if(d<bd){bd=d;sg=e}});
+    if(sg&&bd<60*M){var ab=[sg[1][0]-sg[0][0],sg[1][1]-sg[0][1]],l2=ab[0]*ab[0]+ab[1]*ab[1],t=Math.max(0,Math.min(1,((P[0]-sg[0][0])*ab[0]+(P[1]-sg[0][1])*ab[1])/l2));F=[sg[0][0]+ab[0]*t,sg[0][1]+ab[1]*t];
+      // клетки вокруг ближайшей точки дороги; берём ту, что ближе всего к указанному месту на воде
+      var bh=null,bdd=Infinity;for(var dx=-6;dx<=6;dx++)for(var dy=-6;dy<=6;dy++){var Q=[F[0]+dx*8,F[1]+dy*8],hq=E.hitCell(Q);if(!hq)continue;var dq=Math.hypot(Q[0]-P[0],Q[1]-P[1]);if(dq<bdd){bdd=dq;bh=hq}}h=bh}}
+  if(!h)return null;var Sd=E.G.hs[h.key],k0=Math.max(0,Math.min(h.k,Sd.nC-D.w));
+  if(Sd.nC<D.w)return null;var l=mkLot(h.key,k0,k0+D.w-1,D.d-1);if(D.bank)l.wet=true;return l}
 function placeWhy(l){var D=BLD[place],why=E.check(l,null);if(why)return E.LWHY[why]||why;
-  if(D.bank&&!polyNearWater(E.shape(l).parts,16*M))return 'нужно у реки (до 16 м от воды)';
+  if(D.bank&&!polyNearWater(E.shape(l).parts,30*M))return 'нужно у реки: нажмите на воду рядом с дорогой или на клетку у берега (до 30 м от воды)';
   if(S.money<D.cost)return 'не хватает денег';return null}
 function placeAt(P,commit){var D=BLD[place],l=placeLot(P);if(!l){$('prev').innerHTML='';return}
   var why=placeWhy(l);
@@ -345,10 +354,18 @@ function lotLook(l){var b=l.b;if(!b)return null;var f,st,op=1,extra='';
   if(overlay==='happy'&&isZoneB(b)&&done(b))f=hapColor(b.hap||0);
   if(overlay==='svc'&&isZoneB(b)){var n=SVC.filter(function(k){return b.cov&&b.cov[k]}).length;f=hapColor(n*25)}
   if(sel===l)extra+=E.lotSvg(l,'none','#1D1D1B',1,3);
+  if(done(b)&&!b.aband&&BLD[b.z])extra+=glyph(l,b);
   // значки проблем
   if(overlay==='none'&&done(b)&&!b.aband){var ic=[];if(b.pow===false)ic.push('#F2C230');if(b.wat===false)ic.push('#3C8DD0');if(b.sew===false)ic.push('#8C7A5B');if(b.linked===false)ic.push('#D9363E');
     if(ic.length){var c=b.ctr||lotCenter(l),r=Math.max(3,5/E.view.k);ic.forEach(function(col,i){extra+='<circle cx="'+(c[0]+(i-(ic.length-1)/2)*r*2.3).toFixed(1)+'" cy="'+c[1].toFixed(1)+'" r="'+r.toFixed(1)+'" fill="'+col+'" stroke="#fff" stroke-width="'+(r*0.35).toFixed(1)+'"/>'})}}
   return {fill:f,stroke:E.geom?City3D.shade(f.charAt(0)==='#'?f:'#888888',-0.45):'#333',op:op,extra:extra}}
+// значки станций в 2D: лопасти ветряка, бак башни, труба в реку
+function glyph(l,b){var c=b.ctr||lotCenter(l),r=6*M,o='',sw=' stroke-width="'+(1.2*M)+'" stroke-linecap="round"';
+  if(b.z==='wind'){for(var i=0;i<3;i++){var a=i*2*Math.PI/3-Math.PI/2;o+='<line x1="'+c[0]+'" y1="'+c[1]+'" x2="'+(c[0]+Math.cos(a)*r*1.1).toFixed(1)+'" y2="'+(c[1]+Math.sin(a)*r*1.1).toFixed(1)+'" stroke="#5A6168"'+sw+'/>'}o+='<circle cx="'+c[0]+'" cy="'+c[1]+'" r="'+(1.3*M)+'" fill="#5A6168"/>'}
+  if(b.z==='tower')o+='<circle cx="'+c[0]+'" cy="'+c[1]+'" r="'+(r*0.65).toFixed(1)+'" fill="#8FB4CC" stroke="#4F7690" stroke-width="'+(0.8*M)+'"/>';
+  if(b.z==='pump'||b.z==='outlet'){var w=waterPoint(c);o+='<line x1="'+c[0].toFixed(1)+'" y1="'+c[1].toFixed(1)+'" x2="'+w[0].toFixed(1)+'" y2="'+w[1].toFixed(1)+'" stroke="#6B747C"'+sw+'/><circle cx="'+w[0].toFixed(1)+'" cy="'+w[1].toFixed(1)+'" r="'+(b.z==='outlet'?3*M:1.6*M)+'" fill="'+(b.z==='outlet'?'#8A7A55':'#6B747C')+'" fill-opacity="0.8"/>'}
+  if(b.z==='park')[[-0.3,-0.2],[0.25,-0.25],[0,0.25]].forEach(function(f){o+='<circle cx="'+(c[0]+f[0]*r*2).toFixed(1)+'" cy="'+(c[1]+f[1]*r*2).toFixed(1)+'" r="'+(1.8*M)+'" fill="#3E8E4A"/>'});
+  return o}
 function lotLabel(l){var b=l.b;if(!b)return null;if(BLD[b.z])return BLD[b.z].name;return ''}
 
 // первый запуск: что делать
@@ -485,7 +502,7 @@ var hooks={
   afterRoad:function(){afterRoad()},
   cellSkip:function(c,ce){return inWater(ce)||c.some(function(q){return riverAt(q).d<-1})},
   cellStyle:function(cd){var z=S.zones[ckey(cd.ce)];if(z&&ZONE[z])return {fill:ZONE[z].cell,stroke:ZONE[z].color,op:0.8};return {fill:'#EFEBDD',stroke:'#D2CCB8',op:0.9}},
-  lotCheck:function(l,sh){return polyInWater(sh.parts)?'water':null},
+  lotCheck:function(l,sh){return !l.wet&&polyInWater(sh.parts)?'water':null},   // водозабор и сброс могут стоять в воде
   lotLook:lotLook,lotLabel:lotLabel,
   modes:MODES,
   hint:function(){return ''},
@@ -493,7 +510,7 @@ var hooks={
   exportLot:exportLot,
   building3D:function(l,b){var B=l.b;if(!B)return;b.floors=l.floors;
     if(!done(B)){b.plain=true;b.color='#CFC6B0';b.floors=0.4}else if(B.aband){b.plain=true;b.color='#77716B'}
-    else if(BLD[B.z]){b.plain=true;b.color=BLD[B.z].color;b.floors=Math.max(0.15,BLD[B.z].fl)}},
+    else if(BLD[B.z]){b.model=B.z;b.color=BLD[B.z].color;b.floors=Math.max(1,BLD[B.z].fl);if(BLD[B.z].bank)b.pipeTo=waterPoint(lotCenter(l))}},
   zoneCells3D:function(){return []},
   areas3D:function(){var ar=[{polys:RIVER.quads,color:'#7FB3D5',y:0.6}],by={};
     E.G.drawn.forEach(function(c){var z=S.zones[ckey(c.ce)];if(z&&ZONE[z])(by[z]=by[z]||[]).push(c.poly)});
