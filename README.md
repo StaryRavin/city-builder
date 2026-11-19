@@ -23,6 +23,13 @@ prototypes/
 | [`prototypes/road-editor`](prototypes/road-editor/) | Свои дороги из узлов и звеньев (пересечения только в узлах), сетка зонирования по сторонам звеньев, участки по правилам `crossroads`, этажность и 3D-вид, типы домов (жилой, коммерческий, рабочий) и их вместимость, выезды во внешний мир, базовая деревня на 100 жителей, реальный район Белграда (Дорчол) из OpenStreetMap | Открыть `prototypes/road-editor/index.html` в браузере |
 | [`prototypes/life-sim`](prototypes/life-sim/) | Симуляция жизни деревни без графики: места, жители с домом, работой и машиной, дороги со временем пути (этап 1 из 4) | `node prototypes/life-sim/run.mjs` |
 
+## Связанные проекты
+
+- [placemaker](https://github.com/jackwrichards/placemaker) — мод для Cities: Skylines II
+  (GPL-3.0) с подробным разбором движка зонирования; копия — `StaryRavin/junk`, ветка
+  `placemaker`. План переноса нашего углового зонирования в CS2 —
+  [`docs/cs2-corner-zoning.md`](docs/cs2-corner-zoning.md).
+
 ## Бэклог
 
 Что ещё предстоит сделать — в [`BACKLOG.md`](BACKLOG.md).
