@@ -37,11 +37,29 @@ var STYLES=[
 {name:'красно-белый',wall:'#B5533F',trim:'#EEE6D8',plinth:'#E2D8C8',roof:'#3D6A56',roofType:'mansard',arch:true},
 {name:'терракотовый',wall:'#D58B7B',trim:'#F2E8DE',plinth:'#C4AC93',roof:'#7A3D35',roofType:'mansard',arch:true},
 {name:'светло-серый',wall:'#CEC8BE',trim:'#E8E3DA',plinth:'#9B948A',roof:'#5D6066',roofType:'flat',arch:false},
-{name:'бежевый кирпич',wall:'#C7A07C',trim:'#EADDC9',plinth:'#8A6C56',roof:'#4E4846',roofType:'mansard',arch:false}];
+{name:'бежевый кирпич',wall:'#C7A07C',trim:'#EADDC9',plinth:'#8A6C56',roof:'#4E4846',roofType:'mansard',arch:false},
+// современные, панельные, стеклянные, склады, коттеджи, лавки: facade — вид фасада (по умолчанию classic)
+{name:'модерн белый',facade:'modern',wall:'#EEEDE9',trim:'#3B4047',plinth:'#3B4047',roof:'#7A8088',roofType:'flat',accent:'#B58A5E'},
+{name:'модерн графит',facade:'modern',wall:'#5B626D',trim:'#ECE9E2',plinth:'#2F343B',roof:'#454A52',roofType:'flat',accent:'#D2AC80'},
+{name:'модерн терракота',facade:'modern',wall:'#CF9277',trim:'#F4EFE8',plinth:'#5A4A42',roof:'#6E5D55',roofType:'flat',accent:'#2F343B'},
+{name:'панель бежевая',facade:'panel',wall:'#E8DECB',trim:'#FFFFFF',plinth:'#BCB19D',roof:'#9A958E',roofType:'flat',accent:'#D08562'},
+{name:'панель голубая',facade:'panel',wall:'#D3E0E8',trim:'#FFFFFF',plinth:'#A6B7C3',roof:'#8995A0',roofType:'flat',accent:'#E2A85E'},
+{name:'стекло синее',facade:'glass',wall:'#6F97B0',trim:'#DCE2E7',plinth:'#46525E',roof:'#7C8792',roofType:'flatbox'},
+{name:'стекло бирюзовое',facade:'glass',wall:'#7EAFA6',trim:'#E4E8E6',plinth:'#3E4F4B',roof:'#7B8884',roofType:'flatbox'},
+{name:'склад серый',facade:'warehouse',wall:'#C8CDD1',trim:'#959CA3',plinth:'#9AA1A7',roof:'#AEB5BB',roofType:'flat',accent:'#E0B13A'},
+{name:'склад синий',facade:'warehouse',wall:'#86A4BE',trim:'#5E7A94',plinth:'#5E7A94',roof:'#B3BDC6',roofType:'flat',accent:'#F2F2F2'},
+{name:'коттедж персиковый',facade:'cottage',wall:'#F3D8BF',trim:'#FFFFFF',plinth:'#BDA28B',roof:'#C0644B',roofType:'hip',accent:'#7C9A77'},
+{name:'коттедж мятный',facade:'cottage',wall:'#D6E8D8',trim:'#FFFFFF',plinth:'#A3B7A6',roof:'#66737F',roofType:'hip',accent:'#C9785A'},
+{name:'коттедж жёлтый',facade:'cottage',wall:'#F5E5AE',trim:'#FFFFFF',plinth:'#C0AE80',roof:'#94513F',roofType:'hip',accent:'#557796'},
+{name:'лавка красная',facade:'shop',wall:'#EDE2D3',trim:'#FFFFFF',plinth:'#3B4047',roof:'#7A8088',roofType:'flat',accent:'#D95B4F'},
+{name:'лавка зелёная',facade:'shop',wall:'#E1EAD8',trim:'#FFFFFF',plinth:'#2F4A3A',roof:'#66766B',roofType:'flat',accent:'#3E9B66'}];
+// наборы стилей по виду застройки — для игры
+var STYLE_SETS={classic:[0,1,2,3,4,5,6,7],modern:[8,9,10],panel:[11,12],glass:[13,14],warehouse:[15,16],cottage:[17,18,19],shop:[20,21]};
 // цвета карты — общие для 2D и 3D во всех прототипах
-var COLORS={ground:'#E6E0CC',sky:'#DFE7EA',road:'#5A5F66',roadLine:'#F2F2F2',zoneCell:'#9ED38F',zoneCell3D:'#B5D8A4',
+// светлая карта в духе Яндекс Карт: почти белая земля, голубовато-серые дороги, белые тротуары
+var COLORS={ground:'#F1F0EB',sky:'#E4ECF2',road:'#B4BECD',roadLine:'#FFFFFF',zoneCell:'#9ED38F',zoneCell3D:'#D8EECB',water:'#A9D4F0',grass:'#D3EDC5',
   zone:{res:'#3F8F4E',com:'#3D7DC8',work:'#D49A22'},gate:'#2F6F8F',bad:'#D9363E',area:'#D6DAE0',areaEdge:'#8A93A0',
-  sidewalk:'#C9C6BD',crosswalk:'#F4F4F0'};
+  sidewalk:'#FDFDFB',crosswalk:'#FFFFFF',tree:['#B7E2A3','#A8DA94','#C6EBB3','#9FD39A','#B4E0B8'],trunk:'#D5C2A2'};
 // улица: зебра — поперёк проезжей части, центр в crossAt м от узла (граница перекрёстка 5 м + 1.5),
 // шириной crossLen м вдоль улицы; полосы по 0.5 м через 0.5 м (как в симуляции движения)
 var STREET={crossAt:6.5,crossLen:3,stripe:0.5};
@@ -95,6 +113,7 @@ function facadeTex(si,kind,R){
 var key=si+kind;if(texCache[key])return texCache[key];
 var st=STYLES[si],B=64,F=64,rows=kind==='up'?4:1,cv=document.createElement('canvas');cv.width=B*4;cv.height=F*rows;
 var g=cv.getContext('2d'),rnd=seeded(si*7+(kind==='up'?1:2));
+if(st.facade&&st.facade!=='classic'){drawFacade(g,st,kind,B,F,rows,rnd);return texFinish(cv,key,R)}
 g.fillStyle=kind==='up'?st.wall:st.plinth;g.fillRect(0,0,cv.width,cv.height);
 function win(x,y,w,h,lit,arch){
 g.fillStyle=st.trim;g.beginPath();
@@ -115,8 +134,56 @@ g.fillStyle='rgba(0,0,0,0.12)';for(var k=1;k<4;k++)g.fillRect(x0,y0+F*k/4,B,1); 
 if(b===1){g.fillStyle=st.trim;g.fillRect(x0+B*0.3,y0+F*0.22,B*0.4,F*0.78);g.fillStyle='#5A4636';g.fillRect(x0+B*0.34,y0+F*0.28,B*0.32,F*0.72);} // дверь
 else win(x0+B*0.16,y0+F*0.24,B*0.68,F*0.56,rnd()<0.3,false); // витрина
 }}
-var tx=new THREE.CanvasTexture(cv);tx.wrapS=tx.wrapT=THREE.RepeatWrapping;tx.encoding=THREE.sRGBEncoding;
-tx.anisotropy=R?R.capabilities.getMaxAnisotropy():1;texCache[key]=tx;return tx;
+return texFinish(cv,key,R);
+}
+function texFinish(cv,key,R){var tx=new THREE.CanvasTexture(cv);tx.wrapS=tx.wrapT=THREE.RepeatWrapping;tx.encoding=THREE.sRGBEncoding;
+tx.anisotropy=R?R.capabilities.getMaxAnisotropy():1;texCache[key]=tx;return tx}
+/*
+ * Остальные виды фасада. Текстура — 4 пролёта по ширине (B) и 4 этажа по высоте (F);
+ * kind 'base' — первый этаж уличного фасада (витрины, двери, ворота), 'up' — этажи.
+ *   modern    — большие окна в тёмных рамах, часть пролётов — деревянные панели;
+ *   panel     — панели со швами, окна с белыми рамами, балконы;
+ *   glass     — сплошное остекление с импостами и перекрытиями;
+ *   warehouse — профлист, ленточные окна под крышей, ворота;
+ *   cottage   — небольшие окна со ставнями, дверь с козырьком;
+ *   shop      — этажи как у простого дома, внизу витрины под маркизой.
+ */
+function drawFacade(g,st,kind,B,F,rows,rnd){
+var f=st.facade,up=kind==='up',W4=B*4;
+function rect(c,x,y,w,h){g.fillStyle=c;g.fillRect(x,y,w,h)}
+function glass(x,y,w,h,lit){var gr=g.createLinearGradient(x,y,x+w*0.6,y+h);gr.addColorStop(0,lit?LIT:'#9DB4CC');gr.addColorStop(0.45,lit?'#EFD48F':'#6F87A6');gr.addColorStop(1,lit?'#E2C070':'#465672');g.fillStyle=gr;g.fillRect(x,y,w,h)}
+rect(up?st.wall:(f==='shop'||f==='modern'?st.plinth:st.wall),0,0,W4,F*rows);
+for(var r=0;r<rows;r++)for(var b=0;b<4;b++){var x=b*B,y=r*F,lit=rnd()<0.14;
+ if(f==='modern'){
+  if(up){if(rnd()<0.22){rect(st.accent,x+B*0.1,y+F*0.12,B*0.8,F*0.76);for(var k=0;k<6;k++)rect('rgba(0,0,0,0.08)',x+B*0.1+k*B*0.13,y+F*0.12,1.5,F*0.76)}
+    else{rect(st.trim,x+B*0.08,y+F*0.1,B*0.84,F*0.8);glass(x+B*0.12,y+F*0.14,B*0.76,F*0.72,lit);rect(st.trim,x+B*0.5-1,y+F*0.14,2,F*0.72)}
+    rect('rgba(0,0,0,0.10)',x,y+F-3,B,3)}
+  else{if(b===1){rect('#2A2E33',x+B*0.2,y+F*0.15,B*0.6,F*0.85);glass(x+B*0.26,y+F*0.2,B*0.48,F*0.8,true)}else{glass(x+B*0.05,y+F*0.12,B*0.9,F*0.8,rnd()<0.4);rect(st.plinth,x+B*0.5-1,y+F*0.12,2,F*0.8)}}}
+ else if(f==='panel'){
+  rect('rgba(0,0,0,0.07)',x,y,1.5,F);rect('rgba(0,0,0,0.07)',x,y+F-1.5,B,1.5);
+  if(up){var bal=(b%2===0)&&rnd()<0.6;rect(st.trim,x+B*0.24,y+F*0.18,B*0.52,F*0.5);glass(x+B*0.28,y+F*0.22,B*0.44,F*0.42,lit);rect(st.trim,x+B*0.5-1,y+F*0.22,2,F*0.42);
+    if(bal){rect(st.plinth,x+B*0.1,y+F*0.62,B*0.8,F*0.3);for(var k2=0;k2<7;k2++)rect('rgba(255,255,255,0.6)',x+B*0.12+k2*B*0.11,y+F*0.64,1.5,F*0.26)}}
+  else{if(b===1){rect(st.accent,x+B*0.2,y+F*0.12,B*0.6,F*0.1);rect('#6B5848',x+B*0.3,y+F*0.25,B*0.4,F*0.75)}else{rect(st.trim,x+B*0.24,y+F*0.25,B*0.52,F*0.45);glass(x+B*0.28,y+F*0.29,B*0.44,F*0.37,false)}}}
+ else if(f==='glass'){
+  glass(x,y,B,F,lit&&up);rect(st.trim,x,y,2.5,F);rect(st.trim,x+B/2-1,y,1.5,F);
+  rect(st.trim,x,y+F-5,B,5);rect('rgba(255,255,255,0.18)',x+B*0.08,y+F*0.08,B*0.12,F*0.6);
+  if(!up&&b===1){rect('#2E3540',x+B*0.25,y+F*0.25,B*0.5,F*0.75)}}
+ else if(f==='warehouse'){
+  for(var k3=0;k3<B;k3+=6)rect(k3%12?'rgba(0,0,0,0.06)':'rgba(255,255,255,0.10)',x+k3,y,3,F);
+  if(up&&r===0){rect(st.trim,x,y+F*0.12,B,F*0.2);glass(x+2,y+F*0.14,B-4,F*0.16,false)}
+  if(!up&&b===2){rect(st.trim,x+B*0.08,y+F*0.18,B*0.84,F*0.82);for(var k4=0;k4<10;k4++)rect('rgba(0,0,0,0.12)',x+B*0.1,y+F*0.22+k4*F*0.075,B*0.8,1.5)}
+  if(!up&&b===0){rect(st.accent,x+B*0.3,y+F*0.3,B*0.4,F*0.7)}}
+ else if(f==='cottage'){
+  if(up||b!==1){rect(st.trim,x+B*0.3,y+F*0.24,B*0.4,F*0.48);glass(x+B*0.34,y+F*0.28,B*0.32,F*0.4,lit);rect(st.trim,x+B*0.5-1,y+F*0.28,2,F*0.4);rect(st.trim,x+B*0.34,y+F*0.47,B*0.32,2);
+    rect(st.accent,x+B*0.18,y+F*0.24,B*0.1,F*0.48);rect(st.accent,x+B*0.72,y+F*0.24,B*0.1,F*0.48);rect(st.trim,x+B*0.26,y+F*0.73,B*0.48,3)}
+  else{rect(st.trim,x+B*0.24,y+F*0.12,B*0.52,F*0.08);rect(st.accent,x+B*0.32,y+F*0.24,B*0.36,F*0.76);rect('rgba(255,255,255,0.5)',x+B*0.36,y+F*0.3,B*0.28,F*0.16)}
+  if(up)rect('rgba(0,0,0,0.05)',x,y+F-2,B,2)}
+ else if(f==='shop'){
+  if(up){rect(st.trim,x+B*0.27,y+F*0.2,B*0.46,F*0.56);glass(x+B*0.31,y+F*0.24,B*0.38,F*0.48,lit);rect(st.trim,x+B*0.5-1,y+F*0.24,2,F*0.48);rect('rgba(0,0,0,0.06)',x,y+F-2,B,2)}
+  else{rect(st.accent,x,y+F*0.06,B,F*0.16);for(var k5=0;k5<8;k5+=2)rect('rgba(255,255,255,0.85)',x+k5*B/8,y+F*0.06,B/8,F*0.16);
+    rect('rgba(0,0,0,0.18)',x,y+F*0.22,B,3);
+    if(b===1){rect('#2A2E33',x+B*0.25,y+F*0.3,B*0.5,F*0.7);glass(x+B*0.3,y+F*0.34,B*0.4,F*0.66,true)}else glass(x+B*0.06,y+F*0.3,B*0.88,F*0.6,rnd()<0.6)}}
+}
 }
 function flatGeo(polys,yy){ // плоские выпуклые многоугольники в одну геометрию (веером)
 var T=THREE,pos=[];
@@ -189,11 +256,18 @@ else{wall('up'+si,a,c,0,H,n,bays/4,N/4);HS.back++;}
 var Oc=offsetPoly(P,1.0),y0=H-0.3,y1=H+1.3;
 for(var j=0;j<Oc.length;j++){var a2=Oc[j],b2=Oc[(j+1)%Oc.length],L2=len(sub(b2,a2));if(L2<0.1)continue;var d2=mul(sub(b2,a2),1/L2);wall('trim'+si,a2,b2,y0,y1,mul([d2[1],-d2[0]],sg),1,1);}
 var ar=Math.abs(signedArea(P)),per=P.reduce(function(acc,q,ii){return acc+len(sub(P[(ii+1)%P.length],q))},0),inr=2*ar/per;
-if(st.roofType==='mansard'&&inr>3){
+var hip=st.roofType==='hip'&&inr>2;
+if(hip){var rd2=inr*0.9,In2=offsetPoly(P,-rd2);if(Math.sign(signedArea(In2))!==Math.sign(signedArea(P))||Math.abs(signedArea(In2))>Math.abs(signedArea(P)))hip=false;
+  else{var rh2=Math.min(rd2*0.85,FH*1.4);for(var k2=0;k2<Oc.length;k2++)slope('roof'+si,Oc[k2],Oc[(k2+1)%Oc.length],In2[k2],In2[(k2+1)%In2.length],y1,y1+rh2);cap('roof'+si,In2,y1+rh2)}}
+if(hip){}
+else if((st.roofType==='mansard'||st.roofType==='hip')&&inr>3){
 var rd=Math.min(5,inr*0.55),In=offsetPoly(P,-rd),rh=rd*0.9;
 for(var k=0;k<Oc.length;k++)slope('roof'+si,Oc[k],Oc[(k+1)%Oc.length],In[k],In[(k+1)%In.length],y1,y1+rh);
 cap('roof'+si,In,y1+rh);
 }else{cap('roof'+si,Oc,y1);
+// крыша с надстройкой (стеклянные башни): технический этаж посередине
+if(st.roofType==='flatbox'&&inr>4){var Bx=offsetPoly(P,-inr*0.5),bh=FH*0.7;if(Math.sign(signedArea(Bx))===Math.sign(signedArea(P))){
+  for(var q2=0;q2<Bx.length;q2++){var a4=Bx[q2],b4=Bx[(q2+1)%Bx.length],L4=len(sub(b4,a4));if(L4<0.1)continue;var d4=mul(sub(b4,a4),1/L4);wall('party'+si,a4,b4,y1,y1+bh,mul([d4[1],-d4[0]],sg),1,1)}cap('trim'+si,Bx,y1+bh)}}
 // плоская крыша: невысокий бортик по краю
 var Ip=offsetPoly(P,-0.2);for(var q=0;q<Ip.length;q++){var a3=Ip[q],b3=Ip[(q+1)%Ip.length],L3=len(sub(b3,a3));if(L3<0.1)continue;var d3=mul(sub(b3,a3),1/L3);wall('trim'+si,a3,b3,y1,y1+1.2,mul([d3[1],-d3[0]],-sg),1,1);}}
 });
@@ -210,6 +284,28 @@ models.forEach(function(o){buildModel(sc,C,o.b,o.loop,FH)});
 simple.forEach(function(o){var b=o.b,h=(b.floors||1)*FH,bad=!!b.bad,mat=new T.MeshLambertMaterial({color:C(bad?COLORS.bad:(b.color||STYLES[b.style||0].wall)),transparent:bad,opacity:bad?0.7:1});
 (o.loop?[o.loop]:(o.parts||[])).forEach(function(P){var g=new T.ExtrudeGeometry(new T.Shape(P.map(function(q){return new T.Vector2(q[0],-q[1])})),{depth:h,bevelEnabled:false});g.rotateX(-Math.PI/2);sc.add(new T.Mesh(g,mat))});});
 }
+
+// ---------- деревья: мягкие «облака» на коротких стволах, как в Яндекс Картах ----------
+// trees — [{x, y, s, k, c}]: s — размер (1 ≈ крона 6 м), k — вид (0 — круглая, 1 — высокая, 2 — ель), c — оттенок
+var crownGeo=null;
+function treeGeos(){if(crownGeo)return crownGeo;var T=THREE;
+  function blob(seed,sy){var g=new T.SphereGeometry(1,14,10),p=g.attributes.position,r=seeded(seed),map={};
+    for(var i=0;i<p.count;i++){var x=p.getX(i),y=p.getY(i),z=p.getZ(i),k=Math.round(x*100)+':'+Math.round(y*100)+':'+Math.round(z*100);
+      if(map[k]==null)map[k]=0.93+r()*0.13;var f=map[k];p.setXYZ(i,x*f,y*f*sy,z*f)}
+    g.computeVertexNormals();return g}
+  crownGeo={round:blob(3,0.9),tall:blob(7,1.35),cone:new T.ConeGeometry(1,2.6,9),trunk:new T.CylinderGeometry(0.12,0.17,1,6)};return crownGeo}
+function buildTrees(sc,C,trees,FH){if(!trees||!trees.length)return;var T=THREE,G=treeGeos(),m=FH/4,M4=new T.Matrix4(),Q=new T.Quaternion(),S3=new T.Vector3(),P3=new T.Vector3(),col=new T.Color();
+  var kinds=[[],[],[]];trees.forEach(function(t){kinds[t.k||0].push(t)});
+  var trunk=new T.InstancedMesh(G.trunk,new T.MeshLambertMaterial({color:C(COLORS.trunk)}),trees.length),ti=0;
+  [G.round,G.tall,G.cone].forEach(function(geo,k){var L=kinds[k];if(!L.length)return;
+    var mesh=new T.InstancedMesh(geo,new T.MeshLambertMaterial({color:0xffffff}),L.length);
+    L.forEach(function(t,i){var s=(t.s||1)*m,r=3*s,th=(k===2?2.2:2.6)*s,cy=k===2?th+r*1.3:th+r*(k===1?1.15:0.8);
+      Q.setFromAxisAngle(new T.Vector3(0,1,0),(t.x*0.37+t.y*0.11)%6.28);
+      S3.set(r,k===2?r*1.0:r,r);P3.set(t.x,cy,t.y);M4.compose(P3,Q,S3);mesh.setMatrixAt(i,M4);
+      var pal=k===2?['#8CC79A','#7FBE8F','#97CFA3']:COLORS.tree;col.copy(C(pal[(t.c||0)%pal.length]));mesh.setColorAt(i,col);
+      S3.set(s*1.6,th+r*0.3,s*1.6);P3.set(t.x,(th+r*0.3)/2,t.y);M4.compose(P3,Q,S3);trunk.setMatrixAt(ti++,M4)});
+    mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;sc.add(mesh)});
+  trunk.count=ti;sc.add(trunk)}
 
 // ---------- модели зданий города (b.model): станции и услуги ----------
 // Единицы: клетка FH = 4 м, значит 1 м = FH/4. Контур P — в плане (x, y), в 3D это (x, высота, y).
@@ -251,10 +347,11 @@ if(k==='coal'){pad('#9C968C',0.6);
   [[-0.05,-0.25],[0.12,-0.25]].forEach(function(f){add(new T.CylinderGeometry(0.9*m,1.4*m,38*m,12),'#8A817B',wx*f[0],19*m,wy*f[1]);add(new T.CylinderGeometry(1*m,1*m,2*m,12),'#B8423A',wx*f[0],36*m,wy*f[1])});
   var pts=[];for(var t=0;t<=10;t++){var y=t/10;pts.push(new T.Vector2((Math.min(wx*0.2,wy*0.38))*(0.62+0.38*Math.pow(2*y-1.2,2)),y*22*m))}
   var ct=new T.Mesh(new T.LatheGeometry(pts,24),new T.MeshLambertMaterial({color:C('#C9C4BC'),side:T.DoubleSide}));ct.position.set(wx*0.28,0,wy*0.12);g.add(ct);return}
-if(k==='park'){pad('#7CC46A',0.9);var n=Math.max(3,Math.round(wx*wy/(9*m*9*m)*3)),rr=0.3;
-  for(var i2=0;i2<n;i2++){var a=i2*2.39996,r2=Math.sqrt((i2+0.5)/n)*R*0.75,x=Math.cos(a)*r2,z=Math.sin(a)*r2,th=(2.5+((i2*7)%3)*0.6)*m;
-    add(new T.CylinderGeometry(0.25*m,0.35*m,th,6),'#6E5238',x,th/2,z);add(new T.SphereGeometry((1.6+((i2*5)%3)*0.4)*m,10,8),i2%2?'#3E8E4A':'#4FA25A',x,th+1.2*m,z)}
-  return}
+if(k==='park'){pad(COLORS.grass,0.9);
+  // дорожки крестом и деревья по четвертям (сами деревья — в общем списке trees, их ставит игра)
+  var pw=1.6*m,dd=new T.Mesh(new T.BoxGeometry(wx*0.95,0.3,pw),mat('#FBF8F0'));dd.position.set(0,1.0,0);dd.rotation.y=-ang;g.add(dd);
+  var d2=new T.Mesh(new T.BoxGeometry(pw,0.3,wy*0.95),mat('#FBF8F0'));d2.position.set(0,1.0,0);d2.rotation.y=-ang;g.add(d2);
+  add(new T.CylinderGeometry(1.6*m,1.6*m,0.5,16),'#F4EEDF',0,1.2,0);return}
 // услуги: дом цвета службы и знак на крыше
 var hS=(b.floors||2)*FH,body=new T.Mesh(new T.BoxGeometry(wx*0.82,hS,wy*0.82),mat(b.color||'#EEE'));body.position.set(0,hS/2,0);g.add(body);
 add(new T.BoxGeometry(wx*0.86,0.8*m,wy*0.86),'#5C6066',0,hS+0.4*m,0);
@@ -304,6 +401,10 @@ function makePool(parts,cap,C,group){
 var tmpM=null,tmpB=null,colCache={};
 
 // ---------- вид: сцена, камера, управление ----------
+// освободить видеопамять старой сцены (текстуры фасадов — общие, их не трогаем)
+function disposeScene(sc){sc.traverse(function(o){if(o.geometry&&o.geometry!==crownGeo&&!isShared(o.geometry))o.geometry.dispose();
+  if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(function(m){m.dispose()})}})}
+function isShared(g){if(!crownGeo)return false;for(var k in crownGeo)if(crownGeo[k]===g)return true;return false}
 function createView(el,opts){
 opts=opts||{};
 var T=THREE,V={bearing:-0.5,elev:60,tgt:[0,0],dist:700,ptrs:{},last:null,rot:false,scene:null,marks:null,markers:[],cars:[],people:[]};
@@ -319,10 +420,11 @@ var sp=V.scene.userData.spin;if(sp){var tt=performance.now()/1000;sp.forEach(fun
 R.render(V.scene,cam);if(opts.onRender)opts.onRender()}
 var api={
 setScene:function(desc){
+if(V.scene)disposeScene(V.scene);
 var sc=new T.Scene();sc.background=C(COLORS.sky);
-// плоское (земля, клетки, дороги) — без освещения, цвета как в 2D; дома — со светом
-sc.add(new T.HemisphereLight(0xffffff,0x8d8573,0.6));
-var sun=new T.DirectionalLight(0xffffff,0.6);sun.position.set(-400,700,-250);sc.add(sun);
+// плоское (земля, клетки, дороги) — без освещения, цвета как в 2D; дома и деревья — с мягким светом
+sc.add(new T.HemisphereLight(0xffffff,0xcfc8b8,0.78));
+var sun=new T.DirectionalLight(0xffffff,0.42);sun.position.set(-400,700,-250);sc.add(sun);
 var ground=new T.Mesh(new T.PlaneGeometry(20000,20000),new T.MeshBasicMaterial({color:C(COLORS.ground)}));ground.rotation.x=-Math.PI/2;sc.add(ground);
 var side=T.DoubleSide,SW=desc.sidewalk||0,bands=roadBands(desc,desc.roadHalfWidth-SW),W=desc.roadHalfWidth,H=2.2*(desc.cell||16);
 // тротуары — светлая полоса под проезжей частью, до домов; зебры — поверх асфальта
@@ -333,6 +435,9 @@ if(desc.zoneCells&&desc.zoneCells.length)sc.add(new T.Mesh(flatGeo(desc.zoneCell
 if(a.label){var sp=textSprite(a.label),c=a.poly.reduce(function(s,q){return [s[0]+q[0]/a.poly.length,s[1]+q[1]/a.poly.length]},[0,0]),top=Math.min.apply(null,a.poly.map(function(q){return q[1]}));sp.position.set(c[0],24,top-8);sc.add(sp)}});
 if(bands.length)sc.add(new T.Mesh(flatGeo(bands.map(function(b){return b.poly}),1.6),new T.MeshBasicMaterial({color:C(COLORS.road),side:side})));
 buildHouses(sc,C,desc,SW>0?roadBands(desc,desc.roadHalfWidth):bands,R);
+buildTrees(sc,C,desc.trees,desc.cell||16);
+(desc.lines||[]).forEach(function(L){var pos=[];L.segs.forEach(function(sg){pos.push(sg[0][0],L.y||1.1,sg[0][1],sg[1][0],L.y||1.1,sg[1][1])});
+  var gg=new T.BufferGeometry();gg.setAttribute('position',new T.Float32BufferAttribute(pos,3));sc.add(new T.LineSegments(gg,new T.LineBasicMaterial({color:C(L.color),transparent:true,opacity:L.opacity==null?1:L.opacity})))});
 // выезды: арка-портал над концом дороги
 (desc.gates||[]).forEach(function(x){var d=x.dir,n=[-d[1],d[0]],P=add(x.at,mul(d,W*0.6)),ang=-Math.atan2(n[1],n[0]);
 var post=new T.MeshLambertMaterial({color:C('#ECEDEA')}),beam=new T.MeshLambertMaterial({color:C(x.ok===false?COLORS.bad:COLORS.gate)});
@@ -340,8 +445,34 @@ var post=new T.MeshLambertMaterial({color:C('#ECEDEA')}),beam=new T.MeshLambertM
 var bm=new T.Mesh(new T.BoxGeometry(2*W+10,9,3),beam);bm.position.set(P[0],H-4.5,P[1]);bm.rotation.y=ang;sc.add(bm);
 if(x.label){var sp=textSprite(x.label);sp.position.set(P[0],H+12,P[1]);sc.add(sp)}});
 V.marks=new T.Group();sc.add(V.marks);V.markers=[];V.pools={};
+V.over=new T.Group();sc.add(V.over);
 V.scene=sc;
 },
+// подсветка поверх сцены (превью дороги, участка, кисти зон, выбранный дом):
+// [{polys, color, opacity, y, h}] — h > 0: призма высотой h (дом), иначе плоско
+setOverlay:function(items){if(!V.over)return;
+  while(V.over.children.length){var o=V.over.children.pop();o.geometry.dispose();o.material.dispose()}
+  (items||[]).forEach(function(it){if(!it.polys||!it.polys.length)return;var mt=new T.MeshBasicMaterial({color:C(it.color),transparent:true,opacity:it.opacity==null?0.5:it.opacity,depthWrite:false,side:T.DoubleSide});
+    if(it.h>0)it.polys.forEach(function(P){var gg=new T.ExtrudeGeometry(new T.Shape(P.map(function(q){return new T.Vector2(q[0],-q[1])})),{depth:it.h,bevelEnabled:false});gg.rotateX(-Math.PI/2);var me=new T.Mesh(gg,mt);me.renderOrder=3;V.over.add(me)});
+    else{var me2=new T.Mesh(flatGeo(it.polys,it.y||2.2),mt);me2.renderOrder=3;V.over.add(me2)}});
+  render()},
+// точка земли (y = 0) под экранной точкой: [x, y] в единицах плана или null
+pick:function(clientX,clientY){var r=cv.getBoundingClientRect(),v=new T.Vector2((clientX-r.left)/r.width*2-1,-((clientY-r.top)/r.height)*2+1);
+  camUpdate();cam.updateMatrixWorld();var rc=new T.Raycaster();rc.setFromCamera(v,cam);var o=rc.ray.origin,d=rc.ray.direction;if(d.y>=-1e-6)return null;var t=-o.y/d.y;return [o.x+d.x*t,o.z+d.z*t]},
+// точка на доме под курсором (стена или крыша; чуть внутрь по лучу) или null —
+// чтобы щелчок по высокому дому выбирал его, а не землю за ним
+pickSolid:function(clientX,clientY){if(!V.scene)return null;var r=cv.getBoundingClientRect(),v=new T.Vector2((clientX-r.left)/r.width*2-1,-((clientY-r.top)/r.height)*2+1);
+  camUpdate();cam.updateMatrixWorld();var rc=new T.Raycaster();rc.setFromCamera(v,cam);
+  var objs=V.scene.children.filter(function(o){return o!==V.marks&&o!==V.over&&!o.isInstancedMesh&&!o.isLine&&!o.isLineSegments&&!o.isLight});
+  var hits=rc.intersectObjects(objs,true);for(var i=0;i<hits.length;i++){var h=hits[i];if(h.object.isInstancedMesh||h.point.y<2.5)continue;
+    var d=rc.ray.direction,q=h.point;return [q.x+d.x*1.5,q.z+d.z*1.5]}return null},
+// сдвинуть камеру на (dx, dy) пикселей экрана; повернуть
+pan:function(dx,dy){var b=V.bearing,rx=Math.cos(b),rz=-Math.sin(b),fx=-Math.sin(b),fz=-Math.cos(b),kpx=2*V.dist*Math.tan(20*Math.PI/180)/(cv.clientHeight||460),sy=1/Math.sin(V.elev*Math.PI/180);
+  V.tgt[0]-=(rx*dx-fx*dy*sy)*kpx;V.tgt[1]-=(rz*dx-fz*dy*sy)*kpx;render()},
+look:function(x,y,dist){V.tgt=[x,y];if(dist)V.dist=dist;render()},
+// точка мира (x, y в плане, z — высота) на экране: [clientX, clientY] или null за камерой
+project:function(x,y,z){camUpdate();cam.updateMatrixWorld();var v=new T.Vector3(x,z||0,y).project(cam);if(v.z>1)return null;var r=cv.getBoundingClientRect();return [r.left+(v.x+1)/2*r.width,r.top+(1-v.y)/2*r.height]},
+setElev:function(e){V.elev=Math.max(18,Math.min(85,e));render();return V.elev},
 // метки жителей: m = {x, y, z, color, label, selected, car}; кружок с номером
 // висит в (x, z, y); car = {x, y, heading, color} — машина жителя (стоит или
 // едет; heading — угол направления в плане), null — без машины
@@ -377,8 +508,18 @@ get elev(){return V.elev},
 dom:cv,_v:V
 };
 cv.addEventListener('contextmenu',function(e){e.preventDefault()});
+// инструменты (opts.tools): левая кнопка или один палец — инструменту, если он хочет;
+// иначе — камера; щелчок без сдвига — tools.click; движение без нажатия — tools.hover
+var TL=opts.tools||null,tool=null;
+function pt(e){return api.pick(e.clientX,e.clientY)}
 cv.addEventListener('pointerdown',function(e){try{cv.setPointerCapture(e.pointerId)}catch(_){}
-V.ptrs[e.pointerId]={x:e.clientX,y:e.clientY};V.rot=e.button===2||e.shiftKey;V.last=null;});
+if(TL&&e.button===0&&!e.shiftKey&&!Object.keys(V.ptrs).length&&TL.wants&&TL.wants()){var P=pt(e);if(P){tool={id:e.pointerId};TL.down(P,e);return}}
+if(tool&&e.pointerType==='touch'){if(TL.cancel)TL.cancel();tool=null}
+V.ptrs[e.pointerId]={x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY};V.rot=e.button===2||e.shiftKey;V.last=null;});
+cv.addEventListener('pointermove',function(e){if(tool&&tool.id===e.pointerId){var P=pt(e);if(P)TL.move(P,e);return}
+  if(TL&&!Object.keys(V.ptrs).length&&TL.hover){var Q=pt(e);if(Q)TL.hover(Q,e,TL.solid&&TL.solid()?api.pickSolid(e.clientX,e.clientY):null)}});
+cv.addEventListener('pointerup',function(e){if(tool&&tool.id===e.pointerId){var P=pt(e);tool=null;TL.up(P,e);return}
+  var p=V.ptrs[e.pointerId];if(p&&TL&&TL.click&&Math.hypot(e.clientX-p.x0,e.clientY-p.y0)<5&&e.button===0){var Q=pt(e);if(Q)TL.click(Q,e,TL.solid&&TL.solid()?api.pickSolid(e.clientX,e.clientY):null)}});
 cv.addEventListener('pointermove',function(e){
 if(!V.ptrs[e.pointerId])return;
 var prev=V.ptrs[e.pointerId];V.ptrs[e.pointerId]={x:e.clientX,y:e.clientY};
@@ -402,5 +543,5 @@ window.addEventListener('resize',render);
 return api;
 }
 
-window.City3D={STREET:STREET,crosswalkPolys:crosswalkPolys,STYLES:STYLES,COLORS:COLORS,ZONE_STYLES:ZONE_STYLES,shade:shade,lotFill:lotFill,loadThree:loadThree,createView:createView,offsetPoly:offsetPoly};
+window.City3D={STREET:STREET,STYLE_SETS:STYLE_SETS,crosswalkPolys:crosswalkPolys,STYLES:STYLES,COLORS:COLORS,ZONE_STYLES:ZONE_STYLES,shade:shade,lotFill:lotFill,loadThree:loadThree,createView:createView,offsetPoly:offsetPoly};
 })();

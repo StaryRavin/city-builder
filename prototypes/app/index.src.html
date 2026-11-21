@@ -2,145 +2,308 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Городок у реки</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap">
 <style>
-  :root { color-scheme: light dark; --bg:#fafaf7; --panel:#ffffff; --fg:#1d1d1b; --muted:#6a6a64; --btn:#ecebe4; --btn-b:#cfcdc2; --on:#2f6f8f; --on-fg:#fff; --bad:#c62f36; --good:#2e7d4a; --line:#dedbd0; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1b1b19; --panel:#24241f; --fg:#ecece6; --muted:#9a9a92; --btn:#2e2e2a; --btn-b:#46463f; --on:#4b93b8; --on-fg:#0d1418; --bad:#ff6b6b; --good:#6fcf8f; --line:#3a3a34; } }
-  :root[data-theme="dark"] { --bg:#1b1b19; --panel:#24241f; --fg:#ecece6; --muted:#9a9a92; --btn:#2e2e2a; --btn-b:#46463f; --on:#4b93b8; --on-fg:#0d1418; --bad:#ff6b6b; --good:#6fcf8f; --line:#3a3a34; }
+  /* Карта на весь экран, поверх — стеклянные панели: сверху город, время и ресурсы, снизу — инструменты */
+  :root {
+    --font: 'Onest', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --panel: rgba(255,255,255,.90); --panel-2: rgba(246,247,249,.96); --fg:#1E2530; --muted:#6B7480; --line:rgba(30,37,48,.10);
+    --accent:#2F6FEB; --accent-soft:#E7EEFD; --accent-fg:#fff;
+    --good:#2A9D63; --bad:#E5484D; --warn:#E59A0B; --track:rgba(30,37,48,.09);
+    --shadow:0 10px 30px rgba(24,36,60,.14), 0 1px 3px rgba(24,36,60,.08);
+    --r:16px; --r-sm:11px; --map:#F1F0EB;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --panel: rgba(28,32,39,.88); --panel-2: rgba(36,41,50,.96); --fg:#EEF1F5; --muted:#9AA3AE; --line:rgba(255,255,255,.10);
+    --accent:#6B9BFF; --accent-soft:rgba(107,155,255,.18); --accent-fg:#0D1626; --good:#4CC38A; --bad:#FF6B6E; --warn:#F5B941; --track:rgba(255,255,255,.12);
+    --shadow:0 10px 30px rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.3); color-scheme:dark; } }
+  :root[data-theme="dark"] {
+    --panel: rgba(28,32,39,.88); --panel-2: rgba(36,41,50,.96); --fg:#EEF1F5; --muted:#9AA3AE; --line:rgba(255,255,255,.10);
+    --accent:#6B9BFF; --accent-soft:rgba(107,155,255,.18); --accent-fg:#0D1626; --good:#4CC38A; --bad:#FF6B6E; --warn:#F5B941; --track:rgba(255,255,255,.12);
+    --shadow:0 10px 30px rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.3); color-scheme:dark; }
   * { box-sizing:border-box; }
   html, body { height:100%; margin:0; }
-  body { background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; display:flex; flex-direction:column; overflow:hidden; }
-  button { font:inherit; font-size:13px; color:var(--fg); background:var(--btn); border:1px solid var(--btn-b); border-radius:6px; padding:4px 10px; cursor:pointer; white-space:nowrap; }
-  button[aria-pressed="true"] { background:var(--on); color:var(--on-fg); border-color:var(--on); }
-  button:disabled { opacity:.45; cursor:default; }
-  .bad { color:var(--bad); } .good { color:var(--good); } .muted { color:var(--muted); font-size:12px; }
-  #top { flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; padding:8px 12px; border-bottom:1px solid var(--line); background:var(--panel); }
-  .stat { display:flex; flex-direction:column; line-height:1.15; }
-  .stat small { color:var(--muted); font-size:11px; }
-  .stat b { font-size:15px; font-variant-numeric:tabular-nums; }
-  #net { font-size:11px; font-variant-numeric:tabular-nums; }
-  .rci { display:flex; gap:3px; align-items:flex-end; height:34px; }
-  .rci div { width:14px; height:100%; background:var(--btn); border-radius:3px; position:relative; display:flex; align-items:flex-end; }
-  .rci div i { display:block; width:100%; border-radius:3px; }
-  .rci div span { position:absolute; bottom:-14px; left:0; right:0; text-align:center; font-size:10px; color:var(--muted); }
-  .util { font-size:12px; font-variant-numeric:tabular-nums; line-height:1.3; }
-  .util span.k { color:var(--muted); display:inline-block; width:44px; }
-  .grp { display:flex; }
-  .grp button { border-radius:0; margin-left:-1px; }
-  .grp button:first-child { border-radius:6px 0 0 6px; margin-left:0; }
-  .grp button:last-child { border-radius:0 6px 6px 0; }
-  .sp { flex:1; }
-  #main { flex:1; display:flex; min-height:0; }
-  #tools { width:220px; overflow-y:auto; padding:8px; border-right:1px solid var(--line); background:var(--panel); }
-  .tg { margin-bottom:10px; }
-  .tgh { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 4px 2px; }
-  .tgb { display:flex; flex-wrap:wrap; gap:4px; }
-  .tgb button { display:flex; align-items:center; gap:5px; padding:4px 8px; }
-  .tgb button i { display:inline-block; width:10px; height:10px; border-radius:2px; border:1px solid rgba(0,0,0,.3); flex:none; }
-  .tgb button small { opacity:.7; font-size:11px; }
-  #stage { flex:1; position:relative; min-width:0; overflow:hidden; background:#CFC8B2; }
+  body { background:var(--map); color:var(--fg); font:14px/1.35 var(--font); overflow:hidden; -webkit-font-smoothing:antialiased; }
+  button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; padding:0; }
+  button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button:disabled { cursor:default; }
+  .ic { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .ic.sm { width:15px; height:15px; }
+  .num, b, em { font-variant-numeric:tabular-nums; }
+  .good { color:var(--good); } .bad { color:var(--bad); } .muted { color:var(--muted); font-size:12px; margin:6px 0 0; }
+  .glass { background:var(--panel); border:1px solid var(--line); border-radius:var(--r); box-shadow:var(--shadow); -webkit-backdrop-filter:blur(14px) saturate(1.3); backdrop-filter:blur(14px) saturate(1.3); }
+
+  #stage { position:fixed; inset:0; }
   #sv { position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; user-select:none; -webkit-user-select:none; }
   .ns { vector-effect:non-scaling-stroke; }
-  #v3d { position:absolute; inset:0; touch-action:none; background:#dfe7ea; }
+  #v3d { position:absolute; inset:0; touch-action:none; background:#E4ECF2; }
   #v3d canvas { display:block; width:100% !important; height:100% !important; }
-  #v3d[hidden], .grp[hidden] { display:none; }
-  .float { position:absolute; display:flex; gap:6px; flex-wrap:wrap; }
-  #f-tl { top:8px; left:8px; }
-  #f-tr { top:8px; right:8px; }
-  .float button { box-shadow:0 1px 3px rgba(0,0,0,.12); }
-  #info { position:absolute; left:8px; bottom:8px; max-width:340px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 30px 10px 12px; box-shadow:0 4px 16px rgba(0,0,0,.15); font-size:13px; }
-  #info div { margin:2px 0; }
-  #info-x { position:absolute; top:4px; right:4px; padding:0 7px; border:none; background:none; font-size:18px; }
-  #info[hidden], #budget[hidden], #toast[hidden] { display:none; }
-  #budget { position:absolute; right:8px; top:48px; width:330px; max-width:calc(100% - 16px); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; box-shadow:0 4px 16px rgba(0,0,0,.18); }
-  #budget h2 { font-size:15px; margin:0 0 6px; }
-  #budget table { width:100%; border-collapse:collapse; font-size:13px; }
-  #budget th { text-align:left; padding:8px 0 2px; border-bottom:1px solid var(--line); }
-  #budget td { padding:3px 0; } .num { text-align:right; font-variant-numeric:tabular-nums; }
-  .tax { display:block; font-size:12px; color:var(--muted); }
-  .tax input { width:110px; vertical-align:middle; }
-  #bud-x { position:absolute; top:6px; right:6px; border:none; background:none; font-size:18px; padding:0 7px; }
-  #toast { position:absolute; left:50%; top:10px; transform:translateX(-50%); background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--on); border-radius:8px; padding:8px 14px; box-shadow:0 4px 16px rgba(0,0,0,.18); max-width:min(520px, calc(100% - 24px)); font-size:13px; z-index:5; }
-  #toast.bad { border-left-color:var(--bad); } #toast.good { border-left-color:var(--good); }
-  #bottom { display:flex; gap:12px; align-items:center; padding:0 12px; border-top:1px solid var(--line); background:var(--panel); height:36px; flex:none; overflow:hidden; }
-  #hint { color:var(--muted); font-size:12px; margin:0; flex:1; min-width:0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.3; }
-  #st { font-size:12px; margin:0; color:var(--muted); max-width:34%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #stats { display:none; }
-  .legend { display:flex; gap:10px; font-size:11px; color:var(--muted); }
-  .legend i { display:inline-block; width:9px; height:9px; border-radius:50%; vertical-align:-1px; margin-right:3px; border:1px solid #fff; }
-  @media (max-width: 760px) {
-    #main { flex-direction:column-reverse; }
-    #tools { width:auto; border-right:none; border-top:1px solid var(--line); max-height:none; overflow-x:auto; overflow-y:hidden; display:flex; gap:10px; padding:6px 8px; }
-    .tg { margin:0; flex:none; } .tgb { flex-wrap:nowrap; }
-    #top { gap:4px 10px; padding:6px 8px; } .util, .legend { display:none; }
-    #info { right:8px; max-width:none; }
+  #v3d[hidden] { display:none; }
+
+  /* ---- верх ---- */
+  .top { position:absolute; top:calc(12px + env(safe-area-inset-top, 0px)); left:max(12px, env(safe-area-inset-left, 0px)); right:max(12px, env(safe-area-inset-right, 0px));
+    display:flex; gap:10px; align-items:flex-start; pointer-events:none; }
+  .top > * { pointer-events:auto; }
+  #city { padding:10px 14px 10px; display:grid; gap:8px; min-width:0; }
+  #city h1 { font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:0; }
+  .stats { display:flex; gap:18px; }
+  .st { display:flex; gap:8px; align-items:center; }
+  .st .ic { color:var(--muted); }
+  .st b { display:block; font-size:17px; font-weight:650; line-height:1.1; }
+  .st small { display:block; font-size:11.5px; color:var(--muted); }
+  #net { font-size:11.5px; font-weight:600; }
+  #mile { display:grid; gap:4px; font-size:11.5px; color:var(--muted); }
+  .bar { display:block; height:6px; border-radius:6px; background:var(--track); overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:6px; background:var(--accent); transition:width .4s; }
+
+  #clockbox { margin:0 auto; display:flex; align-items:center; gap:12px; padding:6px 6px 6px 14px; }
+  #clockbox .when { display:grid; line-height:1.1; }
+  #c-day { font-size:11.5px; color:var(--muted); font-weight:500; }
+  #c-time { font-size:19px; font-weight:650; letter-spacing:.02em; }
+  .seg { display:flex; background:var(--track); border-radius:var(--r-sm); padding:3px; gap:2px; }
+  .seg button { height:32px; min-width:38px; padding:0 9px; border-radius:8px; display:grid; place-items:center; color:var(--muted); }
+  .seg button:hover { color:var(--fg); }
+  .seg button[aria-pressed="true"] { background:var(--panel-2); color:var(--fg); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .seg .ic { width:18px; height:18px; }
+
+  #res { display:flex; gap:14px; align-items:stretch; padding:10px 12px; }
+  .rci { display:flex; gap:5px; align-items:flex-end; }
+  .rci div { width:13px; height:42px; border-radius:5px; background:var(--track); position:relative; display:flex; align-items:flex-end; overflow:hidden; }
+  .rci i { display:block; width:100%; border-radius:5px; transition:height .5s; }
+  .rcil { display:flex; gap:5px; font-size:10.5px; color:var(--muted); font-weight:600; }
+  .rcil span { width:13px; text-align:center; }
+  .rcibox { display:grid; gap:3px; }
+  .gauges { display:grid; gap:5px; min-width:150px; }
+  .gauge { display:grid; grid-template-columns:16px 1fr; gap:2px 7px; align-items:center; font-size:11.5px; }
+  .gauge .ic { width:15px; height:15px; color:var(--muted); grid-row:span 2; }
+  .gauge em { font-style:normal; color:var(--muted); line-height:1; }
+  .gauge .bar { height:5px; }
+  .gauge .bar i { background:var(--good); }
+  .gauge.bad .bar i { background:var(--bad); } .gauge.bad em { color:var(--bad); font-weight:600; } .gauge.bad .ic { color:var(--bad); }
+  .tools-r { display:flex; flex-direction:column; gap:6px; }
+  .ibtn { height:40px; min-width:40px; padding:0 11px; border-radius:var(--r-sm); display:flex; align-items:center; justify-content:center; gap:7px; font-weight:600; font-size:13px; }
+  .ibtn:hover { background:var(--track); }
+  .ibtn[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent); }
+  #rbtns { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:6px; }
+
+  /* ---- всплывающие панели справа ---- */
+  .pop { position:absolute; right:max(12px, env(safe-area-inset-right, 0px)); top:calc(96px + env(safe-area-inset-top, 0px)); width:340px; max-width:calc(100% - 24px); padding:16px; max-height:calc(100% - 230px); overflow:auto; }
+  .pop[hidden] { display:none; }
+  .pop h2 { font-size:16px; margin:0 0 10px; font-weight:650; }
+  .pop h3 { font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:14px 0 6px; font-weight:600; }
+  .x { position:absolute; top:10px; right:10px; width:32px; height:32px; border-radius:9px; display:grid; place-items:center; color:var(--muted); }
+  .x:hover { background:var(--track); color:var(--fg); }
+  .tax { display:grid; grid-template-columns:10px 1fr auto; gap:4px 8px; align-items:center; padding:6px 0; border-bottom:1px solid var(--line); }
+  .tax label { grid-column:2 / 4; display:flex; align-items:center; gap:10px; font-size:12px; color:var(--muted); }
+  .tax input { flex:1; accent-color:var(--accent); }
+  .tax em { font-style:normal; width:34px; text-align:right; color:var(--fg); font-weight:600; }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .exp, .tot { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--line); }
+  .tot { border:0; font-size:15px; font-weight:650; padding-top:10px; }
+  .menu-l { display:grid; gap:4px; }
+  .menu-l button { display:flex; align-items:center; gap:10px; padding:10px; border-radius:var(--r-sm); text-align:left; font-weight:500; }
+  .menu-l button:hover { background:var(--track); }
+  .menu-l button[aria-pressed="false"] { color:var(--muted); }
+  .lay { display:grid; gap:4px; }
+  .lay button { display:flex; align-items:center; gap:10px; padding:10px; border-radius:var(--r-sm); font-weight:500; text-align:left; }
+  .lay button:hover { background:var(--track); }
+  .lay button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent); }
+  .lay .sw { width:26px; height:10px; border-radius:5px; flex:none; }
+
+  /* окно здания */
+  #info { width:330px; }
+  .ih { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; margin:0 30px 12px 0; }
+  .ih b { display:block; font-size:16px; font-weight:650; }
+  .ih small { color:var(--muted); font-size:12px; }
+  .tile { width:42px; height:42px; border-radius:12px; display:grid; place-items:center; background:var(--c); color:#fff; box-shadow:inset 0 -2px 0 rgba(0,0,0,.12); }
+  .tile .ic { width:22px; height:22px; filter:drop-shadow(0 1px 0 rgba(0,0,0,.2)); }
+  .pill { font-size:11.5px; font-weight:600; padding:4px 9px; border-radius:20px; background:var(--track); color:var(--muted); white-space:nowrap; }
+  .pill.ok { background:color-mix(in srgb, var(--good) 16%, transparent); color:var(--good); }
+  .pill.bad { background:color-mix(in srgb, var(--bad) 16%, transparent); color:var(--bad); }
+  .row { display:flex; justify-content:space-between; margin:10px 0 5px; font-size:13px; } .row span { color:var(--muted); }
+  dl { display:grid; grid-template-columns:1fr auto; gap:6px 12px; margin:4px 0 0; font-size:13px; }
+  dt { color:var(--muted); } dd { margin:0; font-weight:600; text-align:right; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+  .chip { display:inline-flex; gap:5px; align-items:center; font-size:12px; font-weight:500; padding:4px 9px 4px 7px; border-radius:20px; background:var(--track); color:var(--muted); }
+  .chip.ok { background:color-mix(in srgb, var(--good) 14%, transparent); color:var(--good); }
+  .chip.no { background:color-mix(in srgb, var(--bad) 14%, transparent); color:var(--bad); }
+  .chip.na { opacity:.6; }
+  .warn { display:flex; gap:7px; align-items:flex-start; font-size:12.5px; color:var(--bad); margin:12px 0 0; }
+
+  /* ---- уведомления ---- */
+  #toasts { position:absolute; top:calc(84px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); display:grid; gap:8px; width:min(460px, calc(100% - 24px)); pointer-events:none; z-index:5; }
+  .toast { display:flex; gap:10px; align-items:flex-start; padding:10px 14px; font-size:13px; font-weight:500; animation:tin .25s ease-out;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r-sm); box-shadow:var(--shadow); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); transition:opacity .3s, transform .3s; }
+  .toast .ic { color:var(--accent); margin-top:-1px; } .toast.bad .ic { color:var(--bad); } .toast.good .ic { color:var(--good); }
+  .toast.out { opacity:0; transform:translateY(-6px); }
+  @keyframes tin { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }
+
+  /* ---- низ: подсказка, карточки, панель инструментов ---- */
+  .bottom { position:absolute; left:0; right:0; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); display:grid; justify-items:center; gap:10px; pointer-events:none; padding:0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
+  .bottom > * { pointer-events:auto; }
+  #tip { font-size:12.5px; padding:7px 14px; border-radius:20px; max-width:min(620px, 100%); text-align:center; color:var(--fg); }
+  #tip[hidden] { display:none; }
+  #fly { padding:12px; max-width:100%; }
+  #fly[hidden] { display:none; }
+  .fly-h { display:flex; gap:8px; align-items:center; font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:0 0 10px 4px; }
+  .fly-h .ic { width:16px; height:16px; }
+  .fly-row { display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; }
+  .card { width:150px; flex:none; display:grid; gap:3px; justify-items:start; text-align:left; padding:10px; border-radius:13px; border:1px solid transparent; }
+  .card:hover:not(:disabled) { background:var(--track); }
+  .card[aria-pressed="true"] { background:var(--accent-soft); border-color:var(--accent); }
+  .card .tile { width:38px; height:38px; margin-bottom:5px; }
+  .card b { font-size:13.5px; font-weight:600; }
+  .card em { font-style:normal; font-size:12px; color:var(--fg); font-weight:600; }
+  .card small { font-size:11.5px; color:var(--muted); line-height:1.3; display:flex; gap:4px; align-items:flex-start; }
+  .card:disabled { opacity:.55; } .card:disabled .tile { filter:grayscale(1); }
+  #dock { display:flex; gap:4px; padding:6px; max-width:100%; overflow-x:auto; }
+  .dk { width:74px; height:60px; border-radius:13px; display:grid; place-items:center; align-content:center; gap:4px; color:var(--muted); font-size:11.5px; font-weight:600; flex:none; }
+  .dk .ic { width:24px; height:24px; }
+  .dk:hover { background:var(--track); color:var(--fg); }
+  .dk.on { background:var(--accent); color:var(--accent-fg); }
+
+  /* камера */
+  #cam { position:absolute; right:max(12px, env(safe-area-inset-right, 0px)); bottom:calc(12px + env(safe-area-inset-bottom, 0px)); display:grid; gap:4px; padding:5px; }
+  #cam .ibtn { height:38px; min-width:38px; padding:0; }
+  #g3d { display:grid; gap:4px; } #g3d[hidden] { display:none; }
+  body:not(.is3d) #b-home { display:none; }
+  #t-tilt { font-size:0; }
+
+  /* первый запуск */
+  #welcome { position:absolute; inset:0; display:grid; place-items:center; background:rgba(20,28,40,.25); padding:16px; z-index:10; }
+  #welcome[hidden] { display:none; }
+  #welcome .glass { max-width:520px; padding:24px; }
+  #welcome h2 { font-size:22px; margin:0 0 4px; font-weight:700; text-wrap:balance; }
+  #welcome p.lead { color:var(--muted); margin:0 0 16px; }
+  .steps { display:grid; gap:12px; margin:0 0 20px; }
+  .step { display:grid; grid-template-columns:auto 1fr; gap:12px; align-items:start; font-size:13.5px; }
+  .step .tile { width:36px; height:36px; }
+  .step b { display:block; font-weight:600; }
+  .go { height:44px; padding:0 20px; border-radius:12px; background:var(--accent); color:var(--accent-fg); font-weight:650; font-size:14.5px; }
+  .keys { font-size:12px; color:var(--muted); margin:12px 0 0; }
+  kbd { font:600 11px var(--font); padding:2px 6px; border-radius:5px; background:var(--track); }
+
+  #st, #stats, #hint { display:none; }
+  .dk.open { background:var(--accent-soft); color:var(--accent); }
+  @media (max-width: 900px) { .gauges { display:none; } }
+  @media (max-width: 720px) {
+    #res, #clockbox .when small { display:none; }
+    .top { flex-wrap:wrap; } #clockbox { padding-left:10px; } #c-time { font-size:16px; }
+    .stats { gap:12px; } .st b { font-size:15px; } #mile { display:none; }
+    .seg button { min-width:32px; padding:0 6px; }
+    .dk { width:62px; height:54px; font-size:10.5px; }
+    .pop, #info { top:auto; bottom:calc(150px + env(safe-area-inset-bottom, 0px)); left:max(12px, env(safe-area-inset-left, 0px)); right:max(12px, env(safe-area-inset-right, 0px)); width:auto; max-height:50%; }
+    #toasts { top:calc(130px + env(safe-area-inset-top, 0px)); }
+    #cam { display:none; }
+    #rbtns { grid-template-columns:repeat(4,auto); padding:4px; gap:2px; margin-left:auto; } #b-3d span { display:none; } #rbtns .ibtn { height:36px; min-width:36px; padding:0; }
+    #c-day { display:none; } #clockbox { margin:0; gap:8px; }
+    #city { flex:1 1 100%; }
+    .card { width:132px; }
   }
+  @media (prefers-reduced-motion: reduce) { .toast { animation:none; } .bar i, .rci i { transition:none; } }
 </style>
 </head>
 <body>
-<header id="top">
-  <div class="stat"><small>Казна</small><b id="money">—</b><span id="net"></span></div>
-  <div class="stat"><small>Жители</small><b id="pop">0</b></div>
-  <div class="stat"><small>Рабочие места</small><b id="jobs">0</b></div>
-  <div class="stat"><small>Безработица</small><b id="unemp">—</b></div>
-  <div class="rci" title="Спрос на зоны">
-    <div><i id="d-r" style="background:#3F8F4E"></i><span>Ж</span></div>
-    <div><i id="d-c" style="background:#3D7DC8"></i><span>Т</span></div>
-    <div><i id="d-i" style="background:#D49A22"></i><span>П</span></div>
-    <div><i id="d-o" style="background:#8A5CC4"></i><span>О</span></div>
-  </div>
-  <div class="util"><div><span class="k">Свет</span><span id="u-p">—</span></div><div><span class="k">Вода</span><span id="u-w">—</span></div><div><span class="k">Стоки</span><span id="u-s">—</span></div></div>
-  <span class="sp"></span>
-  <div class="stat"><small id="mile"></small><b id="clock">—</b></div>
-  <div class="grp" role="group" aria-label="Скорость">
-    <button type="button" data-speed="0" aria-label="Пауза">❚❚</button>
-    <button type="button" data-speed="1" aria-label="Скорость 1">▶</button>
-    <button type="button" data-speed="2" aria-label="Скорость 2">▶▶</button>
-    <button type="button" data-speed="3" aria-label="Скорость 3">▶▶▶</button>
-  </div>
-  <button type="button" id="b-budget">Бюджет</button>
-  <button type="button" id="b-new">Новый город</button>
-</header>
-<div id="main">
-  <aside id="tools" aria-label="Инструменты"></aside>
-  <div id="stage">
-    <svg id="sv" viewBox="0 0 800 500" role="img" aria-label="Карта города">
-      <g id="world"><g id="terrain"></g><g id="cells"></g><g id="ghost"></g><g id="roads"></g><g id="lots"></g><g id="agents"></g><g id="nodes"></g><g id="exits"></g><g id="prev"></g></g>
-    </svg>
-    <div id="v3d" hidden></div>
-    <div class="float" id="f-tl">
-      <div class="grp" role="group" aria-label="Слои">
-        <button type="button" data-ovl="none" aria-pressed="true">Обычный</button>
-        <button type="button" data-ovl="power" aria-pressed="false">Свет</button>
-        <button type="button" data-ovl="water" aria-pressed="false">Вода</button>
-        <button type="button" data-ovl="happy" aria-pressed="false">Счастье</button>
-        <button type="button" data-ovl="svc" aria-pressed="false">Услуги</button>
+<div id="stage">
+  <svg id="sv" viewBox="0 0 800 500" role="img" aria-label="План города">
+    <g id="world"><g id="terrain"></g><g id="cells"></g><g id="ghost"></g><g id="roads"></g><g id="lots"></g><g id="trees"></g><g id="agents"></g><g id="nodes"></g><g id="exits"></g><g id="prev"></g></g>
+  </svg>
+  <div id="v3d" hidden></div>
+
+  <div class="top">
+    <section id="city" class="glass" aria-label="Город">
+      <h1>Городок у реки</h1>
+      <div class="stats">
+        <div class="st"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17.2" cy="9" r="2.5"/><path d="M16 14.3c2.9.4 5 2.7 5 5.7"/></svg><div><b id="pop">0</b><small>жителей</small></div></div>
+        <div class="st"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="7.5" width="18" height="12.5" rx="2.2"/><path d="M9 7.5V5.2h6v2.3M3 12.5h18"/></svg><div><b id="jobs">0</b><small id="unemp">рабочих мест</small></div></div>
+        <div class="st"><svg class="ic" viewBox="0 0 24 24"><ellipse cx="12" cy="6.5" rx="7" ry="3"/><path d="M5 6.5v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5M5 11.5v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5"/></svg><div><b id="money">—</b><span id="net"></span></div></div>
       </div>
+      <div id="mile"></div>
+    </section>
+    <section id="clockbox" class="glass" aria-label="Время">
+      <div class="when"><span id="c-day">День 1</span><span id="c-time">07:00</span></div>
+      <div class="seg" role="group" aria-label="Скорость">
+        <button type="button" data-speed="0" aria-label="Пауза (пробел)" title="Пауза — пробел"><svg class="ic" viewBox="0 0 24 24"><path d="M9 5.5v13M15 5.5v13"/></svg></button>
+        <button type="button" data-speed="1" aria-label="Скорость 1" title="1"><svg class="ic" viewBox="0 0 24 24"><path d="M8 5.5l10.5 6.5L8 18.5z"/></svg></button>
+        <button type="button" data-speed="2" aria-label="Скорость 2" title="2"><svg class="ic" viewBox="0 0 24 24"><path d="M4.5 6l7.5 6-7.5 6zM12 6l7.5 6-7.5 6z"/></svg></button>
+        <button type="button" data-speed="3" aria-label="Скорость 3" title="3"><svg class="ic" viewBox="0 0 24 24"><path d="M2.5 7l6 5-6 5zM9 7l6 5-6 5zM15.5 7l6 5-6 5z"/></svg></button>
+      </div>
+    </section>
+    <section id="res" class="glass" aria-label="Спрос и ресурсы">
+      <div class="rcibox" title="Спрос на зоны">
+        <div class="rci"><div><i id="d-r" style="background:#3F9A55"></i></div><div><i id="d-c" style="background:#3B7DD8"></i></div><div><i id="d-i" style="background:#D99A1E"></i></div><div><i id="d-o" style="background:#8A5CD0"></i></div></div>
+        <div class="rcil"><span>Ж</span><span>Т</span><span>П</span><span>О</span></div>
+      </div>
+      <div class="gauges">
+        <div class="gauge" id="u-p" title="Электричество: нужно / есть"><svg class="ic" viewBox="0 0 24 24"><path d="M13.5 2.5L5 13.5h6.5L10.5 21.5 19 10h-6.5z"/></svg><em></em><span class="bar"><i></i></span></div>
+        <div class="gauge" id="u-w" title="Вода: нужно / есть"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3c4.2 5 6.3 8.2 6.3 11.2a6.3 6.3 0 0 1-12.6 0C5.7 11.2 7.8 8 12 3z"/></svg><em></em><span class="bar"><i></i></span></div>
+        <div class="gauge" id="u-s" title="Стоки: нужно / есть"><svg class="ic" viewBox="0 0 24 24"><path d="M3 8.5h9.5a4.5 4.5 0 0 1 4.5 4.5v8M3 13h8.2a1.8 1.8 0 0 1 1.8 1.8V21"/></svg><em></em><span class="bar"><i></i></span></div>
+      </div>
+    </section>
+    <section id="rbtns" class="glass" aria-label="Меню">
+      <button type="button" class="ibtn" id="b-layers" title="Слои карты"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.5l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></button>
+      <button type="button" class="ibtn" id="b-budget" title="Бюджет"><svg class="ic" viewBox="0 0 24 24"><ellipse cx="12" cy="6.5" rx="7" ry="3"/><path d="M5 6.5v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5M5 11.5v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5"/></svg></button>
+      <button type="button" class="ibtn" id="b-3d" title="3D / план"></button>
+      <button type="button" class="ibtn" id="b-menu" title="Меню"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    </section>
+  </div>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <section id="info" class="pop glass" hidden aria-label="Здание"></section>
+  <section id="budget" class="pop glass" hidden aria-label="Бюджет"><h2>Бюджет</h2><button type="button" class="x" data-close="budget" aria-label="Закрыть"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button><div id="bud-body"></div></section>
+  <section id="layers" class="pop glass" hidden aria-label="Слои"><h2>Слои карты</h2><button type="button" class="x" data-close="layers" aria-label="Закрыть"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="lay">
+      <button type="button" data-ovl="none" aria-pressed="true"><span class="sw" style="background:linear-gradient(90deg,#C0644B,#86A4BE,#EEEDE9)"></span>Обычный вид</button>
+      <button type="button" data-ovl="power" aria-pressed="false"><span class="sw" style="background:linear-gradient(90deg,#8FD19E 50%,#E5484D 50%)"></span>Электричество</button>
+      <button type="button" data-ovl="water" aria-pressed="false"><span class="sw" style="background:linear-gradient(90deg,#8FD19E 50%,#E5484D 50%)"></span>Вода и стоки</button>
+      <button type="button" data-ovl="happy" aria-pressed="false"><span class="sw" style="background:linear-gradient(90deg,#E5484D,#F5BE3C,#30A46C)"></span>Счастье</button>
+      <button type="button" data-ovl="svc" aria-pressed="false"><span class="sw" style="background:linear-gradient(90deg,#E5484D,#F5BE3C,#30A46C)"></span>Охват услугами</button>
+    </div></section>
+  <section id="menu" class="pop glass" hidden aria-label="Меню"><h2>Город</h2><button type="button" class="x" data-close="menu" aria-label="Закрыть"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="menu-l">
+      <button type="button" id="b-life" aria-pressed="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="7" cy="17" r="2.3"/><circle cx="17" cy="17" r="2.3"/><path d="M4.7 17H3.5v-4.5l2.5-4h8.5l3.5 4H21V17h-1.7M9.3 17h5.4M6 12.5h13"/></svg>Жители и машины на улицах</button>
+      <button type="button" id="b-new"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Новый город</span></button>
     </div>
-    <div class="float" id="f-tr">
-      <div class="grp" role="group" aria-label="Масштаб">
-        <button id="z-out" type="button" aria-label="Отдалить">−</button>
-        <button id="z-in" type="button" aria-label="Приблизить">+</button>
-      </div>
-      <button id="b-3d" type="button" aria-pressed="false">3D</button>
-      <div class="grp" id="g3d" role="group" aria-label="Поворот и наклон" hidden>
-        <button id="r-l" type="button" aria-label="Повернуть влево">⟲</button>
-        <button id="r-r" type="button" aria-label="Повернуть вправо">⟳</button>
-        <button id="t-tilt" type="button">Наклон 60°</button>
-      </div>
-      <button id="b-life" type="button" aria-pressed="true" title="Жители и машины на улицах">Жизнь</button>
-    </div>
-    <div id="info" hidden></div>
-    <div id="budget" hidden><h2>Бюджет</h2><button type="button" id="bud-x" aria-label="Закрыть">×</button><div id="bud-body"></div></div>
-    <div id="toast" hidden></div>
+    <p class="keys"><kbd>WASD</kbd> двигать · <kbd>Q</kbd><kbd>E</kbd> вращать · <kbd>Пробел</kbd> пауза · <kbd>1–3</kbd> скорость · <kbd>R</kbd> дороги · <kbd>Z</kbd> зоны · <kbd>B</kbd> снос</p></section>
+
+  <div class="bottom">
+    <p id="tip" class="glass" hidden></p>
+    <div id="fly" class="glass" hidden></div>
+    <nav id="dock" class="glass" aria-label="Инструменты"></nav>
   </div>
+
+  <div id="cam" class="glass" aria-label="Камера">
+    <button type="button" class="ibtn" id="b-home" title="Показать город"><svg class="ic" viewBox="0 0 24 24"><path d="M3.5 11L12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/></svg></button>
+    <div id="g3d" hidden>
+      <button type="button" class="ibtn" id="r-l" title="Повернуть (Q)"><svg class="ic" viewBox="0 0 24 24"><path d="M4.5 9A8 8 0 1 1 5 15.5"/><path d="M4 4.5V9h4.5"/></svg></button>
+      <button type="button" class="ibtn" id="r-r" title="Повернуть (E)"><svg class="ic" viewBox="0 0 24 24"><path d="M19.5 9A8 8 0 1 0 19 15.5"/><path d="M20 4.5V9h-4.5"/></svg></button>
+      <button type="button" class="ibtn" id="t-tilt" title="Наклон"><svg class="ic" viewBox="0 0 24 24"><path d="M4 18h16M6 18l6-12 6 12"/></svg>Наклон</button>
+    </div>
+    <button type="button" class="ibtn" id="z-in" title="Приблизить"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button type="button" class="ibtn" id="z-out" title="Отдалить"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+  </div>
+
+  <div id="welcome" hidden>
+    <div class="glass" role="dialog" aria-modal="true" aria-labelledby="w-t">
+      <h2 id="w-t">Новый город у реки</h2>
+      <p class="lead">Плоская равнина, река и шоссе с запада. Казна — 60 000 $.</p>
+      <div class="steps">
+        <div class="step"><i class="tile" style="--c:#8C98AA"><svg class="ic" viewBox="0 0 24 24"><path d="M7 21L10 3M17 21L14 3"/><path d="M12 5v2.5M12 10.5v3M12 16.5v3"/></svg></i><div><b>Проложите улицы</b>Тяните от шоссе вглубь карты. Дома встанут вдоль улиц по форме квартала.</div></div>
+        <div class="step"><i class="tile" style="--c:#3F9A55"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.5"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.5"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.5"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.5"/></svg></i><div><b>Раскрасьте зоны</b>Жильё, торговля, промышленность. Дома растут сами, когда на них есть спрос — столбики Ж·Т·П·О вверху.</div></div>
+        <div class="step"><i class="tile" style="--c:#E5A823"><svg class="ic" viewBox="0 0 24 24"><path d="M13.5 2.5L5 13.5h6.5L10.5 21.5 19 10h-6.5z"/></svg></i><div><b>Дайте свет, воду и стоки</b>Ветряк, водонапорная башня и сброс стоков у реки. Сети идут по дорогам.</div></div>
+        <div class="step"><i class="tile" style="--c:#2F6FEB"><svg class="ic" viewBox="0 0 24 24"><path d="M3.5 20.5h17M5 20.5V10l7-5.5 7 5.5v10.5"/><path d="M10 20.5v-5h4v5"/></svg></i><div><b>Растите город</b>Скверы, поликлиника, школа и разумные налоги поднимают дома до 3-го уровня. Новые здания открываются по числу жителей.</div></div>
+      </div>
+      <button type="button" class="go" id="w-go">Начать строить</button>
+      <p class="keys"><kbd>WASD</kbd> двигать камеру · правая кнопка мыши — вращать · колесо — масштаб · <kbd>Пробел</kbd> пауза</p>
+    </div>
+  </div>
+  <p id="st"></p><p id="stats"></p><p id="hint"></p>
 </div>
-<footer id="bottom">
-  <p id="hint"></p>
-  <div class="legend"><span><i style="background:#F2C230"></i>нет света</span><span><i style="background:#3C8DD0"></i>нет воды</span><span><i style="background:#8C7A5B"></i>нет стоков</span><span><i style="background:#D9363E"></i>нет дороги к выезду</span></div>
-  <p id="st"></p><p id="stats"></p>
-</footer>
 <script>/*@CITY3D@*/</script>
 <script>/*@SIM@*/</script>
 <script>/*@GAME@*/</script>

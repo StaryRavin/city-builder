@@ -531,7 +531,7 @@ function nextColor(type){var st=ZONES[type||'res'].styles;return PALETTE[st[(col
 // оттенок дома внутри цвета типа: соседние дома чуть различаются
 function lotFill(l){if(!l.uid)l.uid=lotUid++;var h=0;String(l.color||'').split('').forEach(function(c){h=(h*31+c.charCodeAt(0))>>>0});h=(h+(l.uid||0)*7)%5;return shade(ZONES[typeOf(l)].color,(h-2)*0.06)}
 var lotUid=1;
-function styleOf(l){var i=PALETTE.indexOf(l.color);if(i>=0)return i;var h=0;String(l.color).split('').forEach(function(c){h=(h*31+c.charCodeAt(0))>>>0});return h%STYLES.length}
+function styleOf(l){if(l.style!=null)return l.style;var i=PALETTE.indexOf(l.color);if(i>=0)return i;var h=0;String(l.color).split('').forEach(function(c){h=(h*31+c.charCodeAt(0))>>>0});return h%STYLES.length}
 var shade=City3D.shade;
 function lotSvg(l,fill,stroke,op,sw){
 var S=shape(l);if(!S.parts.length)return '';
@@ -567,7 +567,7 @@ else cells+='<polygon class="ns" points="'+pts(c)+'" fill="'+(kind==='full'?'#9E
 }});
 Object.keys(segs).forEach(function(id){var E=segEnds(segs[id]);
 if(SW>0)walks+='<line x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="'+City3D.COLORS.sidewalk+'" stroke-width="'+(2*W)+'" stroke-linecap="round"/>';
-roads+='<line x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="#5A5F66" stroke-width="'+(2*(W-SW))+'" stroke-linecap="round"/>';
+roads+='<line x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="'+City3D.COLORS.road+'" stroke-width="'+(2*(W-SW))+'" stroke-linecap="round"/>';
 dash+='<line class="ns" x1="'+E[0][0]+'" y1="'+E[0][1]+'" x2="'+E[1][0].toFixed(1)+'" y2="'+E[1][1].toFixed(1)+'" stroke="#F2F2F2" stroke-width="1.5" stroke-dasharray="8 7"/>';
 });
 if(mode==='road')Object.keys(nodes).forEach(function(n){nd+='<circle class="ns" cx="'+nodes[n].x+'" cy="'+nodes[n].y+'" r="'+(W*0.45)+'" fill="#fff" stroke="#2f6f8f" stroke-width="1.5"/>'});
@@ -607,18 +607,24 @@ function drawStats(){var t=totals(),nx=exits.filter(exitValid).length,u=exitLink
 var ext=!nx?' · Выездов во внешний мир нет — город отрезан':' · Выездов во внешний мир: '+nx+(u.n?' — без связи с ними домов: '+u.n+' (жителей '+u.res+', рабочих мест '+u.jobs+')':(hs?' — все дома связаны':''));
 el('stats').textContent='Жителей: '+t.res+' (домов '+t.n.res+') · Рабочих мест: '+(t.com+t.work)+' — коммерческих '+t.com+' (домов '+t.n.com+'), рабочих '+t.work+' (домов '+t.n.work+')'+ext;}
 function setMode(m){mode=m;['road','lot','exit','pan'].forEach(function(x){el('m-'+x).setAttribute('aria-pressed',x===m?'true':'false')});
-hintEl.textContent=HINT[m]||(H&&H.hint?H.hint(m):'');el('prev').innerHTML='';drawStatic();idle();}
+hintEl.textContent=HINT[m]||(H&&H.hint?H.hint(m):'');clearPrev();drawStatic();idle();}
 
 // ---------- ввод ----------
 var sv=el('sv');
 function svgPt(e){var pt=sv.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;var p=pt.matrixTransform(sv.getScreenCTM().inverse());return [p.x,p.y]}
-function worldPt(e){var p=svgPt(e);return [(p[0]-view.tx)/view.k,(p[1]-view.ty)/view.k]}
+function worldPt(e){if(e&&e.__P)return e.__P;var p=svgPt(e);return [(p[0]-view.tx)/view.k,(p[1]-view.ty)/view.k]}
 function selLot(){return drag.sel}
+// превью и для 3D: игра получает плоские многоугольники (H.preview3D)
+function clearPrev(){el('prev').innerHTML='';if(H&&H.preview3D)H.preview3D([])}
+function octa(c,r){var p=[];for(var i=0;i<8;i++){var a=i*Math.PI/4+Math.PI/8;p.push([c[0]+r*Math.cos(a),c[1]+r*Math.sin(a)])}return p}
 function previewRoad(){
 var S=drag.S,E=drag.E,why=validate(S,E),col=why?'#D9363E':'#3E9B5B';
 var out='<line x1="'+S.P[0]+'" y1="'+S.P[1]+'" x2="'+E.P[0].toFixed(1)+'" y2="'+E.P[1].toFixed(1)+'" stroke="'+col+'" stroke-opacity="0.6" stroke-width="'+(2*W)+'" stroke-linecap="round"/>';
 [S,E].forEach(function(X){out+='<circle class="ns" cx="'+X.P[0].toFixed(1)+'" cy="'+X.P[1].toFixed(1)+'" r="'+(W*0.5)+'" fill="'+(X.type==='free'?'#fff':'#2f6f8f')+'" stroke="#1d1d1b" stroke-width="1.5"/>'});
 el('prev').innerHTML=out;
+if(H&&H.preview3D){var tt=len(sub(E.P,S.P))>1e-6?nrm(sub(E.P,S.P)):[1,0],nn=[-tt[1],tt[0]];
+  H.preview3D([{polys:[[add(S.P,mul(nn,W)),add(E.P,mul(nn,W)),add(E.P,mul(nn,-W)),add(S.P,mul(nn,-W))],octa(S.P,W),octa(E.P,W)],color:col,opacity:0.55},
+    {polys:[octa(S.P,W*0.45),octa(E.P,W*0.45)],color:'#ffffff',opacity:0.95,y:2.6}])}
 var L=len(sub(E.P,S.P))/s;
 var odd=Math.abs(L-Math.round(L))>0.02;
 stEl.textContent='Звено '+(odd?L.toFixed(1):Math.round(L))+' кл.: '+(why?'нельзя — '+(WHY[why]||why):'можно построить'+(H&&H.roadInfo?H.roadInfo(S,E):''))+(E.type==='split'||S.type==='split'?' (появится перекрёсток)':'');
@@ -626,9 +632,10 @@ stEl.textContent='Звено '+(odd?L.toFixed(1):Math.round(L))+' кл.: '+(why?
 function previewLot(){
 var l=selLot(),why=check(l,null),S=shape(l);
 el('prev').innerHTML=why?lotSvg(l,'#D9363E','#8E1B21',0.55,1.6):lotSvg(l,'#3E9B5B','#1F6B38',0.55,1.6);
+if(H&&H.preview3D)H.preview3D([{polys:S.parts,color:why?'#D9363E':'#3E9B5B',opacity:0.55}]);
 stEl.textContent=(S.corner?'Угловой участок ':'Участок ')+(S.w||'')+(S.h?'×'+S.h:'')+': '+(why?LWHY[why]:'можно построить');
 }
-sv.addEventListener('pointerdown',function(e){
+function onDown(e){
 var P=worldPt(e);
 try{sv.setPointerCapture(e.pointerId)}catch(_){}
 e.preventDefault();
@@ -641,8 +648,9 @@ var h=hitCell(P);
 if(!h&&onLot<0){drag=null;return}
 drag=h?{lot:true,key:h.key,k:h.k,j:h.j,moved:false,onLot:onLot,sel:{key:h.key,k0:h.k,k1:h.k,j1:h.j,ext:null}}:{lot:true,none:true,onLot:onLot,moved:false};
 if(!drag.none)previewLot();
-});
-sv.addEventListener('pointermove',function(e){
+}
+sv.addEventListener('pointerdown',onDown);
+function onMove(e){
 if(!drag){if(H&&H.modes&&H.modes[mode]&&H.modes[mode].hover)H.modes[mode].hover(worldPt(e),e);else if(H&&H.hover)H.hover(worldPt(e),e,mode);return}
 if(drag.pan){var p=svgPt(e);view.tx=drag.tx+p[0]-drag.x;view.ty=drag.ty+p[1]-drag.y;applyView();return}
 var P=worldPt(e);
@@ -651,10 +659,14 @@ if(drag.road){if(len(sub(P,drag.P0))>s*0.6)drag.moved=true;if(!drag.moved)return
 if(drag.none)return;
 var nl=selFrom(drag,P);
 if(JSON.stringify(nl)!==JSON.stringify(drag.sel)){drag.sel=nl;drag.moved=true;previewLot();}
-});
+}
+sv.addEventListener('pointermove',onMove);
+// ввод из 3D-вида: точка на земле вместо координат SVG
+function fakeEv(P,e){return {__P:P,button:0,pointerId:-1,shiftKey:e&&e.shiftKey,clientX:e?e.clientX:0,clientY:e?e.clientY:0,preventDefault:function(){}}}
+var input={down:function(P,e){onDown(fakeEv(P,e))},move:function(P,e){onMove(fakeEv(P,e))},up:function(P,e){finish(fakeEv(P,e))},cancel:function(){drag=null;clearPrev();idle()},busy:function(){return !!drag}};
 function finish(e){
 if(!drag)return;
-var d=drag;drag=null;el('prev').innerHTML='';
+var d=drag;drag=null;clearPrev();
 if(d.app){H.modes[mode].up&&H.modes[mode].up(e?worldPt(e):null,e);idle();return}
 if(d.road){
 if(!d.moved){var g=segUnder(d.P0);if(g!==null&&(!H||!H.beforeRemoveSeg||H.beforeRemoveSeg(g))){removeSeg(g);drawStatic();if(H&&H.afterRoad)H.afterRoad()}}
@@ -667,7 +679,7 @@ drawLots();
 idle();
 }
 sv.addEventListener('pointerup',finish);
-sv.addEventListener('pointercancel',function(){drag=null;el('prev').innerHTML='';idle()});
+sv.addEventListener('pointercancel',function(){drag=null;clearPrev();idle()});
 function zoomAt(f,cx,cy){var k=Math.max(0.06,Math.min(4,view.k*f));f=k/view.k;view.tx=cx-(cx-view.tx)*f;view.ty=cy-(cy-view.ty)*f;view.k=k;applyView();drawLots();}
 sv.addEventListener('wheel',function(e){e.preventDefault();var p=svgPt(e);zoomAt(e.deltaY<0?1.15:1/1.15,p[0],p[1])},{passive:false});
 el('z-in').addEventListener('click',function(){if(V3.on){if(V3.view)V3.view.zoom(1.25);return}vbox();zoomAt(1.25,VW/2,VH/2)});
@@ -1072,7 +1084,7 @@ var sd=streetDesc();
 return {cell:s,roadHalfWidth:W,sidewalk:SW,crosswalks:sd.crosswalks,
 segments:Object.keys(segs).map(function(id){var E=segEnds(segs[id]);return {a:E[0],b:E[1]}}),
 nodes:Object.keys(nodes).filter(function(n){return degree(+n)>0}).map(function(n){return [nodes[n].x,nodes[n].y]}),
-zoneCells:H&&H.zoneCells3D?H.zoneCells3D():G.drawn.map(function(c){return c.poly}),buildings:bl,areas:H&&H.areas3D?H.areas3D():[],
+zoneCells:H&&H.zoneCells3D?H.zoneCells3D():G.drawn.map(function(c){return c.poly}),buildings:bl,trees:H&&H.trees3D?H.trees3D():[],lines:H&&H.lines3D?H.lines3D():[],areas:H&&H.areas3D?H.areas3D():[],
 gates:exits.filter(function(x){return nodes[x.node]}).map(function(x){return {at:[nodes[x.node].x,nodes[x.node].y],dir:exitDir(x),ok:exitValid(x)}})};
 }
 function build3D(){if(!V3.view)return;V3.view.setScene(sceneDesc());V3.view.render()}
@@ -1139,10 +1151,10 @@ el('b-3d').setAttribute('aria-pressed',on?'true':'false');
 el('g3d').hidden=!on;
 sv.style.display=on?'none':'';v3el.hidden=!on;
 ['m-road','m-lot','m-exit','m-pan'].forEach(function(id){el(id).disabled=on});
-if(!on){setMode(mode);return}
-hintEl.textContent='3D-вид: тяните, чтобы двигать карту; двумя пальцами, правой кнопкой или с Shift — вращать; колесо и −/+ — масштаб. Строить — в 2D.';
-City3D.loadThree(function(){if(!V3.view)V3.view=City3D.createView(v3el);fit3();build3D();},
-function(){stEl.textContent='Не удалось загрузить 3D-библиотеку (three.js).';set3D(false)});
+if(!on){setMode(mode);if(H&&H.on3D)H.on3D(false);return}
+if(!H)hintEl.textContent='3D-вид: тяните, чтобы двигать карту; двумя пальцами, правой кнопкой или с Shift — вращать; колесо и −/+ — масштаб. Строить — в 2D.';
+City3D.loadThree(function(){var fresh=!V3.view;if(fresh)V3.view=City3D.createView(v3el,H&&H.view3DOpts?H.view3DOpts():undefined);if(fresh||!H)fit3();build3D();if(H&&H.on3D)H.on3D(true,fresh)},
+function(){stEl.textContent='Не удалось загрузить 3D-библиотеку (three.js).';set3D(false);if(H&&H.on3D)H.on3D(false,false,true)});
 }
 el('b-3d').addEventListener('click',function(){set3D(!V3.on)});
 el('r-l').addEventListener('click',function(){if(V3.view)V3.view.rotate(Math.PI/12)});
@@ -1173,7 +1185,7 @@ geom:{add:add,sub:sub,mul:mul,dot:dot,len:len,nrm:nrm,cr:cr,area:area,pts:pts,bb
 derive:derive,shape:shape,check:check,hitCell:hitCell,inLot:inLot,frame:frame,cellsOf:cellsOf,capOf:capOf,typeOf:typeOf,lotSvg:lotSvg,lotFill:lotFill,nextColor:nextColor,
 segUnder:segUnder,removeSeg:removeSeg,addRoad:addRoad,validate:validate,snap:snap,endFor:endFor,segEnds:segEnds,lotSeg:lotSeg,components:components,degree:degree,
 addExit:addExit,exitValid:exitValid,exitLinks:exitLinks,exportSim:exportSim,unionOutline:unionOutline,
-drawStatic:drawStatic,drawLots:drawLots,idle:idle,setMode:setMode,applyView:applyView,zoomAt:zoomAt,set3D:set3D,build3D:build3D,fit3:fit3,worldPt:worldPt,svgPt:svgPt,
+input:input,drawStatic:drawStatic,drawLots:drawLots,idle:idle,setMode:setMode,applyView:applyView,zoomAt:zoomAt,set3D:set3D,build3D:build3D,fit3:fit3,worldPt:worldPt,svgPt:svgPt,
 setWidth:function(w,sw){W=w;SW=sw||0},
 newNode:function(x,y){var n=nid++;nodes[n]={x:x,y:y};return n},newSeg:function(a,b){segs[sid++]={a:a,b:b}},
 reset:function(){nodes={};segs={};lots=[];exits=[];nid=1;sid=1;W=W0;SW=0},
