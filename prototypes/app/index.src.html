@@ -188,6 +188,18 @@
   kbd { font:600 11px var(--font); padding:2px 6px; border-radius:5px; background:var(--track); }
 
   #st, #stats, #hint { display:none; }
+  .fld { display:grid; gap:5px; font-size:12px; color:var(--muted); margin:0 0 10px; }
+  .fld input { font:inherit; font-size:14px; color:var(--fg); background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:9px 11px; }
+  .sv-act { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 0; }
+  .sbtn { height:34px; padding:0 13px; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:600; font-size:13px; }
+  .sbtn.ghost { background:var(--track); color:var(--fg); }
+  .sbtn:disabled { opacity:.45; }
+  #save-list { display:grid; gap:8px; }
+  .sv { padding:10px 12px; border-radius:12px; background:var(--panel-2); border:1px solid var(--line); display:grid; gap:4px; }
+  .sv.cur { border-color:var(--accent); }
+  .sv-t { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .sv small { color:var(--muted); font-size:11.5px; }
+  .sv-b { display:flex; gap:6px; margin-top:4px; } .sv-b .sbtn { height:30px; font-size:12.5px; padding:0 10px; }
   .dk.open { background:var(--accent-soft); color:var(--accent); }
   @media (max-width: 900px) { .gauges { display:none; } }
   @media (max-width: 720px) {
@@ -216,7 +228,7 @@
 
   <div class="top">
     <section id="city" class="glass" aria-label="Город">
-      <h1>Городок у реки</h1>
+      <h1 id="city-name">Городок у реки</h1>
       <div class="stats">
         <div class="st"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17.2" cy="9" r="2.5"/><path d="M16 14.3c2.9.4 5 2.7 5 5.7"/></svg><div><b id="pop">0</b><small>жителей</small></div></div>
         <div class="st"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="7.5" width="18" height="12.5" rx="2.2"/><path d="M9 7.5V5.2h6v2.3M3 12.5h18"/></svg><div><b id="jobs">0</b><small id="unemp">рабочих мест</small></div></div>
@@ -266,10 +278,21 @@
     </div></section>
   <section id="menu" class="pop glass" hidden aria-label="Меню"><h2>Город</h2><button type="button" class="x" data-close="menu" aria-label="Закрыть"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="menu-l">
+      <button type="button" id="b-saves"><svg class="ic" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/></svg>Сохранения…</button>
       <button type="button" id="b-life" aria-pressed="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="7" cy="17" r="2.3"/><circle cx="17" cy="17" r="2.3"/><path d="M4.7 17H3.5v-4.5l2.5-4h8.5l3.5 4H21V17h-1.7M9.3 17h5.4M6 12.5h13"/></svg>Жители и машины на улицах</button>
       <button type="button" id="b-new"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Новый город</span></button>
     </div>
-    <p class="keys"><kbd>WASD</kbd> двигать · <kbd>Q</kbd><kbd>E</kbd> вращать · <kbd>Пробел</kbd> пауза · <kbd>1–3</kbd> скорость · <kbd>R</kbd> дороги · <kbd>Z</kbd> зоны · <kbd>B</kbd> снос</p></section>
+    <p class="keys" id="app-ver"></p>
+    <p class="keys"><kbd>Ctrl</kbd>+<kbd>S</kbd> сохранить · <kbd>WASD</kbd> двигать · <kbd>Q</kbd><kbd>E</kbd> вращать · <kbd>Пробел</kbd> пауза · <kbd>1–3</kbd> скорость · <kbd>R</kbd> дороги · <kbd>Z</kbd> зоны · <kbd>B</kbd> снос</p></section>
+
+  <section id="saves" class="pop glass" hidden aria-label="Сохранения"><h2>Сохранения</h2><button type="button" class="x" data-close="saves" aria-label="Закрыть"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <label class="fld" for="save-name">Название города<input id="save-name" type="text" maxlength="60" autocomplete="off"></label>
+    <div class="sv-act"><button type="button" class="sbtn" id="b-save">Сохранить</button><button type="button" class="sbtn ghost" id="b-saveas">Сохранить как новое</button></div>
+    <h3>Ваши сохранения</h3>
+    <div id="save-list"></div>
+    <p class="muted" id="save-where"></p>
+    <div class="sv-act"><button type="button" class="sbtn ghost" id="b-folder" hidden>Открыть папку</button><button type="button" class="sbtn ghost" id="b-import" hidden>Загрузить из файла…</button></div>
+  </section>
 
   <div class="bottom">
     <p id="tip" class="glass" hidden></p>
@@ -306,6 +329,7 @@
 </div>
 <script>/*@CITY3D@*/</script>
 <script>/*@SIM@*/</script>
+<script>/*@SAVES@*/</script>
 <script>/*@GAME@*/</script>
 <script>/*@EDITOR@*/</script>
 </body>

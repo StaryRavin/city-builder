@@ -180,7 +180,8 @@ function happiness(l){var b=l.b,t=zoneType(b.z),h=40,why=[];
 
 // ---------- шаг экономики: раз в игровой час ----------
 var dirty3D=false,dirtySim=false;
-function hourly(){
+// dry — только пересчитать показатели (после загрузки, правок): без роста, денег и спроса
+function hourly(dry){
   var L=E.lots;
   checkDirty();var nets=networks();coverage();
   var anyDirty=L.some(function(l){return l.b.z==='pump'&&l.b.dirty&&done(l.b)});
@@ -204,9 +205,10 @@ function hourly(){
     c:(0.12*pop+(linked?4:0)-jobs.c)/Math.max(8,0.12*pop)*100-5*(S.tax.c-TAX0),
     i:25+140*un+60*Math.max(0,0.7*jobs.c-jobs.i)/Math.max(10,0.7*jobs.c)-90*vac-5*(S.tax.i-TAX0),
     o:pop>=ZONE.o.unlock?10+110*un-70*vac-5*(S.tax.o-TAX0):0};
-  ZKEYS.forEach(function(k){if(k==='h')return;var v=Math.max(-100,Math.min(100,raw[k]));S.demand[k]+=(v-S.demand[k])*0.25});
+  if(!dry)ZKEYS.forEach(function(k){if(k==='h')return;var v=Math.max(-100,Math.min(100,raw[k]));S.demand[k]+=(v-S.demand[k])*0.25});
   if(!linked)ZKEYS.forEach(function(k){S.demand[k]=Math.min(S.demand[k],0)});
   st.demand=S.demand;S.stats=st;
+  if(dry){E.drawLots();ui();return}
   // дома: заселение, проблемы, заброшенность, уровень
   var changed=false;
   L.slice().forEach(function(l){var b=l.b;if(!isZoneB(b))return;
@@ -429,7 +431,7 @@ function placeAt(P,commit){var D=BLD[place],l=placeLot(P);if(!l){$('prev').inner
   E.lots.push(l);$('prev').innerHTML='';ov.prev=[];dirtySim=true;treesDirty=true;E.drawLots();dirty3D=true;now3D();toast('Строится: '+D.name);hourlySoon();ui()}
 function canRemoveSeg(id){var g2=E.segs[id];if(E.exits.some(function(x){return x.node===g2.a||x.node===g2.b})){toast('Дорогу к шоссе сносить нельзя','bad');return false}return true}
 function afterRoad(){dirtySim=true;dirty3D=true;treesDirty=true;colIx=null;now3D();hourlySoon();ui()}
-var soon=null;function hourlySoon(){clearTimeout(soon);soon=setTimeout(function(){hourly()},50)}
+var soon=null;function hourlySoon(){clearTimeout(soon);soon=setTimeout(function(){hourly(true)},50)}
 function now3D(){frame.l3=0}
 
 // ---------- деревья ----------
@@ -535,7 +537,7 @@ function budget(){var I=S.hourInc||{},X=S.hourExp||{},r=function(v){return fmt(v
       '<label><input type="range" min="1" max="29" value="'+S.tax[k[0]]+'" data-tax="'+k[0]+'" aria-label="Налог: '+k[1]+'"><em>'+S.tax[k[0]]+'%</em></label></div>'}).join('')+
     '<h3>Расходы в сутки</h3>'+[['roads','Дороги и мосты'],['power','Электростанции'],['water','Вода и стоки'],['svc','Услуги']].map(function(k){return '<div class="exp"><span>'+k[1]+'</span><b class="num">−'+r(X[k[0]]||0)+'</b></div>'}).join('')+
     '<div class="tot"><span>Итого</span><b class="num '+((S.net||0)<0?'bad':'good')+'">'+(S.net>=0?'+':'')+fmt(S.net||0)+' $</b></div><p class="muted">Налог выше 12% злит жителей и снижает спрос, ниже 8% — радует.</p>';
-  $('bud-body').querySelectorAll('input[data-tax]').forEach(function(inp){inp.addEventListener('input',function(){S.tax[inp.dataset.tax]=+inp.value;inp.nextElementSibling.textContent=inp.value+'%'});inp.addEventListener('change',function(){hourly()})})}
+  $('bud-body').querySelectorAll('input[data-tax]').forEach(function(inp){inp.addEventListener('input',function(){S.tax[inp.dataset.tax]=+inp.value;inp.nextElementSibling.textContent=inp.value+'%'});inp.addEventListener('change',function(){hourly(true)})})}
 
 // ---------- живая симуляция ----------
 var SIM={on:true,sim:null,base:0,err:null,agents:0};
@@ -588,18 +590,74 @@ function frame(ts){
   if((kx||ky||kr)&&dt){if(E.V3.on&&E.V3.view){if(kx||ky)E.V3.view.pan(-kx*dt*700,-ky*dt*700);if(kr)E.V3.view.rotate(-kr*dt*1.6)}else{E.view.tx-=kx*dt*700;E.view.ty-=ky*dt*700;E.applyView()}}
   if(dirty3D&&E.V3.on&&E.V3.view&&ts-(frame.l3||0)>400){frame.l3=ts;dirty3D=false;E.build3D();overlayApply()}
   if(ts-(frame.la||0)>(S.speed>=3?110:50)){frame.la=ts;agentsDraw()}
-  if(ts-(frame.ls||0)>15000){frame.ls=ts;save()}
+  if(ts-(frame.ls||0)>120000){frame.ls=ts;if(frame.ls>1000)autosave()}   // автосохранение раз в 2 минуты
   requestAnimationFrame(frame)}
 // смена часа и суток (по целым номерам, без сравнения дробных секунд)
 function tick(){var h=Math.floor(S.t/HOUR+1e-9);while(S.lastH<h){S.lastH++;if(S.lastH%24===0)midnight();hourly()}}
 function midnight(){S.daily.push({d:Math.floor(S.lastH/24),pop:S.stats?S.stats.pop:0,money:Math.round(S.money)});if(S.daily.length>60)S.daily.shift();
   simBuild()}
 
-// ---------- сохранение ----------
-var KEY='city-builder-app-v1';
-function save(){try{localStorage.setItem(KEY,JSON.stringify({ed:E.dump(),S:Object.assign({},S,{stats:null})}))}catch(e){}}
-function load(){try{var raw=localStorage.getItem(KEY);if(!raw)return false;var o=JSON.parse(raw);E.setWidth(28,8);E.load(o.ed);S=Object.assign(newState(),o.S);
-  E.lots.forEach(function(l){if(l.style==null&&l.b&&ZONE[l.b.z])l.style=pickStyle(l.b.z,l.b.lv)});return true}catch(e){return false}}
+// ---------- сохранения ----------
+/*
+ * Где лежат сохранения: в установленном приложении — файлы в папке пользователя
+ * (window.cityHost из desktop/preload.js; обновление и переустановка их не трогают),
+ * в браузере — localStorage. Формат и миграции между версиями — saves.js (CitySaves).
+ * Слоты: auto-1..3 — автосохранения по кругу, save-… — сохранения игрока.
+ */
+var APP_VERSION=(window.cityHost&&cityHost.version)||'__APP_VERSION__',LEGACY_KEY='city-builder-app-v1';
+var Store=window.cityHost?{files:true,
+  list:function(){return cityHost.list()},read:function(id){return cityHost.read(id)},write:function(id,o){return cityHost.write(id,o)},
+  remove:function(id){return cityHost.remove(id)},writeSync:function(id,o){return cityHost.writeSync(id,o)}}:(function(){
+  // в браузере: каждое сохранение — отдельный ключ, заголовки — в общем списке
+  var P='city-builder-save:',IX='city-builder-saves';
+  function ix(){try{return JSON.parse(localStorage.getItem(IX)||'[]')}catch(e){return []}}
+  function head(id,o){return {id:id,name:o.name,saved:o.saved,schema:o.schema,app:o.app,meta:o.meta||{}}}
+  function put(id,o){var raw=JSON.stringify(o);localStorage.setItem(P+id,raw);var L=ix().filter(function(h){return h.id!==id});L.push(head(id,o));localStorage.setItem(IX,JSON.stringify(L))}
+  return {files:false,
+    list:function(){return Promise.resolve(ix())},
+    read:function(id){try{return Promise.resolve(JSON.parse(localStorage.getItem(P+id)))}catch(e){return Promise.reject(e)}},
+    write:function(id,o){try{put(id,o);return Promise.resolve(true)}catch(e){return Promise.reject(e)}},
+    writeSync:function(id,o){try{put(id,o)}catch(e){}},
+    remove:function(id){try{localStorage.removeItem(P+id);localStorage.setItem(IX,JSON.stringify(ix().filter(function(h){return h.id!==id})))}catch(e){}return Promise.resolve(true)}}})();
+function snapshot(){return {ed:E.dump(),S:Object.assign({},S,{stats:null,warn:null})}}
+function saveFile(name){return CitySaves.make(snapshot(),{app:APP_VERSION,name:name||S.name||'Городок у реки',
+  meta:{day:Math.floor(S.t/DAY)+1,pop:S.stats?S.stats.pop:0,money:Math.round(S.money)}})}
+// сохранить в слот (по умолчанию — текущий слот игрока, иначе новый)
+function saveGame(id,name,quiet){id=id||S.slot||('save-'+Date.now());if(id.indexOf('save-')===0){S.slot=id;if(name)S.name=name}
+  return Store.write(id,saveFile(name)).then(function(){if(!quiet)toast('Сохранено: '+(name||S.name||'Город'),'good');if(!$('saves').hidden)savesPanel()},
+    function(e){toast('Не удалось сохранить: '+(e&&e.message||e),'bad')})}
+var autoN=0,ready=false;   // ready — после попытки продолжить прошлую игру (раньше автосохранение затёрло бы её)
+function autosave(){if(!E||!S||!ready)return;autoN=autoN%3+1;S.autoSlot='auto-'+autoN;return saveGame('auto-'+autoN,null,true)}
+// загрузить: миграция старых версий, отказ для сохранений новее игры
+function applySave(obj,id){var m=CitySaves.migrate(obj);
+  if(!m.ok){toast(m.reason==='newer'?'Это сохранение сделано более новой версией игры'+(m.app?' ('+m.app+')':'')+'. Обновите игру, чтобы открыть его.':
+    m.reason==='broken'?'Сохранение повреждено: '+(m.errors||[]).join(', '):'Это не сохранение игры','bad');return false}
+  E.setWidth(28,8);E.load(m.data.ed);S=Object.assign(newState(),m.data.S);if(id&&id.indexOf('save-')===0)S.slot=id;
+  sel=null;info();colIx=null;cellHash=null;treesDirty=true;cat=null;flyout();
+  E.drawStatic();hourly(true);treesNow();simBuild();setSpeed(S.speed||1);ui();clockUi();$('city-name').textContent=S.name||'Городок у реки';
+  if(E.V3.on&&E.V3.view){frame3DToCity();E.build3D();overlayApply()}
+  toast('Загружено: '+(m.name||S.name||'город')+(m.steps.length?' · сохранение из прошлой версии обновлено':''),'good');return true}
+function loadGame(id){return Store.read(id).then(function(o){if(!o){toast('Сохранение не найдено','bad');return}applySave(o,id);$('saves').hidden=true},function(e){toast('Не удалось прочитать сохранение: '+(e&&e.message||e),'bad')})}
+// при запуске: последнее сохранение; иначе — старое браузерное (до файлов сохранений)
+function resumeLatest(){return Store.list().then(function(L){L=L.filter(function(h){return !h.broken&&h.schema!=null&&h.schema<=CitySaves.SCHEMA}).sort(function(a,b){return String(b.saved).localeCompare(String(a.saved))});
+  if(L.length)return Store.read(L[0].id).then(function(o){if(applySave(o,L[0].id))$('welcome').hidden=true});
+  var raw=null;try{raw=localStorage.getItem(LEGACY_KEY)}catch(e){}
+  if(raw){try{if(applySave(JSON.parse(raw))){$('welcome').hidden=true;return saveGame(null,'Городок у реки',true)}}catch(e){}}})}
+function when(iso){var d=new Date(iso);if(isNaN(d))return '';var p=function(n){return (n<10?'0':'')+n};return p(d.getDate())+'.'+p(d.getMonth()+1)+'.'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes())}
+function savesPanel(){var box=$('save-list');box.innerHTML='<p class="muted">Загружаю…</p>';
+  $('save-name').value=S.name||'Городок у реки';$('save-where').textContent=Store.files?'Сохранения лежат файлами в папке пользователя: обновление игры их не трогает.':'Сохранения хранятся в этом браузере.';
+  $('b-folder').hidden=!Store.files;$('b-import').hidden=!Store.files;
+  Store.list().then(function(L){L.sort(function(a,b){return String(b.saved).localeCompare(String(a.saved))});
+    if(!L.length){box.innerHTML='<p class="muted">Сохранений пока нет.</p>';return}
+    box.innerHTML=L.map(function(h){var auto=h.id.indexOf('auto-')===0,newer=h.schema>CitySaves.SCHEMA,old=h.schema!=null&&h.schema<CitySaves.SCHEMA,m=h.meta||{};
+      return '<div class="sv'+(h.id===S.slot?' cur':'')+'"><div class="sv-t"><b>'+esc(h.broken?'Повреждённый файл':h.name||'Город')+'</b>'+(auto?'<span class="pill">авто</span>':'')+(newer?'<span class="pill bad">новее игры</span>':old?'<span class="pill">старая версия</span>':'')+'</div>'+
+        '<small>'+when(h.saved)+(m.day?' · день '+m.day:'')+(m.pop!=null?' · '+fmt(m.pop)+' жит.':'')+(m.money!=null?' · '+fmt(m.money)+' $':'')+(h.app?' · v'+esc(h.app):'')+'</small>'+
+        '<div class="sv-b"><button type="button" class="sbtn" data-load="'+h.id+'"'+(newer||h.broken?' disabled':'')+'>Загрузить</button>'+(Store.files?'<button type="button" class="sbtn ghost" data-exp="'+h.id+'">Файл…</button>':'')+'<button type="button" class="sbtn ghost" data-del="'+h.id+'">Удалить</button></div></div>'}).join('');
+    box.querySelectorAll('[data-load]').forEach(function(b){b.onclick=function(){loadGame(b.dataset.load)}});
+    box.querySelectorAll('[data-exp]').forEach(function(b){b.onclick=function(){cityHost.exportSave(b.dataset.exp)}});
+    box.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){if(!b.dataset.armed){b.dataset.armed=1;b.textContent='Точно?';return}
+      Store.remove(b.dataset.del).then(function(){if(S.slot===b.dataset.del)S.slot=null;savesPanel()})}})})}
+function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function newGame(){E.reset();E.setWidth(28,8);S=newState();
   var y=Math.round(560*M/16)*16,a=E.newNode(0,y),b=E.newNode(80*16,y);E.newSeg(a,b);E.addExit(a,'Шоссе на запад');
   SIM.sim=null;treesDirty=true}
@@ -624,11 +682,11 @@ function set3DButton(on){var b=$('b-3d');b.innerHTML=on?icon('map')+'<span>Пл�
 var hooks={
   init:function(api){E=api;g=E.geom;
     E.WHY.water='узел в реке';E.WHY.bounds='за краем карты';E.WHY.money='не хватает денег';E.LWHY.water='нельзя — в воде';
-    var fresh=!load();if(fresh)newGame();
+    newGame();
     resize();terrain();buildDock();setTool('look');
-    E.drawStatic();hourly();treesNow();
+    E.drawStatic();hourly(true);treesNow();
     var b=cityBox(),vb=$('sv').viewBox.baseVal;E.view.k=Math.min(1.2,Math.max(0.15,vb.width/((b[2]-b[0])+900)));E.view.tx=vb.width/2-(b[0]+b[2])/2*E.view.k;E.view.ty=vb.height/2-(b[1]+b[3])/2*E.view.k;E.applyView();E.drawLots();
-    simBuild();setSpeed(S.speed||1);ui();clockUi();if(fresh)welcome();
+    simBuild();setSpeed(S.speed||1);ui();clockUi();welcome();resumeLatest().then(function(){ready=true},function(){ready=true});
     set3DButton(false);E.set3D(true);
     requestAnimationFrame(frame)},
   on3D:function(on,fresh,failed){set3DButton(!!on);if(failed){toast('3D не загрузилось — показываю план. Строить можно и в нём.','bad');return}
@@ -673,25 +731,35 @@ if(window.ResizeObserver)new ResizeObserver(function(){if(E){resize();E.drawLots
 window.addEventListener('load',function(){
   document.querySelectorAll('[data-speed]').forEach(function(b){b.addEventListener('click',function(){setSpeed(+b.dataset.speed)})});
   document.querySelectorAll('[data-ovl]').forEach(function(b){b.addEventListener('click',function(){overlay=b.dataset.ovl;document.querySelectorAll('[data-ovl]').forEach(function(x){x.setAttribute('aria-pressed',String(x===b))});E.drawLots();dirty3D=true;now3D()})});
-  function pop(btn,id){$(btn).addEventListener('click',function(){var p=$(id),open=p.hidden;['budget','layers','menu'].forEach(function(x){$(x).hidden=true});p.hidden=!open;if(open&&id==='budget')budget()})}
+  function pop(btn,id){$(btn).addEventListener('click',function(){var p=$(id),open=p.hidden;['budget','layers','menu','saves'].forEach(function(x){$(x).hidden=true});p.hidden=!open;if(open&&id==='budget')budget()})}
   pop('b-budget','budget');pop('b-layers','layers');pop('b-menu','menu');
+  $('b-saves').addEventListener('click',function(){['budget','layers','menu'].forEach(function(x){$(x).hidden=true});$('saves').hidden=false;savesPanel()});
+  $('b-save').addEventListener('click',function(){saveGame(S.slot,$('save-name').value.trim()||S.name)});
+  $('b-saveas').addEventListener('click',function(){saveGame('save-'+Date.now(),$('save-name').value.trim()||S.name)});
+  $('b-folder').addEventListener('click',function(){cityHost.openFolder()});
+  $('b-import').addEventListener('click',function(){cityHost.importSave().then(function(r){if(r&&r.obj){if(applySave(r.obj)){S.slot=null;saveGame('save-'+Date.now(),r.obj.name||S.name,true);$('saves').hidden=true}}})});
+  $('app-ver').textContent='Версия '+APP_VERSION+' · формат сохранений '+CitySaves.SCHEMA;
+  // при закрытии окна — автосохранение
+  window.addEventListener('beforeunload',function(){if(!ready)return;try{autoN=autoN%3+1;Store.writeSync('auto-'+autoN,saveFile())}catch(e){}});
   document.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',function(){$(b.dataset.close).hidden=true})});
   // новый город — подтверждение вторым нажатием (окна confirm() в просмотрщике артефактов нет)
   var armT=null;$('b-new').addEventListener('click',function(){var b=this;
     if(!b.dataset.armed){b.dataset.armed='1';b.lastChild.textContent='Точно? Нажмите ещё раз';clearTimeout(armT);armT=setTimeout(function(){delete b.dataset.armed;b.lastChild.textContent='Новый город'},3000);return}
-    delete b.dataset.armed;b.lastChild.textContent='Новый город';$('menu').hidden=true;try{localStorage.removeItem(KEY)}catch(e){}
-    sel=null;info();newGame();colIx=null;E.drawStatic();hourly();treesNow();simBuild();if(E.V3.on){frame3DToCity();E.build3D()}welcome()});
+    delete b.dataset.armed;b.lastChild.textContent='Новый город';$('menu').hidden=true;autosave();
+    sel=null;info();newGame();S.slot=null;$('city-name').textContent='Городок у реки';colIx=null;E.drawStatic();hourly(true);treesNow();simBuild();if(E.V3.on){frame3DToCity();E.build3D()}welcome()});
   $('b-life').addEventListener('click',function(){SIM.on=!SIM.on;this.setAttribute('aria-pressed',String(SIM.on));if(SIM.on)simBuild();else SIM.sim=null});
   $('b-home').addEventListener('click',function(){if(E.V3.on)frame3DToCity()});
   document.addEventListener('keydown',function(e){if(e.target.tagName==='INPUT')return;var k=e.key.toLowerCase();
     if(['w','a','s','d','q','e','arrowup','arrowdown','arrowleft','arrowright'].indexOf(k)>=0){keys[k]=true;if(k.indexOf('arrow')===0)e.preventDefault();return}
+    if((e.ctrlKey||e.metaKey)&&k==='s'){e.preventDefault();saveGame(S.slot);return}
     if(e.key===' '){e.preventDefault();setSpeed(S.speed?0:1)}if(e.key>='1'&&e.key<='3')setSpeed(+e.key);
     if(e.key==='Escape'){setTool('look');cat=null;flyout()}if(k==='r')openCat('road');if(k==='z')openCat('zones');if(k==='b')openCat('bull')});
   document.addEventListener('keyup',function(e){keys[e.key.toLowerCase()]=false});
   window.addEventListener('blur',function(){keys={}});
 });
-window.__game={riverAt:riverAt,S:function(){return S},hourly:hourly,grow:grow,setTool:setTool,sim:function(){return SIM},BLD:BLD,ZONE:ZONE,save:save,trees:function(){return treeCache},
+window.__game={riverAt:riverAt,S:function(){return S},hourly:hourly,grow:grow,setTool:setTool,sim:function(){return SIM},BLD:BLD,ZONE:ZONE,save:saveGame,applySave:applySave,saveFile:saveFile,Store:Store,resume:resumeLatest,trees:function(){return treeCache},
   zoneAll:function(z,filter){E.G.drawn.forEach(function(c){if(!filter||filter(c))S.zones[ckey(c.ce)]=z});E.drawStatic();dirty3D=true},
   placeAt:function(kind,P){place=kind;placeAt(P,true);place=null},advance:function(sec){var end=S.t+sec;while(S.t<end-1e-6){var step=Math.min(end-S.t,(Math.floor(S.t/HOUR)+1)*HOUR-S.t);if(SIM.sim)simStep(step);S.t+=step;tick()}clockUi()},
+  quiet:function(){ready=false},   // для тестов: не сохранять при закрытии
   frameCity:frame3DToCity,lotScreen:function(l){var c=lotCenter(l);return E.V3.view.project(c[0],c[1],lotH(l)/2)}};
 })();

@@ -1,0 +1,50 @@
+{
+  "name": "gorodok-u-reki",
+  "productName": "Городок у реки",
+  "version": "0.4.0",
+  "description": "Градостроитель: дороги, зоны, спрос, электричество, вода и живые жители",
+  "author": "city-builder",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "web": "node ../prototypes/app/build.mjs --desktop",
+    "start": "npm run web && electron .",
+    "installer": "node scripts/make-installer.mjs",
+    "smoke": "node scripts/smoke.cjs"
+  },
+  "devDependencies": {
+    "@fontsource/onest": "5.1.1",
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8",
+    "png-to-ico": "^2.1.8",
+    "resedit": "^2.0.3",
+    "three": "0.128.0",
+    "playwright": "1.48.2"
+  },
+  "build": {
+    "appId": "com.citybuilder.gorodok",
+    "productName": "Городок у реки",
+    "files": [
+      "main.js",
+      "preload.js",
+      "web/**"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "executableName": "Gorodok"
+  }
+}
